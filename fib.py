@@ -1,5 +1,6 @@
 import time
 import sys
+import os
 
 def fib(n):
     if n < 0:
@@ -13,8 +14,10 @@ def fib(n):
 
 if __name__ == "__main__":
     i = 0
+    sandbox_id = os.environ.get("CONTAINER_ID")
+    prefix = f"[{sandbox_id}] " if sandbox_id else ""
     while True:
-        output = f"fib({i}) = {fib(i)}"
+        output = f"{prefix}fib({i}) = {fib(i)}"
         print(output, flush=True)
         i += 1
         time.sleep(5)
