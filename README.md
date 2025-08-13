@@ -16,10 +16,10 @@ Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
 
 To execute a Python script, you can send a POST request to the `/execute` endpoint with the content of the script as the request body.
 
-For example, to execute the `test_fib.py` script in `example` directory:
+For example, to execute the `test_hello.py` script in `example` directory:
 
 ```bash
-curl -X POST -H "Content-Type: text/plain" --data-binary @example/test_fib.py https://<YOUR_SERVICE_URL>/execute
+curl -X POST -H "Content-Type: text/plain" --data-binary @example/test_hello.py https://<YOUR_SERVICE_URL>/execute
 ```
 
 Replace `<YOUR_SERVICE_URL>` with the URL of your deployed Cloud Run service. The output of the script will be available in the Cloud Run logs.
