@@ -59,3 +59,9 @@ To delete a container:
 ```bash
 curl https://<YOUR_SERVICE_URL>/delete/<CONTAINER_ID>
 ```
+
+## 4. Limitation
+
+Currently, the sandbox environment does not support importing non-standard Python libraries.
+
+**TODO:** Add support for installing and using third-party libraries.
