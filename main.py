@@ -1,4 +1,4 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import subprocess
 import os
 import json
@@ -187,6 +187,6 @@ class MyServer(BaseHTTPRequestHandler):
                 print(f"Process {container_id} terminated.")
 
 if __name__ == "__main__":
-    with HTTPServer(("", PORT), MyServer) as httpd:
+    with ThreadingHTTPServer(("", PORT), MyServer) as httpd:
         print("serving at port", PORT)
         httpd.serve_forever()

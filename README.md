@@ -7,7 +7,7 @@ This project provides a web server that can execute Python code in a sandboxed e
 To deploy this application to Cloud Run, you will need to have the `gcloud` CLI installed and authenticated. Then, run the following command from the root of the project directory:
 
 ```bash
-gcloud run deploy sandbox --source . --project=<YOUR_PROJECT_ID> --region=us-central1 --allow-unauthenticated --execution-environment=gen2 --min-instances=1
+gcloud run deploy sandbox --source . --project=<YOUR_PROJECT_ID> --region=us-central1 --allow-unauthenticated --execution-environment=gen2
 ```
 
 Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
