@@ -3,6 +3,7 @@ import subprocess
 import os
 import json
 import uuid
+import select
 
 PORT = 8080
 
@@ -142,19 +143,48 @@ class MyServer(BaseHTTPRequestHandler):
         with open(os.path.join(bundle_dir, "config.json"), "w") as f:
             json.dump(config, f, indent=4)
 
+        process = None
         try:
             run_cmd = ["runsc", "--network=host", "run", "-bundle", bundle_dir, container_id]
-            # Run the process in the background and let it inherit stdout/stderr
-            subprocess.Popen(run_cmd)
-            
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"Exec process started")
+            process = subprocess.Popen(run_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        except Exception as e:
-            self.send_response(500)
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(str(e).encode())
+
+            reads = [process.stdout, process.stderr]
+
+            while reads:
+                # Wait for at least one stream to have data
+                readable, _, _ = select.select(reads, [], [])
+                
+                for fd in readable:
+                    line = fd.readline()
+                    if line:
+                        # Write the line to the client
+                        self.wfile.write(line)
+                    else:
+                        # A stream has closed, remove it from the list
+                        reads.remove(fd)
+
+        except BrokenPipeError:
+            # Client disconnected. Log it and let the finally block clean up.
+            print(f"Client disconnected, terminating process {container_id}")
+        except Exception as e:
+            # This will catch setup errors before headers are sent.
+            # If headers are already sent, this part won't be reached,
+            # but the client will see a broken stream.
+            if not self.headers_sent:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(f"Server error: {e}".encode('utf-8'))
+        finally:
+            # This block runs regardless of whether an exception occurred.
+            # Ensure the subprocess is terminated.
+            if process and process.poll() is None:
+                process.terminate()
+                process.wait()
+                print(f"Process {container_id} terminated.")
 
 if __name__ == "__main__":
     with HTTPServer(("", PORT), MyServer) as httpd:
