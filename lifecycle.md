@@ -70,6 +70,24 @@ This is the initial entry point for a user.
     *   `{"event": "status_update", "status": "RUNNING"}`
 4.  **Session Active:** The sandbox is now running and ready for I/O over the established WebSocket. The client library stores the `sandbox_id` for future reconnections.
 
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Cloud Run LB
+    participant Instance A
+
+    Client->>Cloud Run LB: Initiate WS connection to /create
+    Note right of Cloud Run LB: Routes to a new or idle instance<br/>due to concurrency=1 setting.
+    Cloud Run LB->>Instance A: Forward Upgrade Request
+    Instance A-->>Client: HTTP 101 Switching Protocols
+    activate Client
+    Note over Client, Instance A: WebSocket Connection Established
+    Instance A->>Client: WS Msg: {"status": "CREATING"}
+    Instance A->>Client: WS Msg: {"event": "created", "sandbox_id": "..."}
+    Instance A->>Client: WS Msg: {"status": "RUNNING"}
+    deactivate Client
+```
+
 ### 5.2. Scenario 2: Reconnecting to an Existing Sandbox (No Handoff)
 
 This is the "happy path" for reconnecting after a temporary network drop or when the client restarts.
@@ -79,6 +97,22 @@ This is the "happy path" for reconnecting after a temporary network drop or when
 3.  **Server -> Client (Connection Established):** `Instance A` receives the request, checks for `sandbox-123` locally, and finds it. It immediately responds with **HTTP `101 Switching Protocols`**.
 4.  **Server -> Client (Status Update):** `Instance A` sends a confirmation message: `{"event": "status_update", "status": "RUNNING"}`.
 5.  **Session Active:** The connection is successfully re-established without needing a handoff.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Cloud Run LB
+    participant Instance A
+
+    Client->>Cloud Run LB: Initiate WS connection to /attach/sandbox-123 (with Affinity Cookie)
+    Note right of Cloud Run LB: Affinity cookie routes request<br/>to the correct, active instance.
+    Cloud Run LB->>Instance A: Forward Upgrade Request
+    Instance A-->>Client: HTTP 101 Switching Protocols
+    activate Client
+    Note over Client, Instance A: WebSocket Connection Re-established
+    Instance A->>Client: WS Msg: {"status": "RUNNING"}
+    deactivate Client
+```
 
 ### 5.3. Scenario 3: Reconnecting to an Existing Sandbox (With Handoff)
 
@@ -103,3 +137,51 @@ This is the "affinity miss" path, which triggers the full handoff protocol. An a
     *   The client library detects the `3001` close code, which is the explicit signal to reconnect.
     *   It automatically initiates a new connection to `WS /attach/sandbox-123`. Session affinity is now "warm" for `Instance B`.
 8.  **Client -> Instance B (Final Connection):** The new connection attempt lands on `Instance B`, and the connection proceeds as in Scenario 2.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Cloud Run LB
+    participant Instance B
+    participant Instance A
+    participant GCS
+
+    Client->>Cloud Run LB: Initiate WS to /attach/sandbox-123 (Affinity Miss)
+    Cloud Run LB->>Instance B: Route to new instance
+    Instance B-->>Client: HTTP 101 Switching Protocols
+    activate Client
+    Note over Client, Instance B: Temporary WebSocket Established
+    Instance B->>GCS: Acquire Lock for sandbox-123
+    Instance B->>Client: WS Msg: {"status": "HANDOFF"}
+
+    loop Background Watcher on Instance A
+        Instance A->>GCS: Check for locks
+    end
+    Note over Instance A, GCS: Sees lock owned by Instance B
+
+    Instance A->>GCS: Save sandbox state
+    Note right of Instance A: Pauses, saves, then deletes<br/>local sandbox container.
+
+    loop Polling on Instance B
+        Instance B->>GCS: Check for state file
+    end
+    Note over Instance B, GCS: Sees state file from Instance A
+
+    Instance B->>GCS: Restore sandbox from state
+    Instance B->>GCS: Release Lock
+
+    Instance B->>Client: WS Msg: {"event": "handoff_complete"}
+    Instance B--xClient: Close WebSocket (Code 3001)
+    deactivate Client
+
+    Note over Client: Detects close code 3001, initiates reconnect.
+
+    Client->>Cloud Run LB: Re-initiate WS to /attach/sandbox-123
+    Note right of Cloud Run LB: Affinity is now "warm" for Instance B.
+    Cloud Run LB->>Instance B: Forward Upgrade Request
+    Instance B-->>Client: HTTP 101 Switching Protocols
+    activate Client
+    Note over Client, Instance B: Final WebSocket Established
+    Instance B->>Client: WS Msg: {"status": "RUNNING"}
+    deactivate Client
+```
