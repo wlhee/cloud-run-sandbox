@@ -81,7 +81,7 @@ sequenceDiagram
     Cloud Run LB->>Instance A: Forward Upgrade Request
     Instance A-->>Client: HTTP 101 Switching Protocols
     activate Client
-    Note over Client, Instance A: WebSocket Connection Established
+    Note over Client, Instance A: WebSocket Connection Established<br/>Client saves Affinity Cookie from response.
     Instance A->>Client: WS Msg: {"status": "CREATING"}
     Instance A->>Client: WS Msg: {"event": "created", "sandbox_id": "..."}
     Instance A->>Client: WS Msg: {"status": "RUNNING"}
@@ -125,18 +125,15 @@ This is the "affinity miss" path, which triggers the full handoff protocol. An a
     *   It acquires the GCS lock for `sandbox-123`. If it fails (lock exists), it sends an `error` message and closes the connection.
 3.  **Instance B -> Client (Control Message):**
     *   As its first message, `Instance B` sends: `{"event": "status_update", "status": "HANDOFF", "message": "Sandbox is being migrated."}`.
-4.  **Client (Waiting & Updating):** The client library receives the "HANDOFF" status message. It must also update its stored session affinity cookie to the one received from `Instance B` during the successful connection handshake. The library now waits for the server to close the connection before the next step.
+4.  **Client (Waiting & Updating):** The client library receives the "HANDOFF" status message. It must also update its stored session affinity cookie to the one received from `Instance B` during the successful connection handshake. The library now waits for a "RUNNING" status update.
 5.  **Instance A (Background Relinquish):**
     *   `Instance A`'s background watcher sees the GCS lock.
     *   It saves the sandbox state to GCS and terminates its local container.
-6.  **Instance B (Restore & Terminate Connection):**
+6.  **Instance B (Restore & Notify):**
     *   `Instance B` polls GCS, sees the state file, and restores the sandbox.
-    *   Once running, it sends a final message: `{"event": "handoff_complete", "message": "Ready for reconnect."}`.
-    *   `Instance B` **immediately closes the WebSocket connection** with a special, non-error code (e.g., `3001`).
-7.  **Client (Forced Reconnect):**
-    *   The client library detects the `3001` close code, which is the explicit signal to reconnect.
-    *   It automatically initiates a new connection to `WS /attach/sandbox-123`. Session affinity is now "warm" for `Instance B`.
-8.  **Client -> Instance B (Final Connection):** The new connection attempt lands on `Instance B`, and the connection proceeds as in Scenario 2.
+    *   Once the sandbox is running locally, it releases the GCS lock.
+    *   It then sends a final status update over the **existing WebSocket connection**: `{"event": "status_update", "status": "RUNNING"}`.
+7.  **Session Active:** The handoff is complete and transparent to the user. The session is now live on `Instance B` using the same WebSocket connection established in step 2.
 
 ```mermaid
 sequenceDiagram
@@ -150,7 +147,7 @@ sequenceDiagram
     Cloud Run LB->>Instance B: Route to new instance
     Instance B-->>Client: HTTP 101 Switching Protocols
     activate Client
-    Note over Client, Instance B: Temporary WebSocket Established
+    Note over Client, Instance B: WebSocket Established<br/>Client saves new Affinity Cookie for Instance B.
     Instance B->>GCS: Acquire Lock for sandbox-123
     Instance B->>Client: WS Msg: {"status": "HANDOFF"}
 
@@ -170,18 +167,6 @@ sequenceDiagram
     Instance B->>GCS: Restore sandbox from state
     Instance B->>GCS: Release Lock
 
-    Instance B->>Client: WS Msg: {"event": "handoff_complete"}
-    Instance B--xClient: Close WebSocket (Code 3001)
-    deactivate Client
-
-    Note over Client: Detects close code 3001, initiates reconnect.
-
-    Client->>Cloud Run LB: Re-initiate WS to /attach/sandbox-123
-    Note right of Cloud Run LB: Affinity is now "warm" for Instance B.
-    Cloud Run LB->>Instance B: Forward Upgrade Request
-    Instance B-->>Client: HTTP 101 Switching Protocols
-    activate Client
-    Note over Client, Instance B: Final WebSocket Established
     Instance B->>Client: WS Msg: {"status": "RUNNING"}
     deactivate Client
 ```
