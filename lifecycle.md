@@ -1,4 +1,4 @@
-# Stateful Sandbox Lifecycle & Handoff Protocol Specification (v2)
+# Stateful Sandbox Lifecycle & Handoff Protocol Specification
 
 This document specifies the design for making the gVisor sandbox application "stateful" on Cloud Run. It details a WebSocket-first protocol that handles instance handoffs transparently, orchestrated by a smart client library and coordinated via a shared GCS volume.
 
@@ -103,6 +103,3 @@ This is the "affinity miss" path, which triggers the full handoff protocol. An a
     *   The client library detects the `3001` close code, which is the explicit signal to reconnect.
     *   It automatically initiates a new connection to `WS /attach/sandbox-123`. Session affinity is now "warm" for `Instance B`.
 8.  **Client -> Instance B (Final Connection):** The new connection attempt lands on `Instance B`, and the connection proceeds as in Scenario 2.
-
-## 6. Client Library Responsibilities & Error Handling
-(Section remains the same as previous version)
