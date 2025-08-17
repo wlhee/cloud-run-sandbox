@@ -1,12 +1,19 @@
-from http.server import ThreadingHTTPServer
-from .handlers import Handlers
+import asyncio
+import websockets
+from . import handlers
 
 PORT = 8080
 
-class MyServer(Handlers):
-    pass
+async def main():
+    """
+    Starts the WebSocket server.
+    """
+    async with websockets.serve(handlers.handler, "0.0.0.0", PORT):
+        print(f"Server started on port {PORT}")
+        await asyncio.Future()  # run forever
 
 def run():
-    with ThreadingHTTPServer(("", PORT), MyServer) as httpd:
-        print("serving at port", PORT)
-        httpd.serve_forever()
+    """
+    Entry point to run the server.
+    """
+    asyncio.run(main())

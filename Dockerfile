@@ -16,8 +16,12 @@ RUN ( \
       mv runsc containerd-shim-runsc-v1 /usr/local/bin; \
     )
 
-# Install Python
-RUN apt-get install -y python3
+# Install Python and pip
+RUN apt-get install -y python3 python3-pip
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip3 install -r requirements.txt
 
 # Copy the application files
 COPY main.py .

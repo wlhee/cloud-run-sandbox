@@ -1,81 +1,72 @@
-from http.server import BaseHTTPRequestHandler
+import asyncio
+import json
+import websockets
 from . import sandbox
 
-class Handlers(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/list':
-            output, err = sandbox.list_containers()
-            if err:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(err.encode())
-            else:
-                self.send_response(200)
-                self.send_header("Content-type", "text/plain")
-                self.end_headers()
-                self.wfile.write(output.encode())
+# In-memory tracking of sandboxes on this instance.
+# In the future, this will be replaced by GCS state.
+sandboxes = {}
 
-        elif self.path == '/status':
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"Server is running")
+async def handler(websocket, path):
+    """
+    Main WebSocket request handler.
+    Routes incoming connections based on the path.
+    """
+    if path == "/create":
+        await create_sandbox_handler(websocket)
+    elif path.startswith("/attach/"):
+        sandbox_id = path.split('/')[-1]
+        await attach_sandbox_handler(websocket, sandbox_id)
+    else:
+        # Fallback for simple HTTP health checks, etc.
+        # The websockets library provides a process_request hook for this.
+        # For now, we will just close the connection if the path is unknown.
+        await websocket.close(1011, "Unknown path")
 
-        elif self.path.startswith('/suspend/'):
-            container_id = self.path.split('/')[-1]
-            output, err = sandbox.suspend_container(container_id)
-            if err:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(err.encode())
-            else:
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(output.encode())
+async def create_sandbox_handler(websocket):
+    """
+    Handles the creation of a new sandbox.
+    """
+    await websocket.send(json.dumps({"event": "status_update", "status": "CREATING"}))
+    
+    # For this first increment, we'll just simulate sandbox creation.
+    # We will integrate the actual sandbox.py logic in the next step.
+    sandbox_id = "sandbox-" + asyncio.get_running_loop().create_future()._asyncio_future_blocking.__str__()[-4:]
+    
+    sandboxes[sandbox_id] = {"websocket": websocket, "status": "CREATING"}
+    
+    await websocket.send(json.dumps({"event": "created", "sandbox_id": sandbox_id}))
+    
+    sandboxes[sandbox_id]["status"] = "RUNNING"
+    await websocket.send(json.dumps({"event": "status_update", "status": "RUNNING"}))
 
-        elif self.path.startswith('/restore/'):
-            container_id = self.path.split('/')[-1]
-            output, err = sandbox.resume_container(container_id)
-            if err:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(err.encode())
-            else:
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(output.encode())
+    # Keep the connection open to listen for commands
+    try:
+        async for message in websocket:
+            # In the future, we'll handle commands like stdin, suspend, etc. here.
+            await websocket.send(json.dumps({"response": "echo", "data": message}))
+    finally:
+        print(f"Sandbox {sandbox_id} connection closed.")
+        del sandboxes[sandbox_id]
 
-        elif self.path.startswith('/delete/'):
-            container_id = self.path.split('/')[-1]
-            output, err = sandbox.delete_container(container_id)
-            if err:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(err.encode())
-            else:
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(output.encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"Not Found")
 
-    def do_POST(self):
-        if self.path == '/execute':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain; charset=utf-8")
-            self.end_headers()
-
-            err = sandbox.execute_code(post_data, self.wfile)
-            if err and not self.headers_sent:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(err.encode('utf-8'))
-        else:
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"Not Found")
+async def attach_sandbox_handler(websocket, sandbox_id):
+    """
+    Handles attaching to an existing sandbox.
+    """
+    if sandbox_id in sandboxes:
+        # For now, we assume the old connection is dead and just replace it.
+        sandboxes[sandbox_id]["websocket"] = websocket
+        await websocket.send(json.dumps({"event": "status_update", "status": "RUNNING"}))
+        
+        try:
+            async for message in websocket:
+                await websocket.send(json.dumps({"response": "echo", "data": message}))
+        finally:
+            print(f"Sandbox {sandbox_id} re-attached connection closed.")
+            # In a real scenario, we might not want to delete the sandbox on disconnect.
+            # For this simple version, we will.
+            if sandbox_id in sandboxes:
+                del sandboxes[sandbox_id]
+    else:
+        await websocket.close(1011, f"Sandbox {sandbox_id} not found on this instance.")
