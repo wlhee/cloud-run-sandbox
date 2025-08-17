@@ -21,6 +21,7 @@ RUN apt-get install -y python3
 
 # Copy the application files
 COPY main.py .
+COPY src/ ./src/
 
 # Expose the server port
 EXPOSE 8080
