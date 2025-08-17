@@ -110,16 +110,17 @@ async def test_attach_to_existing_sandbox():
 
 async def test_attach_to_missing_sandbox():
     """
-    Tests that the attach handler correctly closes the connection
-    if the requested sandbox does not exist on the instance.
+    Tests that the attach handler sends a NOT_FOUND message and closes
+    the connection if the sandbox does not exist.
     """
     mock_ws = MockWebSocket()
     sandbox_id = "non-existent-sandbox"
 
-    # The handler should not hang, it should close and exit
+    # The handler should send the message and then close.
     await handlers.attach_sandbox_handler(mock_ws, sandbox_id)
 
-    assert len(mock_ws.sent_messages) == 0
+    assert len(mock_ws.sent_messages) == 1
+    assert mock_ws.sent_messages[0]["status"] == "NOT_FOUND"
     assert mock_ws.closed
     assert mock_ws.close_code == 1011
     assert "not found" in mock_ws.close_reason
