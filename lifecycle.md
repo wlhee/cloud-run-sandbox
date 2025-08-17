@@ -40,6 +40,7 @@ This section defines the vocabulary for the `status` field in WebSocket messages
 *   `RUNNING`: The sandbox is active on an instance and ready for interaction.
 *   `SUSPENDED`: The sandbox state is persisted in GCS, but it is not running on any instance.
 *   `HANDOFF`: The client has connected to a new instance, which is now actively pulling the sandbox state from a remote instance.
+*   `NOT_FOUND`: The requested sandbox was not found on the current instance, and a handoff could not be initiated. The server will send this status and then close the connection.
 *   `TERMINATED`: The sandbox has been deleted.
 
 ## 4. Protocol: WebSocket-First Control & Data Plane
