@@ -1,19 +1,10 @@
-import asyncio
-import websockets
-from . import handlers
+from fastapi import FastAPI
+from .handlers import http
 
-PORT = 8080
+app = FastAPI()
 
-async def main():
-    """
-    Starts the WebSocket server.
-    """
-    async with websockets.serve(handlers.handler, "0.0.0.0", PORT):
-        print(f"Server started on port {PORT}")
-        await asyncio.Future()  # run forever
+app.include_router(http.router)
 
-def run():
-    """
-    Entry point to run the server.
-    """
-    asyncio.run(main())
+@app.get("/")
+def read_root():
+    return {"message": "Server is running"}
