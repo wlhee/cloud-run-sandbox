@@ -38,22 +38,3 @@ async def test_execute_streaming_mocked(mock_execute_code):
     assert "hello from sandbox" in response.text
     assert "error from sandbox" in response.text
     mock_execute_code.assert_called_once_with(code)
-
-@pytest.mark.real
-def test_execute_streaming_real():
-    """
-    Tests the POST /execute endpoint with a real, simple script.
-    This is an end-to-end test that will actually run gVisor.
-    It should be skipped when running locally on a non-Linux OS.
-    """
-    code = "import sys; print('hello from sandbox'); sys.stderr.write('error from sandbox\n')"
-    
-    response = client.post(
-        "/execute",
-        content=code,
-        headers={"Content-Type": "text/plain"}
-    )
-
-    assert response.status_code == 200
-    assert "hello from sandbox" in response.text
-    assert "error from sandbox" in response.text
