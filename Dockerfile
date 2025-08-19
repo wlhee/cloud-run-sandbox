@@ -1,8 +1,10 @@
-FROM ubuntu:20.04
+# Use an official Python runtime as a parent image
+FROM python:3.9-slim
+
+# Install gVisor dependencies
+RUN apt-get update && apt-get install -y curl wget
 
 # Install gVisor
-RUN apt-get update && apt-get install -y curl
-RUN apt-get update && apt-get install -y curl wget
 RUN ( \
       set -e; \
       ARCH=$(uname -m); \
@@ -16,12 +18,12 @@ RUN ( \
       mv runsc containerd-shim-runsc-v1 /usr/local/bin; \
     )
 
-# Install Python and pip
-RUN apt-get install -y python3 python3-pip
+# Set the working directory in the container
+WORKDIR /app
 
-# Install Python dependencies
+# Copy the requirements file and install dependencies
 COPY requirements.txt .
-RUN pip3 install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application files
 COPY main.py .
