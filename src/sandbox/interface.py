@@ -13,6 +13,10 @@ class SandboxStartError(SandboxError):
     """Raised when a sandbox fails to start execution."""
     pass
 
+class SandboxStreamClosed(SandboxError):
+    """Raised by the connect() generator when the output stream is closed."""
+    pass
+
 class SandboxInterface(ABC):
     """Defines the interface for all sandbox implementations."""
     
@@ -52,5 +56,7 @@ class SandboxInterface(ABC):
         
         A SandboxOutputEvent is a dictionary-like object (a TypedDict) with a
         fixed structure: {'type': OutputType, 'data': str}.
+
+        Raises SandboxStreamClosed when the stream is finished.
         """
         pass

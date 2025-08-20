@@ -1,7 +1,14 @@
-from .gvisor import GVisorSandbox
+import os
+from .gvisor import GVisorSandbox, GVisorConfig
 
 def create_sandbox_instance(sandbox_id: str):
     """
-    Factory function to create a real GVisorSandbox instance.
+    Factory function to create a sandbox instance based on configuration.
     """
-    return GVisorSandbox(sandbox_id)
+    # Create GVisorConfig from environment variables
+    config = GVisorConfig(
+        rootless=os.environ.get('RUNSC_ROOTLESS') in ['true', '1'],
+        root_dir=os.environ.get('RUNSC_ROOT_DIR'),
+        bundle_dir_base=os.environ.get('RUNSC_BUNDLE_DIR_BASE', '/tmp')
+    )
+    return GVisorSandbox(sandbox_id, config=config)

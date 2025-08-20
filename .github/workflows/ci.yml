@@ -1,4 +1,4 @@
-name: Python CI
+name: Cloud Run Sandbox CI
 
 on:
   push:
@@ -13,28 +13,8 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v3
-      with:
-        python-version: "3.12"
+    - name: Build test container
+      run: docker build -t sandbox-ci -f Dockerfile.test .
 
-    - name: Install runsc
-      run: |
-        set -e
-        ARCH=$(uname -m)
-        URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}
-        wget ${URL}/runsc ${URL}/runsc.sha512
-        sha512sum -c runsc.sha512
-        rm -f *.sha512
-        chmod a+rx runsc
-        sudo mv runsc /usr/local/bin
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio
-
-    - name: Test with pytest
-      run: |
-        pytest
+    - name: Run tests in container
+      run: docker run --rm --privileged sandbox-ci

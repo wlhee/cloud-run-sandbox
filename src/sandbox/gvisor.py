@@ -1,8 +1,16 @@
 import asyncio
 import os
 import json
-from .interface import SandboxInterface, SandboxCreationError, SandboxStartError
+from dataclasses import dataclass, field
+from .interface import SandboxInterface, SandboxCreationError, SandboxStartError, SandboxStreamClosed
 from .events import SandboxOutputEvent, OutputType
+
+@dataclass
+class GVisorConfig:
+    """Configuration for the GVisorSandbox."""
+    rootless: bool = False
+    root_dir: str = None
+    bundle_dir_base: str = "/tmp"
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -10,9 +18,10 @@ class GVisorSandbox(SandboxInterface):
     It uses an in-memory broadcast pattern to allow clients to connect and
     stream new output.
     """
-    def __init__(self, sandbox_id):
+    def __init__(self, sandbox_id: str, config: GVisorConfig):
         self._sandbox_id = sandbox_id
-        self._bundle_dir = f"/tmp/runsc_bundle_{sandbox_id}"
+        self._config = config
+        self._bundle_dir = os.path.join(config.bundle_dir_base, f"runsc_bundle_{sandbox_id}")
         self._proc = None
         self._listener_queues = []
         self._streaming_task = None
@@ -20,6 +29,16 @@ class GVisorSandbox(SandboxInterface):
     @property
     def sandbox_id(self):
         return self._sandbox_id
+
+    def _build_runsc_cmd(self, *args):
+        """Builds a runsc command, adding configured flags."""
+        cmd = ["runsc"]
+        if self._config.rootless:
+            cmd.append("--rootless")
+        if self._config.root_dir:
+            cmd.extend(["--root", self._config.root_dir])
+        cmd.extend(args)
+        return cmd
 
     async def create(self):
         """
@@ -30,7 +49,7 @@ class GVisorSandbox(SandboxInterface):
             config = {
                 "ociVersion": "1.0.0",
                 "process": { "user": {"uid": 0, "gid": 0}, "args": [], "env": [], "cwd": "/" },
-                "root": {"path": "/", "readonly": False},
+                "root": {"path": self._bundle_dir, "readonly": False}, # Rootfs is the bundle itself
                 "hostname": "runsc",
                 "mounts": [
                     {"destination": "/proc", "type": "proc", "source": "proc"},
@@ -57,12 +76,12 @@ class GVisorSandbox(SandboxInterface):
             config_path = os.path.join(self._bundle_dir, "config.json")
             with open(config_path, "r+") as f:
                 config = json.load(f)
-                config["process"]["args"] = ["python3", temp_filepath]
+                config["process"]["args"] = ["python3", "/main.py"] # Path is inside the container
                 f.seek(0)
                 json.dump(config, f, indent=4)
                 f.truncate()
 
-            run_cmd = ["runsc", "--network=host", "run", "-bundle", self._bundle_dir, self.sandbox_id]
+            run_cmd = self._build_runsc_cmd("--network=host", "run", "-bundle", self._bundle_dir, self.sandbox_id)
             self._proc = await asyncio.create_subprocess_exec(
                 *run_cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -91,16 +110,23 @@ class GVisorSandbox(SandboxInterface):
             broadcast(self._proc.stderr, OutputType.STDERR)
         )
 
+        # After the process is done, signal the end to all listeners
+        for queue in self._listener_queues:
+            await queue.put(SandboxStreamClosed())
+
     async def connect(self):
         """
         Creates a new consumer queue, adds it to the listeners, and yields
-        events from it.
+        events from it until the stream is closed.
         """
         q = asyncio.Queue()
         self._listener_queues.append(q)
         try:
             while True:
-                yield await q.get()
+                event = await q.get()
+                if isinstance(event, SandboxStreamClosed):
+                    raise event
+                yield event
         finally:
             self._listener_queues.remove(q)
 
@@ -115,4 +141,6 @@ class GVisorSandbox(SandboxInterface):
         await self.stop()
         if os.path.exists(self._bundle_dir):
             await asyncio.create_subprocess_exec("rm", "-rf", self._bundle_dir)
-        await asyncio.create_subprocess_exec("runsc", "delete", self.sandbox_id)
+        
+        delete_cmd = self._build_runsc_cmd("delete", self.sandbox_id)
+        await asyncio.create_subprocess_exec(*delete_cmd)

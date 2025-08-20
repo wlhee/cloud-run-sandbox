@@ -1,0 +1,30 @@
+# Use the same official Python runtime as the production Dockerfile.
+FROM python:3.9-slim
+
+# Install gVisor dependencies.
+RUN apt-get update && apt-get install -y curl wget
+
+# Install gVisor using the same script as the production Dockerfile.
+RUN ( \
+      set -e; \
+      ARCH=$(uname -m); \
+      URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}; \
+      wget ${URL}/runsc ${URL}/runsc.sha512; \
+      sha512sum -c runsc.sha512; \
+      rm -f *.sha512; \
+      chmod a+rx runsc; \
+      mv runsc /usr/local/bin; \
+    )
+
+# Set the working directory in the container.
+WORKDIR /app
+
+# Copy the entire project into the container.
+COPY . .
+
+# Install production and test dependencies.
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install pytest pytest-asyncio
+
+# By default, run pytest when the container starts.
+CMD ["pytest"]
