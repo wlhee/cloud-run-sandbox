@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,9 +20,14 @@ jobs:
 
     - name: Install runsc
       run: |
-        sudo apt-get update
-        sudo apt-get install -y curl
-        curl -fsSL https://gvisor.dev/archive/nightly/latest/runsc.amd64 > runsc && chmod +x runsc && sudo mv runsc /usr/local/bin
+        set -e
+        ARCH=$(uname -m)
+        URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}
+        wget ${URL}/runsc ${URL}/runsc.sha512
+        sha512sum -c runsc.sha512
+        rm -f *.sha512
+        chmod a+rx runsc
+        sudo mv runsc /usr/local/bin
 
     - name: Install dependencies
       run: |
