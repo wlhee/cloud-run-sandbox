@@ -18,11 +18,17 @@ jobs:
       with:
         python-version: "3.12"
 
+    - name: Install runsc
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl
+        curl -fsSL https://gvisor.dev/archive/nightly/latest/runsc.amd64 > runsc && chmod +x runsc && sudo mv runsc /usr/local/bin
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest
+        pip install pytest pytest-asyncio
 
     - name: Test with pytest
       run: |
