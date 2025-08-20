@@ -38,9 +38,10 @@ async def create(websocket: WebSocket):
         await websocket.close(code=1011)
     except WebSocketDisconnect:
         print(f"Client disconnected.")
-    finally:
-        if sandbox:
-            await sandbox_manager.delete_sandbox(sandbox.sandbox_id)
+        # TODO: Implement sandbox suspension.
+        # When the creating client disconnects, the sandbox should be suspended
+        # to GCS and the process stopped. The `attach` endpoint will then need
+        # to be updated to handle resuming from a suspended state.
 
 @router.websocket("/attach/{sandbox_id}")
 async def attach(websocket: WebSocket, sandbox_id: str):
@@ -60,8 +61,10 @@ async def attach(websocket: WebSocket, sandbox_id: str):
                 })
         except WebSocketDisconnect:
             print(f"Attached client for {sandbox.sandbox_id} disconnected.")
-        finally:
-            await sandbox_manager.delete_sandbox(sandbox.sandbox_id)
+            # TODO: Implement sandbox suspension.
+            # If this was the last attached client, the sandbox should be 
+            # suspended to GCS and the process stopped. The `attach` endpoint 
+            # will then need to be updated to handle resuming from a suspended state.
     else:
         await websocket.send_json({"event": "status_update", "status": SandboxStateEvent.SANDBOX_NOT_FOUND.value})
         await websocket.close(code=1011)

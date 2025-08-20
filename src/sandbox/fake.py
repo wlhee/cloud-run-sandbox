@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import List
 from .interface import SandboxInterface, SandboxCreationError, SandboxStartError
-from .events import SandboxOutputEvent, OutputType
+from .events import SandboxOutputEvent
 
 @dataclass
 class FakeSandboxConfig:
@@ -13,13 +13,12 @@ class FakeSandboxConfig:
 
 class FakeSandbox(SandboxInterface):
     """
-    A configurable, fake, in-memory sandbox for testing.
+    A configurable, fake, in-memory sandbox for testing. It supports
+    multiple concurrent connections.
     """
     def __init__(self, sandbox_id, config: FakeSandboxConfig = None):
         self._sandbox_id = sandbox_id
         self._config = config or FakeSandboxConfig()
-        self._output_queue = asyncio.Queue()
-        self._task = None
         self.is_running = False
 
     @property
@@ -38,31 +37,20 @@ class FakeSandbox(SandboxInterface):
         
         print(f"Fake sandbox {self.sandbox_id}: STARTING.")
         self.is_running = True
-        self._task = asyncio.create_task(self._produce_output())
         print(f"Fake sandbox {self.sandbox_id}: STARTED.")
 
-    async def _produce_output(self):
-        """Puts the configured messages onto the output queue."""
-        for message in self._config.output_messages:
-            await self._output_queue.put(message)
-            await asyncio.sleep(0.01)
-        self.is_running = False
-
     async def connect(self):
-        """Yields SandboxOutputEvent objects from the sandbox."""
-        while self.is_running or not self._output_queue.empty():
-            try:
-                message = await asyncio.wait_for(self._output_queue.get(), timeout=1.0)
-                yield message
-            except asyncio.TimeoutError:
-                break
+        """
+        Yields the configured output messages. This is an async generator
+        that can be consumed by multiple clients.
+        """
+        for message in self._config.output_messages:
+            yield message
+            await asyncio.sleep(0.01) # Simulate network delay
 
     async def stop(self):
         print(f"Fake sandbox {self.sandbox_id}: STOPPING.")
         self.is_running = False
-        if self._task:
-            self._task.cancel()
-            self._task = None
         print(f"Fake sandbox {self.sandbox_id}: STOPPED.")
 
     async def delete(self):

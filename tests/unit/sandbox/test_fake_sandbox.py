@@ -35,8 +35,9 @@ async def test_fake_sandbox_lifecycle_and_output():
 
     assert received_messages == expected_messages
     
-    # 3. The sandbox should stop after producing its output
-    await asyncio.sleep(0.02)
+    # 3. The sandbox should remain running until explicitly stopped
+    assert sandbox.is_running
+    await sandbox.stop()
     assert not sandbox.is_running
 
 async def test_fake_sandbox_create_error():

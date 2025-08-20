@@ -4,7 +4,7 @@ from src.server import app
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
 from src.sandbox.interface import SandboxCreationError, SandboxStartError
 from src.sandbox.events import SandboxOutputEvent, OutputType
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, AsyncMock
 
 client = TestClient(app)
 
@@ -64,4 +64,66 @@ def test_create_websocket_start_error(mock_create_instance):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_START_ERROR"}
         assert "Fake sandbox failed to start as configured." in websocket.receive_json()["message"]
 
-# We will add tests for the attach endpoint later.
+@patch('src.handlers.websocket.sandbox_manager')
+def test_attach_websocket_success(mock_manager):
+    """Tests successfully attaching to an existing sandbox."""
+    # Arrange
+    output_stream = [SandboxOutputEvent(type=OutputType.STDOUT, data="existing output")]
+    config = FakeSandboxConfig(output_messages=output_stream)
+    sandbox = FakeSandbox("existing-sandbox", config=config)
+    mock_manager.get_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/attach/existing-sandbox") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+        assert websocket.receive_json() == {"event": "stdout", "data": "existing output"}
+    
+    mock_manager.get_sandbox.assert_called_once_with("existing-sandbox")
+    mock_manager.delete_sandbox.assert_not_called()
+
+@patch('src.handlers.websocket.sandbox_manager')
+def test_attach_websocket_not_found(mock_manager):
+    """Tests attaching to a non-existent sandbox."""
+    # Arrange
+    mock_manager.get_sandbox.return_value = None
+
+    # Act & Assert
+    with client.websocket_connect("/attach/not-found-sandbox") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_NOT_FOUND"}
+
+    mock_manager.get_sandbox.assert_called_once_with("not-found-sandbox")
+
+@patch('src.handlers.websocket.sandbox_manager')
+def test_create_disconnect_attach(mock_manager):
+    """
+    Tests that a sandbox persists after the creating client disconnects
+    and can be successfully attached to by a new client.
+    """
+    # Arrange
+    output_stream = [SandboxOutputEvent(type=OutputType.STDOUT, data="final output")]
+    config = FakeSandboxConfig(output_messages=output_stream)
+    sandbox = FakeSandbox("persistent-sandbox", config=config)
+    
+    # Configure the mock manager with the correct async/sync methods
+    mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
+    mock_manager.get_sandbox.return_value = sandbox
+
+    # Act 1: Create the sandbox and immediately disconnect
+    with client.websocket_connect("/create") as websocket:
+        assert websocket.receive_json()["status"] == "SANDBOX_CREATING"
+        assert websocket.receive_json()["sandbox_id"] == "persistent-sandbox"
+        assert websocket.receive_json()["status"] == "SANDBOX_RUNNING"
+        # The first client consumes the output
+        assert websocket.receive_json()["data"] == "final output"
+    
+    # Assert that the sandbox was NOT deleted on disconnect
+    mock_manager.delete_sandbox.assert_not_called()
+
+    # Act 2: Attach to the orphaned sandbox
+    with client.websocket_connect("/attach/persistent-sandbox") as websocket:
+        assert websocket.receive_json()["status"] == "SANDBOX_RUNNING"
+        # The second client should also receive the full output stream
+        assert websocket.receive_json()["data"] == "final output"
+
+    # Assert that the sandbox was NOT deleted after the attaching client disconnected
+    mock_manager.delete_sandbox.assert_not_called()
