@@ -32,16 +32,39 @@ The single-concurrency setting implies:
     *   **Content:** `{"owner": "<instance_id>", "timestamp": <unix_timestamp>}`.
     *   **Atomicity:** Lock operations must be atomic (create-if-not-exists, rename).
 
-## 3. Sandbox Lifecycle States
-
-This section defines the vocabulary for the `status` field in WebSocket messages, allowing the client to operate as a state machine.
-
-*   `CREATING`: The `WS /create` connection is open, but the sandbox is not yet running.
-*   `RUNNING`: The sandbox is active on an instance and ready for interaction.
-*   `SUSPENDED`: The sandbox state is persisted in GCS, but it is not running on any instance.
-*   `HANDOFF`: The client has connected to a new instance, which is now actively pulling the sandbox state from a remote instance.
-*   `NOT_FOUND`: The requested sandbox was not found on the current instance, and a handoff could not be initiated. The server will send this status and then close the connection.
-*   `TERMINATED`: The sandbox has been deleted.
+## 3. Sandbox Lifecycle & Event Schema
+ 
+This section defines the vocabulary and structure of messages sent from the server to
+the client over the WebSocket.
+ 
+### 3.1. Event Types
+ 
+All messages are JSON objects with an `event` field that determines the message type.
+ 
+*   `status_update`: Indicates a change in the sandbox's lifecycle state.
+*   `sandbox_id`: Provides the unique ID of the newly created sandbox.
+*   `stdout`: Represents an output event from the sandbox's standard output stream.
+*   `stderr`: Represents an output event from the sandbox's standard error stream.
+*   `error`: Indicates a fatal error that is not a direct output of the sandbox code.
+ 
+### 3.2. State Events (`status_update`)
+ 
+When the `event` is `status_update`, the message will also contain a `status` field. The
+value will be one of the following strings, corresponding to the `SandboxStateEvent`
+enum.
+ 
+ *   `SANDBOX_CREATING`
+ *   `SANDBOX_RUNNING`
+ *   `SANDBOX_NOT_FOUND`
+ *   `SANDBOX_CREATION_ERROR`
+ *   `SANDBOX_START_ERROR`
+  
+ ### 3.3. Message Payloads
+  
+ *   **Status Update:** `{"event": "status_update", "status": "SANDBOX_RUNNING"}`
+ *   **Sandbox ID:** `{"event": "sandbox_id", "sandbox_id": "sandbox-uuid-123"}`
+ *   **Output Stream:** `{"event": "stdout", "data": "hello from sandbox\n"}`
+ *   **Error:** `{"event": "error", "message": "The sandbox failed to start."}`
 
 ## 4. Protocol: WebSocket-First Control & Data Plane
 

@@ -1,36 +1,36 @@
 import uuid
-from .sandbox import FakeSandbox, GVisorSandbox
+from . import factory
 
 class SandboxManager:
     """
-    Manages the lifecycle of all sandbox instances.
+    Manages the lifecycle of stateful sandbox instances.
     """
     def __init__(self):
         self._sandboxes = {}
 
-    def create_sandbox(self, sandbox_id=None, use_fake=True):
+    async def create_sandbox(self, sandbox_id=None):
         """
-        Creates a new sandbox instance and adds it to the manager.
+        Creates and initializes a new sandbox instance using the factory.
         """
         if sandbox_id is None:
             sandbox_id = "sandbox-" + str(uuid.uuid4())[:4]
         
-        if use_fake:
-            sandbox = FakeSandbox(sandbox_id)
-        else:
-            sandbox = GVisorSandbox(sandbox_id)
-            
+        sandbox = factory.create_sandbox_instance(sandbox_id)
+        
+        await sandbox.create()
         self._sandboxes[sandbox_id] = sandbox
         print(f"Sandbox manager created {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
         return sandbox
 
     def get_sandbox(self, sandbox_id):
-        """Retrieves a sandbox by its ID."""
+        """Retrieivs a sandbox by its ID."""
         return self._sandboxes.get(sandbox_id)
 
-    def delete_sandbox(self, sandbox_id):
-        """Deletes a sandbox from the manager."""
+    async def delete_sandbox(self, sandbox_id):
+        """Deletes a sandbox and removes it from tracking."""
         if sandbox_id in self._sandboxes:
+            sandbox = self._sandboxes[sandbox_id]
+            await sandbox.delete()
             del self._sandboxes[sandbox_id]
             print(f"Sandbox manager deleted {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
 

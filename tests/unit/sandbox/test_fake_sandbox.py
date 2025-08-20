@@ -1,45 +1,60 @@
 import pytest
 import asyncio
-from unittest.mock import AsyncMock
-from src.sandbox.sandbox import FakeSandbox
+from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
+from src.sandbox.interface import SandboxCreationError, SandboxStartError
+from src.sandbox.events import SandboxOutputEvent, OutputType
 
 pytestmark = pytest.mark.asyncio
 
-@pytest.fixture
-def mock_websocket():
-    """Fixture to create a mock websocket."""
-    ws = AsyncMock()
-    ws.send_json = AsyncMock()
-    ws.receive_text = AsyncMock()
-    ws.close = AsyncMock()
-    return ws
-
-async def test_fake_sandbox_lifecycle(mock_websocket):
+async def test_fake_sandbox_lifecycle_and_output():
     """
-    Tests the full create -> start -> stop -> delete lifecycle of the FakeSandbox.
+    Tests the full lifecycle and output streaming of the FakeSandbox.
     """
-    sandbox_id = "fake-123"
-    sandbox = FakeSandbox(sandbox_id)
+    # Configure the fake sandbox to produce a specific stream of events
+    output_stream: list[SandboxOutputEvent] = [
+        {"type": OutputType.STDOUT, "data": "line 1"},
+        {"type": OutputType.STDERR, "data": "error 1"},
+        {"type": OutputType.STDOUT, "data": "line 2"},
+    ]
+    config = FakeSandboxConfig(output_messages=output_stream)
+    sandbox = FakeSandbox("fake-123", config=config)
 
-    # Test create
-    await sandbox.create("print('hello')")
-    assert sandbox._code == "print('hello')"
-
-    # Test start
-    await sandbox.start(mock_websocket)
+    # 1. Create and start
+    await sandbox.create()
+    await sandbox.start("some code")
     assert sandbox.is_running
-    assert sandbox._task is not None
-    mock_websocket.send_json.assert_any_call({"event": "status_update", "status": "RUNNING"})
 
-    # Test stop
-    await sandbox.stop()
-    assert not sandbox.is_running
-    assert sandbox._task is None
-    mock_websocket.close.assert_awaited_once_with(code=1000)
+    # 2. Connect and verify the output stream
+    messages = [msg async for msg in sandbox.connect()]
+    
+    # Convert the received messages for comparison
+    received_messages = [{"type": msg["type"].value, "data": msg["data"]} for msg in messages]
+    expected_messages = [{"type": "stdout", "data": "line 1"},
+                         {"type": "stderr", "data": "error 1"},
+                         {"type": "stdout", "data": "line 2"}]
 
-    # Test delete
-    # Re-start the sandbox to test that delete also stops it
-    await sandbox.start(mock_websocket)
-    await sandbox.delete()
+    assert received_messages == expected_messages
+    
+    # 3. The sandbox should stop after producing its output
+    await asyncio.sleep(0.02)
     assert not sandbox.is_running
-    assert sandbox._task is None
+
+async def test_fake_sandbox_create_error():
+    """
+    Tests that the FakeSandbox correctly raises a SandboxCreationError.
+    """
+    config = FakeSandboxConfig(create_should_fail=True)
+    sandbox = FakeSandbox("fake-error", config=config)
+    
+    with pytest.raises(SandboxCreationError):
+        await sandbox.create()
+
+async def test_fake_sandbox_start_error():
+    """
+    Tests that the FakeSandbox correctly raises a SandboxStartError.
+    """
+    config = FakeSandboxConfig(start_should_fail=True)
+    sandbox = FakeSandbox("fake-error", config=config)
+    
+    with pytest.raises(SandboxStartError):
+        await sandbox.start("any code")

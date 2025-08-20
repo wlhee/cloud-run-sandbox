@@ -1,8 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from src.server import app
-from unittest.mock import patch, AsyncMock
-import asyncio
+from unittest.mock import patch
 
 client = TestClient(app)
 
@@ -10,31 +9,28 @@ def test_status_endpoint():
     """Tests the GET /status endpoint."""
     response = client.get("/status")
     assert response.status_code == 200
-    assert "Server is running" in response.text
+    assert response.text == "Server is running"
 
-@pytest.mark.asyncio
-@patch('src.sandbox.manager.execute_code_streaming')
-async def test_execute_streaming_mocked(mock_execute_code):
+@patch('src.handlers.http.execute_code_streaming')
+def test_execute_streaming_mocked(mock_execute):
     """
-    Tests the POST /execute endpoint with a mocked gVisor subprocess.
-    This test can be run locally without needing runsc.
+    Tests the POST /execute endpoint with a mocked streaming function.
     """
+    # Arrange: Configure the mock to return a simple async generator
+    async def mock_stream_gen():
+        yield b"line 1\n"
+        yield b"line 2\n"
     
-    async def mock_streamer(code):
-        yield b"hello from sandbox\n"
-        yield b"error from sandbox\n"
+    mock_execute.return_value = mock_stream_gen()
 
-    mock_execute_code.return_value = mock_streamer("test code")
-
-    code = "import sys; print('hello from sandbox'); sys.stderr.write('error from sandbox\n')"
-    
+    # Act
     response = client.post(
         "/execute",
-        content=code,
+        content="print('hello')",
         headers={"Content-Type": "text/plain"}
     )
 
+    # Assert
     assert response.status_code == 200
-    assert "hello from sandbox" in response.text
-    assert "error from sandbox" in response.text
-    mock_execute_code.assert_called_once_with(code)
+    assert response.text == "line 1\nline 2\n"
+    mock_execute.assert_called_once_with("print('hello')")
