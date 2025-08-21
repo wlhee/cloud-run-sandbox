@@ -42,7 +42,8 @@ class GVisorSandbox(SandboxInterface):
 
     async def create(self):
         """
-        Creates the gVisor sandbox in a synchronous, deterministic way.
+        Creates the gVisor sandbox bundle directory and a placeholder config.
+        The container itself is not created until start() is called.
         """
         try:
             os.makedirs(self._bundle_dir, exist_ok=True)
@@ -60,29 +61,12 @@ class GVisorSandbox(SandboxInterface):
             }
             with open(os.path.join(self._bundle_dir, "config.json"), "w") as f:
                 json.dump(config, f, indent=4)
-
-            # 'runsc create' is a synchronous command that will succeed or fail immediately.
-            create_cmd = self._build_runsc_cmd("create", "--bundle", self._bundle_dir, self.sandbox_id)
-            proc = await asyncio.create_subprocess_exec(
-                *create_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _, stderr_bytes = await proc.communicate()
-
-            if proc.returncode != 0:
-                raise SandboxCreationError(f"Failed to create gVisor container: {stderr_bytes.decode('utf-8')}")
-
         except Exception as e:
-            # Catch exceptions from the process creation itself or re-raise our own.
-            if not isinstance(e, SandboxCreationError):
-                raise SandboxCreationError(f"Failed to create gVisor bundle: {e}")
-            else:
-                raise e
+            raise SandboxCreationError(f"Failed to create gVisor bundle: {e}")
 
     async def start(self, code: str):
         """
-        Starts the user's code in the pre-created sandbox and begins streaming.
+        Creates and starts the user's code in the sandbox and begins streaming.
         """
         try:
             # Write the user's code to a file in the bundle directory.
@@ -99,6 +83,19 @@ class GVisorSandbox(SandboxInterface):
                 json.dump(config, f, indent=4)
                 f.truncate()
 
+            # Create the container now that the config is complete.
+            create_cmd = self._build_runsc_cmd("create", "--bundle", self._bundle_dir, self.sandbox_id)
+            proc = await asyncio.create_subprocess_exec(
+                *create_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr_bytes = await proc.communicate()
+
+            if proc.returncode != 0:
+                # This is a SandboxStartError because creation is part of the start lifecycle
+                raise SandboxStartError(f"Failed to create gVisor container: {stderr_bytes.decode('utf-8')}")
+
             # 'runsc start' begins the process in the already-created container.
             start_cmd = self._build_runsc_cmd("start", self.sandbox_id)
             self._proc = await asyncio.create_subprocess_exec(
@@ -110,7 +107,10 @@ class GVisorSandbox(SandboxInterface):
             self._streaming_task = asyncio.create_task(self._stream_output_and_wait())
 
         except Exception as e:
-            raise SandboxStartError(f"Failed to start gVisor container: {e}")
+            if not isinstance(e, SandboxStartError):
+                 raise SandboxStartError(f"Failed to start gVisor container: {e}")
+            else:
+                raise e
 
     async def _stream_output_and_wait(self):
         """
