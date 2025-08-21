@@ -56,13 +56,13 @@ class GVisorSandbox(SandboxInterface):
                     {"destination": "/dev", "type": "tmpfs", "source": "tmpfs"},
                     {"destination": "/sys", "type": "sysfs", "source": "sysfs"},
                 ],
-                "linux": { "namespaces": [{"type": "pid"}, {"type": "network"}, {"type": "ipc"}, {"type": "uts"}, {"type": "mount"}] }
+                "linux": { "namespaces": [{"type": "pid"}, {"type": "ipc"}, {"type": "uts"}, {"type": "mount"}] }
             }
             with open(os.path.join(self._bundle_dir, "config.json"), "w") as f:
                 json.dump(config, f, indent=4)
 
             # 'runsc create' is a synchronous command that will succeed or fail immediately.
-            create_cmd = self._build_runsc_cmd("create", "--bundle", self._bundle_dir, "--network=host", self.sandbox_id)
+            create_cmd = self._build_runsc_cmd("create", "--bundle", self._bundle_dir, self.sandbox_id)
             proc = await asyncio.create_subprocess_exec(
                 *create_cmd,
                 stdout=asyncio.subprocess.PIPE,
