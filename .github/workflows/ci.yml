@@ -27,6 +27,7 @@ jobs:
       run: |
         docker run --rm --privileged \
           -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+          -v /var/run/docker.sock:/var/run/docker.sock \
           --tmpfs /tmp \
           --tmpfs /run \
           --tmpfs /run/lock \
