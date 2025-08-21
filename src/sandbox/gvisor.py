@@ -11,6 +11,7 @@ class GVisorConfig:
     rootless: bool = False
     root_dir: str = None
     bundle_dir_base: str = "/tmp"
+    systemd_cgroup: bool = False
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -33,6 +34,8 @@ class GVisorSandbox(SandboxInterface):
     def _build_runsc_cmd(self, *args):
         """Builds a runsc command, adding configured flags."""
         cmd = ["runsc"]
+        if self._config.systemd_cgroup:
+            cmd.append("--systemd-cgroup")
         if self._config.rootless:
             cmd.append("--rootless")
         if self._config.root_dir:

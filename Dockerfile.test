@@ -1,20 +1,29 @@
-# Use the same official Python runtime as the production Dockerfile.
-FROM python:3.9-slim
+FROM ubuntu:22.04
 
-# Install gVisor dependencies.
-RUN apt-get update && apt-get install -y curl wget
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install gVisor using the same script as the production Dockerfile.
-RUN ( \
-      set -e; \
-      ARCH=$(uname -m); \
-      URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}; \
-      wget ${URL}/runsc ${URL}/runsc.sha512; \
-      sha512sum -c runsc.sha512; \
-      rm -f *.sha512; \
-      chmod a+rx runsc; \
-      mv runsc /usr/local/bin; \
-    )
+# Install systemd, python, pip, and runsc dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    systemd \
+    systemd-sysv \
+    dbus \
+    dbus-user-session \
+    curl \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install runsc
+RUN curl -fsSL https://gvisor.dev/archive.key | gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | tee /etc/apt/sources.list.d/gvisor.list > /dev/null
+RUN apt-get update && apt-get install -y runsc
+
+# Configure systemd for delegation
+RUN mkdir -p /etc/systemd/system/user@.service.d
+RUN echo '[Service]' > /etc/systemd/system/user@.service.d/delegate.conf
+RUN echo 'Delegate=yes' >> /etc/systemd/system/user@.service.d/delegate.conf
 
 # Set the working directory in the container.
 WORKDIR /app
@@ -23,8 +32,8 @@ WORKDIR /app
 COPY . .
 
 # Install production and test dependencies.
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install pytest pytest-asyncio
+RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install pytest pytest-asyncio
 
 # By default, run pytest when the container starts.
 CMD ["pytest", "-v", "-s", "-rA"]

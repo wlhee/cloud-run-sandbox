@@ -11,10 +11,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker with systemd delegation
+      run: |
+        sudo mkdir -p /etc/systemd/system/user@.service.d
+        echo '[Service]' | sudo tee /etc/systemd/system/user@.service.d/delegate.conf
+        echo 'Delegate=cpu cpuset io memory pids' | sudo tee -a /etc/systemd/system/user@.service.d/delegate.conf
+        sudo systemctl daemon-reload
 
     - name: Build test container
       run: docker build -t sandbox-ci -f Dockerfile.test .
 
     - name: Run tests in container
-      run: docker run --rm --cgroupns=host --cap-add=SYS_ADMIN --cap-add=NET_ADMIN sandbox-ci
+      run: |
+        docker run --rm --privileged \
+          -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+          --cgroupns=host \
+          -e RUNSC_SYSTEMD_CGROUP=true \
+          sandbox-ci
