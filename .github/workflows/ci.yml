@@ -17,4 +17,4 @@ jobs:
       run: docker build -t sandbox-ci -f Dockerfile.test .
 
     - name: Run tests in container
-      run: docker run --rm --privileged -e RUNSC_ROOTLESS=true sandbox-ci
+      run: docker run --rm --cap-add=SYS_ADMIN --cap-add=NET_ADMIN sandbox-ci
