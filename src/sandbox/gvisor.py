@@ -42,14 +42,14 @@ class GVisorSandbox(SandboxInterface):
 
     async def create(self):
         """
-        Creates the necessary bundle directory and OCI config for gVisor.
+        Creates the gVisor sandbox in a synchronous, deterministic way.
         """
         try:
             os.makedirs(self._bundle_dir, exist_ok=True)
             config = {
                 "ociVersion": "1.0.0",
                 "process": { "user": {"uid": 0, "gid": 0}, "args": [], "env": [], "cwd": "/" },
-                "root": {"path": self._bundle_dir, "readonly": False}, # Rootfs is the bundle itself
+                "root": {"path": self._bundle_dir, "readonly": False},
                 "hostname": "runsc",
                 "mounts": [
                     {"destination": "/proc", "type": "proc", "source": "proc"},
@@ -60,34 +60,55 @@ class GVisorSandbox(SandboxInterface):
             }
             with open(os.path.join(self._bundle_dir, "config.json"), "w") as f:
                 json.dump(config, f, indent=4)
+
+            # 'runsc create' is a synchronous command that will succeed or fail immediately.
+            create_cmd = self._build_runsc_cmd("create", "--bundle", self._bundle_dir, "--network=host", self.sandbox_id)
+            proc = await asyncio.create_subprocess_exec(
+                *create_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr_bytes = await proc.communicate()
+
+            if proc.returncode != 0:
+                raise SandboxCreationError(f"Failed to create gVisor container: {stderr_bytes.decode('utf-8')}")
+
         except Exception as e:
-            raise SandboxCreationError(f"Failed to create gVisor bundle: {e}")
+            # Catch exceptions from the process creation itself or re-raise our own.
+            if not isinstance(e, SandboxCreationError):
+                raise SandboxCreationError(f"Failed to create gVisor bundle: {e}")
+            else:
+                raise e
 
     async def start(self, code: str):
         """
-        Writes the code to a file, starts the gVisor container, and begins
-        the internal output streaming task.
+        Starts the user's code in the pre-created sandbox and begins streaming.
         """
         try:
+            # Write the user's code to a file in the bundle directory.
             temp_filepath = os.path.join(self._bundle_dir, "main.py")
             with open(temp_filepath, "w") as f:
                 f.write(code)
 
+            # Update the OCI config to execute the user's code.
             config_path = os.path.join(self._bundle_dir, "config.json")
             with open(config_path, "r+") as f:
                 config = json.load(f)
-                config["process"]["args"] = ["python3", "/main.py"] # Path is inside the container
+                config["process"]["args"] = ["python3", "/main.py"]
                 f.seek(0)
                 json.dump(config, f, indent=4)
                 f.truncate()
 
-            run_cmd = self._build_runsc_cmd("--network=host", "run", "-bundle", self._bundle_dir, self.sandbox_id)
+            # 'runsc start' begins the process in the already-created container.
+            start_cmd = self._build_runsc_cmd("start", self.sandbox_id)
             self._proc = await asyncio.create_subprocess_exec(
-                *run_cmd,
+                *start_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
+            # Immediately start the task to stream output. No health checks needed.
             self._streaming_task = asyncio.create_task(self._stream_output_and_wait())
+
         except Exception as e:
             raise SandboxStartError(f"Failed to start gVisor container: {e}")
 
@@ -122,8 +143,7 @@ class GVisorSandbox(SandboxInterface):
 
     async def connect(self):
         """
-        Creates a new consumer queue, adds it to the listeners, and yields
-        events from it until the stream is closed.
+        Creates a new consumer queue and yields events from it.
         """
         q = asyncio.Queue()
         self._listener_queues.append(q)
@@ -134,19 +154,27 @@ class GVisorSandbox(SandboxInterface):
                     raise event
                 yield event
         finally:
-            self._listener_queues.remove(q)
+            if q in self._listener_queues:
+                self._listener_queues.remove(q)
 
     async def stop(self):
         if self._streaming_task:
             self._streaming_task.cancel()
         if self._proc and self._proc.returncode is None:
-            self._proc.terminate()
-            await self._proc.wait()
+            # Use 'runsc kill' for a more forceful stop, then clean up.
+            kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
+            proc = await asyncio.create_subprocess_exec(*kill_cmd)
+            await proc.wait()
 
     async def delete(self):
         await self.stop()
-        if os.path.exists(self._bundle_dir):
-            await asyncio.create_subprocess_exec("rm", "-rf", self._bundle_dir)
         
-        delete_cmd = self._build_runsc_cmd("delete", self.sandbox_id)
-        await asyncio.create_subprocess_exec(*delete_cmd)
+        # Use --force to ensure cleanup even if the container is stopped.
+        delete_cmd = self._build_runsc_cmd("delete", "--force", self.sandbox_id)
+        proc = await asyncio.create_subprocess_exec(*delete_cmd)
+        await proc.wait()
+
+        # Clean up the bundle directory on the host.
+        if os.path.exists(self._bundle_dir):
+            # Use a subprocess for 'rm -rf' to avoid issues with complex permissions.
+            await asyncio.create_subprocess_exec("rm", "-rf", self._bundle_dir)

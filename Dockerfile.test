@@ -27,4 +27,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install pytest pytest-asyncio
 
 # By default, run pytest when the container starts.
-CMD ["pytest"]
+CMD ["pytest", "-v", "-s", "-rA"]

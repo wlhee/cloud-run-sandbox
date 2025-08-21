@@ -37,8 +37,9 @@ jobs:
           # Create the application directory first
           mkdir -p container/rootfs/app
           
-          # Copy your application contents into the new directory
-          cp -r ./* container/rootfs/app/
+          ## Copy specific files/directories, excluding the container directory
+          find . -maxdepth 1 -type f -name "*.py" -o -name "*.js" -o -name "*.go" -o -name "*.txt" -o -name "*.json" -o -name "*.yaml" -o -name "*.yml" | \
+            xargs -I {} cp {} container/rootfs/app/ 2>/dev/null || true
           
       - name: Create runtime config
         run: |
