@@ -62,6 +62,9 @@ class GVisorSandbox(SandboxInterface):
                 ],
                 "linux": { "namespaces": [{"type": "pid"}, {"type": "ipc"}, {"type": "uts"}, {"type": "mount"}] }
             }
+            if self._config.systemd_cgroup:
+                config["linux"]["cgroupsPath"] = f"{self.sandbox_id}.scope"
+
             with open(os.path.join(self._bundle_dir, "config.json"), "w") as f:
                 json.dump(config, f, indent=4)
         except Exception as e:
