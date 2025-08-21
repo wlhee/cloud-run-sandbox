@@ -87,14 +87,14 @@ class GVisorSandbox(SandboxInterface):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            self._streaming_task = asyncio.create_task(self._stream_and_broadcast_output())
+            self._streaming_task = asyncio.create_task(self._stream_output_and_wait())
         except Exception as e:
             raise SandboxStartError(f"Failed to start gVisor container: {e}")
 
-    async def _stream_and_broadcast_output(self):
+    async def _stream_output_and_wait(self):
         """
-        The single producer task that reads from the sandbox process and
-        broadcasts the output to all listener queues.
+        Reads all output from the sandbox process, waits for it to exit,
+        and then broadcasts the stream closed signal.
         """
         async def broadcast(stream, stream_type):
             while True:
@@ -105,12 +105,18 @@ class GVisorSandbox(SandboxInterface):
                 for queue in self._listener_queues:
                     await queue.put(event)
         
+        # Concurrently read stdout and stderr until both are closed.
         await asyncio.gather(
             broadcast(self._proc.stdout, OutputType.STDOUT),
             broadcast(self._proc.stderr, OutputType.STDERR)
         )
 
-        # After the process is done, signal the end to all listeners
+        # The I/O streams from 'runsc start' have closed. Now, use 'runsc wait'
+        # to deterministically wait for the container to fully terminate.
+        wait_proc = await asyncio.create_subprocess_exec(*self._build_runsc_cmd("wait", self.sandbox_id))
+        await wait_proc.wait()
+
+        # Now, signal the end of the stream to all listeners.
         for queue in self._listener_queues:
             await queue.put(SandboxStreamClosed())
 
