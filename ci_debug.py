@@ -55,7 +55,7 @@ def main():
         "--network=none",
         "--ignore-cgroups",
         "--debug",
-        "--debug-log=/dev/stderr",        
+        "--debug-log=/tmp/runsc-debug/",
     ]
 
     # --- Test 1: runsc do ---
