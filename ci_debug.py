@@ -59,15 +59,15 @@ def main():
     ]
 
     # --- Test 1: runsc do ---
-    print("\n\n--- Test 1: Simple 'runsc do' ---")
-    run_command(runsc_flags + ["do", "echo", "--- Hello from runsc do ---"])
+    print("\n\n--- SKIP Test 1: Simple 'runsc do' ---")
+    #run_command(runsc_flags + ["do", "echo", "--- Hello from runsc do ---"])
 
     # --- Test 2: runsc run --bundle ---
-    print("\n\n--- Test 2: Synchronous 'runsc run' with a bundle ---")
+    print("\n\n--- SKIP Test 2: Synchronous 'runsc run' with a bundle ---")
     bundle_dir_run = tempfile.mkdtemp(prefix="runsc_run_")
     try:
         create_bundle(bundle_dir_run, ["echo", "--- Hello from runsc run ---"])
-        run_command(runsc_flags + ["run", "--bundle", bundle_dir_run, "run-test-container"])
+        #run_command(runsc_flags + ["run", "--bundle", bundle_dir_run, "run-test-container"])
     finally:
         print(f"--- Cleaning up {bundle_dir_run} ---")
         shutil.rmtree(bundle_dir_run)
