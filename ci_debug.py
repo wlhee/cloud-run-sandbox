@@ -51,7 +51,7 @@ def main():
     # Common runsc flags
     runsc_flags = [
         "sudo", "runsc",
-        "--platform=ptrace",
+        #"--platform=ptrace",
         "--network=none",
         "--ignore-cgroups",
         "--debug",
