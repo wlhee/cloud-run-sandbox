@@ -9,8 +9,10 @@ def run_command(cmd, check=True):
     """Helper to run a command and print its output."""
     print(f"--- Executing: {' '.join(cmd)} ---")
     result = subprocess.run(cmd, capture_output=True, text=True)
-    print(f"--- STDOUT ---\n{result.stdout}")
-    print(f"--- STDERR ---\n{result.stderr}")
+    print(f"--- STDOUT ---
+{result.stdout}")
+    print(f"--- STDERR ---
+{result.stderr}")
     print(f"--- Exit Code: {result.returncode} ---")
     if check and result.returncode != 0:
         print("--- Command failed. Exiting. ---")
@@ -67,6 +69,29 @@ def main():
     finally:
         print(f"--- Cleaning up {bundle_dir_run} ---")
         shutil.rmtree(bundle_dir_run)
+
+    # --- Test 3: runsc create -> start -> wait -> delete ---
+    print("\n\n--- Test 3: Full lifecycle: create, start, wait, delete ---")
+    bundle_dir_lifecycle = tempfile.mkdtemp(prefix="runsc_lifecycle_")
+    container_id = "lifecycle-test-container"
+    try:
+        create_bundle(bundle_dir_lifecycle, ["echo", "--- Hello from runsc lifecycle ---"])
+        
+        print("\n--- Running CREATE ---")
+        run_command(runsc_flags + ["create", "--bundle", bundle_dir_lifecycle, container_id])
+        
+        print("\n--- Running START ---")
+        # 'start' is asynchronous, so we don't check its exit code immediately
+        run_command(runsc_flags + ["start", container_id], check=False)
+
+        print("\n--- Running WAIT ---")
+        run_command(runsc_flags + ["wait", container_id])
+
+    finally:
+        print("\n--- Running DELETE (cleanup) ---")
+        run_command(runsc_flags + ["delete", "--force", container_id], check=False)
+        print(f"--- Cleaning up {bundle_dir_lifecycle} ---")
+        shutil.rmtree(bundle_dir_lifecycle)
 
     print("\n\n--- All debug tests completed successfully! ---")
 
