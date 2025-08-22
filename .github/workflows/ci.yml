@@ -34,20 +34,10 @@ jobs:
         )
         runsc --version
 
-    - name: Run Debug Script
-      timeout-minutes: 2
+    - name: Install dependencies
       run: |
-        sudo mkdir -p /tmp/runsc-debug
-        sudo python3 -u ci_debug.py
+        pip install -r requirements.txt
 
-    - name: Print runsc debug logs
-      if: always()
+    - name: Run Tests
       run: |
-        echo "--- Contents of /tmp/runsc-debug ---"
-        find /tmp/runsc-debug -ls
-        echo "--- Log file contents ---"
-        for file in $(find /tmp/runsc-debug -type f); do
-          echo "--- $file ---"
-          cat "$file"
-        done
-        echo "--- End of logs ---"
+        sudo pytest -v
