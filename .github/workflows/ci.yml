@@ -35,4 +35,4 @@ jobs:
         runsc --version
 
     - name: Run Debug Script
-      run: python3 ci_debug.py
+      run: sudo python3 ci_debug.py
