@@ -11,33 +11,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: Build test container
-      run: docker build -t sandbox-ci -f Dockerfile.test .
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-    - name: Verify runsc installation in container
+    - name: Install gVisor (runsc)
       run: |
-        docker run --rm --privileged sandbox-ci bash -c "echo 'PATH is: $PATH' && ls -l /usr/local/bin/runsc && which runsc && runsc --version"
+        sudo apt-get update && sudo apt-get install -y curl wget
+        (
+          set -e;
+          ARCH=$(uname -m);
+          URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH};
+          wget ${URL}/runsc ${URL}/runsc.sha512;
+          sha512sum -c runsc.sha512;
+          rm -f *.sha512;
+          chmod a+rx runsc;
+          sudo mv runsc /usr/local/bin;
+        )
+        runsc --version
 
-    - name: Run tests in container
-      timeout-minutes: 2
+    - name: Install dependencies
       run: |
-        docker run --rm \
-          --privileged \
-          --security-opt seccomp=unconfined \
-          --security-opt apparmor=unconfined \
-          -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-          -e PYTHONUNBUFFERED=1 \
-          -e RUNSC_IGNORE_CGROUPS=true \
-          -e RUNSC_DEBUG=true \
-          --name sandbox-ci-container \
-          sandbox-ci
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio
 
-    - name: Print runsc debug logs
-      if: always()
-      run: |
-        docker cp sandbox-ci-container:/tmp/runsc-debug.log ./runsc-debug.log || true
-        echo "--- runsc-debug.log ---"
-        cat ./runsc-debug.log || echo "runsc-debug.log not found."
-        echo "--- end runsc-debug.log ---"
+    - name: Run tests
+      env:
+        PYTHONUNBUFFERED: "1"
+        RUNSC_IGNORE_CGROUPS: "true"
+      run: pytest -v -s -rA
