@@ -70,7 +70,7 @@ def main():
     bundle_dir_lifecycle = tempfile.mkdtemp(prefix="runsc_lifecycle_")
     container_id = "lifecycle-test-container"
     try:
-        create_bundle(bundle_dir_lifecycle, ["echo", "--- Hello from runsc lifecycle ---"])
+        create_bundle(bundle_dir_lifecycle, ["sh", "-c", "sleep 2 && echo '--- Hello from runsc lifecycle ---'"])
         
         print("\n--- Running CREATE ---")
         # We run 'create' with capture_output=False.
