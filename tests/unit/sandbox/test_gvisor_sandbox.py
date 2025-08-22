@@ -15,13 +15,24 @@ async def test_gvisor_sandbox_hello_world():
     Tests a full, end-to-end lifecycle of the GVisorSandbox by running
     a simple 'hello world' script and checking for its output.
     """
+    print(f"Creating sandbox instance with ID 'gvisor-test-123'")
+
     sandbox = create_sandbox_instance("gvisor-test-123")
+
+    print(f"Done sandbox instance with ID 'gvisor-test-123'")
+
     
     try:
         # 1. Create and start the sandbox
+        print(f"calling sandbox.create())")
+
         await sandbox.create()
+
+        print(f"calling sandbox.start())")
+
         await sandbox.start(code="import sys; print('hello from gvisor'); sys.stderr.write('an error message\n')")
 
+        print(f"Sandbox started, now connecting to output stream.")
         # 2. Connect and collect all output
         output_events = []
         try:
