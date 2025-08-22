@@ -34,5 +34,5 @@ jobs:
         )
         runsc --version
 
-    - name: Run Debug Script
-      run: sudo python3 ci_debug.py
+    - name: Run a simple python command
+      run: sudo python3 -c "print('--- Hello from Python ---')"
