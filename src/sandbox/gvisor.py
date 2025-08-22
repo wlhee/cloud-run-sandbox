@@ -1,9 +1,12 @@
 import asyncio
 import os
 import json
+import logging
 from dataclasses import dataclass, field
 from .interface import SandboxInterface, SandboxCreationError, SandboxStartError, SandboxStreamClosed
 from .events import SandboxOutputEvent, OutputType
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 @dataclass
 class GVisorConfig:
@@ -49,7 +52,9 @@ class GVisorSandbox(SandboxInterface):
         The container itself is not created until start() is called.
         """
         try:
+            logging.info(f"[{self.sandbox_id}] Creating bundle directory: {self._bundle_dir}")
             os.makedirs(self._bundle_dir, exist_ok=True)
+            logging.info(f"[{self.sandbox_id}] Bundle directory created.")
             config = {
                 "ociVersion": "1.0.0",
                 "process": { "user": {"uid": 0, "gid": 0}, "args": [], "env": [], "cwd": "/" },
@@ -63,9 +68,13 @@ class GVisorSandbox(SandboxInterface):
                 "linux": { "namespaces": [{"type": "pid"}, {"type": "ipc"}, {"type": "uts"}, {"type": "mount"}] }
             }
 
-            with open(os.path.join(self._bundle_dir, "config.json"), "w") as f:
+            config_path = os.path.join(self._bundle_dir, "config.json")
+            logging.info(f"[{self.sandbox_id}] Writing OCI config to: {config_path}")
+            with open(config_path, "w") as f:
                 json.dump(config, f, indent=4)
+            logging.info(f"[{self.sandbox_id}] OCI config written.")
         except Exception as e:
+            logging.error(f"[{self.sandbox_id}] Error creating gVisor bundle: {e}")
             raise SandboxCreationError(f"Failed to create gVisor bundle: {e}")
 
     async def start(self, code: str):
@@ -75,42 +84,53 @@ class GVisorSandbox(SandboxInterface):
         try:
             # Write the user's code to a file in the bundle directory.
             temp_filepath = os.path.join(self._bundle_dir, "main.py")
+            logging.info(f"[{self.sandbox_id}] Writing code to: {temp_filepath}")
             with open(temp_filepath, "w") as f:
                 f.write(code)
+            logging.info(f"[{self.sandbox_id}] Code written.")
 
             # Update the OCI config to execute the user's code.
             config_path = os.path.join(self._bundle_dir, "config.json")
+            logging.info(f"[{self.sandbox_id}] Updating OCI config for execution.")
             with open(config_path, "r+") as f:
                 config = json.load(f)
                 config["process"]["args"] = ["python3", "/main.py"]
                 f.seek(0)
                 json.dump(config, f, indent=4)
                 f.truncate()
+            logging.info(f"[{self.sandbox_id}] OCI config updated.")
 
             # Create the container now that the config is complete.
             create_cmd = self._build_runsc_cmd("create", "--bundle", self._bundle_dir, self.sandbox_id)
+            logging.info(f"[{self.sandbox_id}] Executing runsc create: {' '.join(create_cmd)}")
             proc = await asyncio.create_subprocess_exec(
                 *create_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             _, stderr_bytes = await proc.communicate()
+            logging.info(f"[{self.sandbox_id}] runsc create finished with exit code {proc.returncode}.")
 
             if proc.returncode != 0:
+                stderr = stderr_bytes.decode('utf-8')
+                logging.error(f"[{self.sandbox_id}] Failed to create gVisor container: {stderr}")
                 # This is a SandboxStartError because creation is part of the start lifecycle
-                raise SandboxStartError(f"Failed to create gVisor container: {stderr_bytes.decode('utf-8')}")
+                raise SandboxStartError(f"Failed to create gVisor container: {stderr}")
 
             # 'runsc start' begins the process in the already-created container.
             start_cmd = self._build_runsc_cmd("start", self.sandbox_id)
+            logging.info(f"[{self.sandbox_id}] Executing runsc start: {' '.join(start_cmd)}")
             self._proc = await asyncio.create_subprocess_exec(
                 *start_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
+            logging.info(f"[{self.sandbox_id}] runsc start process initiated.")
             # Immediately start the task to stream output. No health checks needed.
             self._streaming_task = asyncio.create_task(self._stream_output_and_wait())
 
         except Exception as e:
+            logging.error(f"[{self.sandbox_id}] Error starting gVisor container: {e}")
             if not isinstance(e, SandboxStartError):
                  raise SandboxStartError(f"Failed to start gVisor container: {e}")
             else:
@@ -121,6 +141,7 @@ class GVisorSandbox(SandboxInterface):
         Reads all output from the sandbox process, waits for it to exit,
         and then broadcasts the stream closed signal.
         """
+        logging.info(f"[{self.sandbox_id}] Starting to stream output.")
         async def broadcast(stream, stream_type):
             while True:
                 line = await stream.readline()
@@ -135,15 +156,20 @@ class GVisorSandbox(SandboxInterface):
             broadcast(self._proc.stdout, OutputType.STDOUT),
             broadcast(self._proc.stderr, OutputType.STDERR)
         )
+        logging.info(f"[{self.sandbox_id}] Output streams closed.")
 
         # The I/O streams from 'runsc start' have closed. Now, use 'runsc wait'
         # to deterministically wait for the container to fully terminate.
-        wait_proc = await asyncio.create_subprocess_exec(*self._build_runsc_cmd("wait", self.sandbox_id))
+        wait_cmd = self._build_runsc_cmd("wait", self.sandbox_id)
+        logging.info(f"[{self.sandbox_id}] Executing runsc wait: {' '.join(wait_cmd)}")
+        wait_proc = await asyncio.create_subprocess_exec(*wait_cmd)
         await wait_proc.wait()
+        logging.info(f"[{self.sandbox_id}] runsc wait finished.")
 
         # Now, signal the end of the stream to all listeners.
         for queue in self._listener_queues:
             await queue.put(SandboxStreamClosed())
+        logging.info(f"[{self.sandbox_id}] Stream closed signal sent.")
 
     async def connect(self):
         """
