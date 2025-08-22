@@ -23,7 +23,11 @@ jobs:
     - name: Run tests in container
       timeout-minutes: 2
       run: |
-        docker run --rm --privileged --security-opt seccomp=unconfined \
+        docker run --rm \
+          --privileged \
+          --security-opt seccomp=unconfined \
+          --security-opt apparmor=unconfined \
+          -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
           -e PYTHONUNBUFFERED=1 \
           -e RUNSC_IGNORE_CGROUPS=true \
           -e RUNSC_DEBUG=true \
