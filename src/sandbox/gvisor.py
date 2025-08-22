@@ -11,7 +11,7 @@ class GVisorConfig:
     rootless: bool = False
     root_dir: str = None
     bundle_dir_base: str = "/tmp"
-    systemd_cgroup: bool = False
+    ignore_cgroups: bool = False
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -34,8 +34,8 @@ class GVisorSandbox(SandboxInterface):
     def _build_runsc_cmd(self, *args):
         """Builds a runsc command, adding configured flags."""
         cmd = ["runsc"]
-        if self._config.systemd_cgroup:
-            cmd.append("--systemd-cgroup")
+        if self._config.ignore_cgroups:
+            cmd.append("--ignore-cgroups")
         if self._config.rootless:
             cmd.append("--rootless")
         if self._config.root_dir:
@@ -62,8 +62,6 @@ class GVisorSandbox(SandboxInterface):
                 ],
                 "linux": { "namespaces": [{"type": "pid"}, {"type": "ipc"}, {"type": "uts"}, {"type": "mount"}] }
             }
-            if self._config.systemd_cgroup:
-                config["linux"]["cgroupsPath"] = f"/runsc/machine-{self.sandbox_id}.scope"
 
             with open(os.path.join(self._bundle_dir, "config.json"), "w") as f:
                 json.dump(config, f, indent=4)
