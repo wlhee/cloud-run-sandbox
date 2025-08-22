@@ -36,20 +36,18 @@ jobs:
 
     - name: Run Debug Script
       timeout-minutes: 2
-      run:
-        mkdir -p /tmp/runsc-debug 
+      run: |
+        sudo mkdir -p /tmp/runsc-debug
         sudo python3 -u ci_debug.py
 
     - name: Print runsc debug logs
       if: always()
       run: |
-        echo "--- runsc-debug.log ---"
-        cat /tmp/runsc-debug.log || echo "runsc-debug.log not found."
-        echo "--- end runsc-debug.log ---"
-
-    - name: List runsc-debug directory
-      if: always()
-      run: |
         echo "--- Contents of /tmp/runsc-debug ---"
         find /tmp/runsc-debug -ls
-        echo "--- End contents of /tmp/runsc-debug ---"
+        echo "--- Log file contents ---"
+        for file in $(find /tmp/runsc-debug -type f); do
+          echo "--- $file ---"
+          cat "$file"
+        done
+        echo "--- End of logs ---"
