@@ -35,6 +35,7 @@ jobs:
         runsc --version
 
     - name: Run Debug Script
+      timeout-minutes: 1
       run: sudo python3 -u ci_debug.py
 
     - name: Print runsc debug logs
