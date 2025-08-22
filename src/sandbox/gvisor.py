@@ -58,7 +58,15 @@ class GVisorSandbox(SandboxInterface):
 
             config = {
                 "ociVersion": "1.0.0",
-                "process": { "user": {"uid": 0, "gid": 0}, "args": [], "env": [], "cwd": "/" },
+                "process": {
+                    "user": {"uid": 0, "gid": 0},
+                    "args": [],
+                    "env": [
+                        "PATH=/usr/local/bin:/usr/bin:/bin",
+                        "PYTHONUNBUFFERED=1"
+                    ],
+                    "cwd": "/"
+                },
                 "root": {"path": "/", "readonly": True},
                 "hostname": "runsc",
                 "mounts": [
