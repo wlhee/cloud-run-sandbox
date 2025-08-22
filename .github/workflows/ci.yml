@@ -34,6 +34,17 @@ jobs:
         )
         runsc --version
 
+    - name: Run runsc manually for debugging
+      run: |
+        sudo runsc --rootless --network=none --strace --debug --debug-log=/tmp/runsc-debug.log do /bin/bash || true
+    
+    - name: Print runsc debug logs
+      if: always()
+      run: |
+        echo "--- runsc-debug.log ---"
+        cat /tmp/runsc-debug.log || echo "runsc-debug.log not found."
+        echo "--- end runsc-debug.log ---"
+
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
