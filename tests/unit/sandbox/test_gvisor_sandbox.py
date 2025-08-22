@@ -8,9 +8,12 @@ from src.sandbox.interface import SandboxStreamClosed
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
 
+print(f"test_gvisor_sandbox runsc_path: {runsc_path}")
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_gvisor_sandbox_hello_world():
+    print(f"Running test_gvisor_sandbox_hello_world")
     """
     Tests a full, end-to-end lifecycle of the GVisorSandbox by running
     a simple 'hello world' script and checking for its output.
@@ -55,6 +58,7 @@ async def test_gvisor_sandbox_hello_world():
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_gvisor_sandbox_stream_closes():
+    print(f"Running test_gvisor_sandbox_stream_closes")
     """
     Tests that the connect() stream correctly raises SandboxStreamClosed
     when the sandbox process finishes.
@@ -77,6 +81,7 @@ async def test_gvisor_sandbox_stream_closes():
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_gvisor_sandbox_multiple_connections():
+    print(f"Running test_gvisor_sandbox_multiple_connections")
     """
     Tests that multiple clients can connect to the same sandbox and receive
     the output stream without interfering with each other.
@@ -137,6 +142,7 @@ async def test_gvisor_sandbox_multiple_connections():
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_gvisor_sandbox_disconnect_reconnect():
+    print(f"Running test_gvisor_sandbox_disconnect_reconnect")
     """
     Tests that a client can disconnect and a new client can reconnect,
     receiving only the new output.
@@ -194,6 +200,7 @@ async def test_gvisor_sandbox_disconnect_reconnect():
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_gvisor_sandbox_slow_consumer():
+    print(f"Running test_gvisor_sandbox_slow_consumer")
     """
     Tests that a slow consumer will still receive all messages even if the
     sandbox process finishes before the consumer is done reading.
