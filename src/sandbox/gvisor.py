@@ -109,6 +109,12 @@ class GVisorSandbox(SandboxInterface):
                 f.truncate()
             print(f"[{self.sandbox_id}] OCI config updated.")
 
+            # Print the config for debugging
+            with open(config_path, "r") as f:
+                print(f"[{self.sandbox_id}] --- config.json ---")
+                print(f.read())
+                print(f"[{self.sandbox_id}] --- end config.json ---")
+
             # Create the container now that the config is complete.
             create_cmd = self._build_runsc_cmd("create", "--bundle", self._bundle_dir, self.sandbox_id)
             print(f"[{self.sandbox_id}] Executing runsc create: {' '.join(create_cmd)}")
