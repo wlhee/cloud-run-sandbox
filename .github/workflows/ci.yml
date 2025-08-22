@@ -36,7 +36,7 @@ jobs:
 
     - name: Run runsc manually for debugging
       run: |
-        sudo runsc --rootless --network=none --strace --debug --debug-log=/tmp/runsc-debug.log do /bin/bash || true
+        sudo runsc --rootless --network=none --debug --debug-log=/tmp/runsc-debug.log do /bin/bash || true
     
     - name: Print runsc debug logs
       if: always()
