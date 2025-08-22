@@ -22,6 +22,7 @@ jobs:
 
     - name: Run tests in container
       run: |
-        docker run --rm --privileged \
+        docker run --rm --privileged --security-opt seccomp=unconfined \
+          -e PYTHONUNBUFFERED=1 \
           -e RUNSC_IGNORE_CGROUPS=true \
           sandbox-ci
