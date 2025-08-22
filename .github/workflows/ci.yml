@@ -40,4 +40,4 @@ jobs:
 
     - name: Run Tests
       run: |
-        pytest -v -s -rA
+        sudo $(which pytest) -v -s -rA
