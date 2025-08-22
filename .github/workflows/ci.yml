@@ -40,4 +40,4 @@ jobs:
 
     - name: Run Tests
       run: |
-        sudo pytest -v
+        pytest -v -s -rA
