@@ -1,4 +1,8 @@
 import subprocess
+import os
+import json
+import tempfile
+import shutil
 import sys
 
 def run_command(cmd, check=True):
@@ -13,10 +17,36 @@ def run_command(cmd, check=True):
         sys.exit(1)
     return result
 
+def create_bundle(bundle_dir, command):
+    """Creates a minimal OCI bundle in the given directory."""
+    print(f"\n--- Creating bundle in {bundle_dir} ---")
+    
+    # The config.json is minimal, using the host's rootfs
+    config = {
+        "ociVersion": "1.0.0",
+        "process": {
+            "user": {"uid": 0, "gid": 0},
+            "args": command,
+            "env": ["PATH=/usr/local/bin:/usr/bin:/bin"],
+            "cwd": "/"
+        },
+        "root": {"path": "/", "readonly": True},
+        "mounts": [
+            {"destination": "/proc", "type": "proc", "source": "proc"}
+        ]
+    }
+    config_path = os.path.join(bundle_dir, "config.json")
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
+    print(f"--- Wrote config.json to {config_path} ---")
+    print(json.dumps(config, indent=4))
+    return bundle_dir
+
 def main():
     """
-    Runs the simplest possible gVisor test.
+    Runs a series of increasingly complex gVisor tests to debug the CI environment.
     """
+    # Common runsc flags
     runsc_flags = [
         "sudo", "runsc",
         "--platform=ptrace",
@@ -24,11 +54,21 @@ def main():
         "--ignore-cgroups"
     ]
 
+    # --- Test 1: runsc do ---
     print("\n\n--- Test 1: Simple 'runsc do' ---")
     run_command(runsc_flags + ["do", "echo", "--- Hello from runsc do ---"])
-    
-    print("\n\n--- Minimal debug test completed successfully! ---")
+
+    # --- Test 2: runsc run --bundle ---
+    print("\n\n--- Test 2: Synchronous 'runsc run' with a bundle ---")
+    bundle_dir_run = tempfile.mkdtemp(prefix="runsc_run_")
+    try:
+        create_bundle(bundle_dir_run, ["echo", "--- Hello from runsc run ---"])
+        run_command(runsc_flags + ["run", "--bundle", bundle_dir_run, "run-test-container"])
+    finally:
+        print(f"--- Cleaning up {bundle_dir_run} ---")
+        shutil.rmtree(bundle_dir_run)
+
+    print("\n\n--- All debug tests completed successfully! ---")
 
 if __name__ == "__main__":
     main()
-
