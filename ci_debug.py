@@ -53,7 +53,9 @@ def main():
         "sudo", "runsc",
         "--platform=ptrace",
         "--network=none",
-        "--ignore-cgroups"
+        "--ignore-cgroups",
+        "--debug",
+        "--debug-log=/tmp/runsc-debug.log"
     ]
 
     # --- Test 1: runsc do ---
@@ -70,8 +72,8 @@ def main():
         print(f"--- Cleaning up {bundle_dir_run} ---")
         shutil.rmtree(bundle_dir_run)
 
-    # --- Test 3: runsc create ---
-    print("\n\n--- Test 3: Create only ---")
+    # --- Test 3: runsc create -> start -> wait -> delete ---
+    print("\n\n--- Test 3: Full lifecycle: create, start, wait, delete ---")
     bundle_dir_lifecycle = tempfile.mkdtemp(prefix="runsc_lifecycle_")
     container_id = "lifecycle-test-container"
     try:
@@ -80,6 +82,13 @@ def main():
         print("\n--- Running CREATE ---")
         run_command(runsc_flags + ["create", "--bundle", bundle_dir_lifecycle, container_id])
         
+        print("\n--- Running START ---")
+        # 'start' is asynchronous, so we don't check its exit code immediately
+        run_command(runsc_flags + ["start", container_id], check=False)
+
+        print("\n--- Running WAIT ---")
+        run_command(runsc_flags + ["wait", container_id])
+
     finally:
         print("\n--- Running DELETE (cleanup) ---")
         run_command(runsc_flags + ["delete", "--force", container_id], check=False)
