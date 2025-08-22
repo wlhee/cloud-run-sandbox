@@ -7,6 +7,7 @@ def create_sandbox_instance(sandbox_id: str):
     """
     # Create GVisorConfig from environment variables
     config = GVisorConfig(
+        use_sudo=os.environ.get('RUNSC_USE_SUDO', 'true').lower() in ['true', '1'],
         rootless=os.environ.get('RUNSC_ROOTLESS', 'false').lower() in ['true', '1'],
         root_dir=os.environ.get('RUNSC_ROOT_DIR'),
         bundle_dir_base=os.environ.get('RUNSC_BUNDLE_DIR_BASE', '/tmp'),

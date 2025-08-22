@@ -9,6 +9,7 @@ from .events import SandboxOutputEvent, OutputType
 @dataclass
 class GVisorConfig:
     """Configuration for the GVisorSandbox."""
+    use_sudo: bool = True
     rootless: bool = False
     root_dir: str = None
     bundle_dir_base: str = "/tmp"
@@ -35,6 +36,8 @@ class GVisorSandbox(SandboxInterface):
     def _build_runsc_cmd(self, *args):
         """Builds a runsc command, adding configured flags."""
         cmd = ["runsc"]
+        if self._config.use_sudo:
+            cmd.insert(0, "sudo")
         if self._config.ignore_cgroups:
             cmd.append("--ignore-cgroups")
         if self._config.rootless:
@@ -44,6 +47,7 @@ class GVisorSandbox(SandboxInterface):
         if self._config.platform:
             cmd.extend(["--platform", self._config.platform])
         cmd.extend(args)
+        print(f"--- Built runsc command: {' '.join(cmd)} ---")
         return cmd
 
     async def create(self):
