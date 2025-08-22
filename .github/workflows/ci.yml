@@ -43,4 +43,5 @@ jobs:
       env:
         PYTHONUNBUFFERED: "1"
         RUNSC_IGNORE_CGROUPS: "true"
+        RUNSC_PLATFORM: "ptrace"
       run: sudo -E $(which pytest) -v -s -rA

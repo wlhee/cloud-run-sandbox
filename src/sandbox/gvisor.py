@@ -13,6 +13,7 @@ class GVisorConfig:
     bundle_dir_base: str = "/tmp"
     ignore_cgroups: bool = False
     debug: bool = False
+    platform: str = "systrap"
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -44,6 +45,8 @@ class GVisorSandbox(SandboxInterface):
             cmd.append("--rootless")
         if self._config.root_dir:
             cmd.extend(["--root", self._config.root_dir])
+        if self._config.platform:
+            cmd.extend(["--platform", self._config.platform])
         cmd.extend(args)
         return cmd
 
