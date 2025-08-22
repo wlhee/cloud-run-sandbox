@@ -52,15 +52,25 @@ class GVisorSandbox(SandboxInterface):
             print(f"[{self.sandbox_id}] Creating bundle directory: {self._bundle_dir}")
             os.makedirs(self._bundle_dir, exist_ok=True)
             print(f"[{self.sandbox_id}] Bundle directory created.")
+
+            # The sandbox code will be mounted into the container at this path.
+            sandbox_code_path = "/sandbox_code"
+
             config = {
                 "ociVersion": "1.0.0",
                 "process": { "user": {"uid": 0, "gid": 0}, "args": [], "env": [], "cwd": "/" },
-                "root": {"path": self._bundle_dir, "readonly": False},
+                "root": {"path": "/", "readonly": True},
                 "hostname": "runsc",
                 "mounts": [
                     {"destination": "/proc", "type": "proc", "source": "proc"},
                     {"destination": "/dev", "type": "tmpfs", "source": "tmpfs"},
                     {"destination": "/sys", "type": "sysfs", "source": "sysfs"},
+                    {
+                        "destination": sandbox_code_path,
+                        "type": "bind",
+                        "source": self._bundle_dir,
+                        "options": ["rbind", "ro"]
+                    }
                 ],
                 "linux": { "namespaces": [{"type": "pid"}, {"type": "ipc"}, {"type": "uts"}, {"type": "mount"}] }
             }
@@ -91,7 +101,9 @@ class GVisorSandbox(SandboxInterface):
             print(f"[{self.sandbox_id}] Updating OCI config for execution.")
             with open(config_path, "r+") as f:
                 config = json.load(f)
-                config["process"]["args"] = ["python3", "/main.py"]
+                # The sandbox code path is defined in the create() method.
+                sandbox_code_path = config["mounts"][3]["destination"]
+                config["process"]["args"] = ["python3", f"{sandbox_code_path}/main.py"]
                 f.seek(0)
                 json.dump(config, f, indent=4)
                 f.truncate()
