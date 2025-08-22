@@ -9,10 +9,10 @@ def run_command(cmd, check=True):
     """Helper to run a command and print its output."""
     print(f"--- Executing: {' '.join(cmd)} ---")
     result = subprocess.run(cmd, capture_output=True, text=True)
-    print(f"--- STDOUT ---
-{result.stdout}")
-    print(f"--- STDERR ---
-{result.stderr}")
+    print("--- STDOUT ---")
+    print(result.stdout)
+    print("--- STDERR ---")
+    print(result.stderr)
     print(f"--- Exit Code: {result.returncode} ---")
     if check and result.returncode != 0:
         print("--- Command failed. Exiting. ---")
