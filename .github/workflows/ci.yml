@@ -16,6 +16,10 @@ jobs:
     - name: Build test container
       run: docker build -t sandbox-ci -f Dockerfile.test .
 
+    - name: Verify runsc installation in container
+      run: |
+        docker run --rm --privileged sandbox-ci bash -c "echo 'PATH is: $PATH' && ls -l /usr/local/bin/runsc && which runsc && runsc --version"
+
     - name: Run tests in container
       run: |
         docker run --rm --privileged \
