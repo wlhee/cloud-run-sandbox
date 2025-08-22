@@ -63,7 +63,7 @@ class GVisorSandbox(SandboxInterface):
                 "linux": { "namespaces": [{"type": "pid"}, {"type": "ipc"}, {"type": "uts"}, {"type": "mount"}] }
             }
             if self._config.systemd_cgroup:
-                config["linux"]["cgroupsPath"] = f"machine-{self.sandbox_id}.scope"
+                config["linux"]["cgroupsPath"] = f"/runsc/machine-{self.sandbox_id}.scope"
 
             with open(os.path.join(self._bundle_dir, "config.json"), "w") as f:
                 json.dump(config, f, indent=4)
