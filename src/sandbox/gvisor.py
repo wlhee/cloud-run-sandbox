@@ -12,6 +12,7 @@ class GVisorConfig:
     root_dir: str = None
     bundle_dir_base: str = "/tmp"
     ignore_cgroups: bool = False
+    debug: bool = False
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -34,6 +35,9 @@ class GVisorSandbox(SandboxInterface):
     def _build_runsc_cmd(self, *args):
         """Builds a runsc command, adding configured flags."""
         cmd = ["runsc"]
+        if self._config.debug:
+            # --debug-log path is inside the test container.
+            cmd.extend(["--debug", "--log-format=text", "--debug-log", "/tmp/runsc-debug.log"])
         if self._config.ignore_cgroups:
             cmd.append("--ignore-cgroups")
         if self._config.rootless:

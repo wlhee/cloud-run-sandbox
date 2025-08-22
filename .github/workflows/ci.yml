@@ -21,8 +21,19 @@ jobs:
         docker run --rm --privileged sandbox-ci bash -c "echo 'PATH is: $PATH' && ls -l /usr/local/bin/runsc && which runsc && runsc --version"
 
     - name: Run tests in container
+      timeout-minutes: 2
       run: |
         docker run --rm --privileged --security-opt seccomp=unconfined \
           -e PYTHONUNBUFFERED=1 \
           -e RUNSC_IGNORE_CGROUPS=true \
+          -e RUNSC_DEBUG=true \
+          --name sandbox-ci-container \
           sandbox-ci
+
+    - name: Print runsc debug logs
+      if: always()
+      run: |
+        docker cp sandbox-ci-container:/tmp/runsc-debug.log ./runsc-debug.log || true
+        echo "--- runsc-debug.log ---"
+        cat ./runsc-debug.log || echo "runsc-debug.log not found."
+        echo "--- end runsc-debug.log ---"
