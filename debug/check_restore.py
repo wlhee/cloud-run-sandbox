@@ -68,7 +68,7 @@ def main():
 
         # 2. Execute the first command.
         print("\n--- Executing first command before checkpoint ---")
-        exec_cmd1 = runsc_base_cmd + ["exec", container_id, "echo", "hello from first exec"]
+        exec_cmd1 = runsc_base_cmd + ["exec", container_id, "which", "sh"]
         result1 = run_sync_command(exec_cmd1)
         assert "hello from first exec" in result1.stdout
 
