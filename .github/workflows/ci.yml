@@ -40,4 +40,4 @@ jobs:
 
     - name: Run Check Restore Script
       run: |
-        python3 debug/check_restore.py
+        sudo python3 debug/check_restore.py
