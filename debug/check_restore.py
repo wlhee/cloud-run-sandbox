@@ -72,9 +72,9 @@ def main():
 
         # 2. Execute the first command.
         print("\n--- Executing first command before checkpoint ---")
-        exec_cmd1 = runsc_base_cmd + ["exec", container_id, "which", "sh"]
+        exec_cmd1 = runsc_base_cmd + ["exec", container_id, "echo", "hello from first exec"]
         result1 = run_sync_command(exec_cmd1)
-        #assert "hello from first exec" in result1.stdout
+        assert "hello from first exec" in result1.stdout
 
         # 3. Checkpoint the container.
         print(f"\n--- Checkpointing container '{container_id}' ---")
@@ -91,9 +91,9 @@ def main():
 
         # 5. Execute the second command on the restored container.
         print("\n--- Executing second command after restore ---")
-        exec_cmd2 = runsc_base_cmd + ["exec", restored_container_id, "which", "bash"]
+        exec_cmd2 = runsc_base_cmd + ["exec", restored_container_id, "echo", "hello from second exec"]
         result2 = run_sync_command(exec_cmd2)
-        #assert "hello from second exec" in result2.stdout
+        assert "hello from second exec" in result2.stdout
 
         print("\n--- SUCCESS: Container checkpointed, restored, and exec still works! ---")
 
