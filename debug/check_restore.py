@@ -57,8 +57,8 @@ def main():
     run_proc = None
 
     try:
-        # Start a long-running bash process
-        create_bundle(bundle_dir, ["/bin/bash"])
+        # Start a long-running shell process
+        create_bundle(bundle_dir, ["/bin/sh"])
 
         # 1. Start the container in the background.
         run_cmd = runsc_base_cmd + ["run", "--bundle", bundle_dir, container_id]
