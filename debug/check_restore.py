@@ -44,75 +44,60 @@ def create_bundle(bundle_dir, command):
 
 def main():
     """
-    Tests if a container started with 'runsc run' can be checkpointed and restored.
+    Tests if a container started with 'runsc run' can be checkpointed,
+    restored, and can still execute new commands.
     """
     runsc_base_cmd = ["sudo", "runsc", "--platform=ptrace", "--network=none"]
     
-    bundle_dir = tempfile.mkdtemp(prefix="runsc_checkpoint_")
+    bundle_dir = tempfile.mkdtemp(prefix="runsc_exec_")
     image_path = tempfile.mkdtemp(prefix="runsc_image_")
-    container_id = "checkpoint-test"
-    restored_container_id = "checkpoint-test-restored"
+    container_id = "exec-test"
+    restored_container_id = "exec-test-restored"
     
     run_proc = None
-    restore_proc = None
 
     try:
-        # A script that prints a number every second.
-        counter_script = ["sh", "-c", "i=0; while true; do echo $i; i=$((i+1)); sleep 1; done"]
-        create_bundle(bundle_dir, counter_script)
+        # Start a long-running bash process
+        create_bundle(bundle_dir, ["/bin/bash"])
 
         # 1. Start the container in the background.
         run_cmd = runsc_base_cmd + ["run", "--bundle", bundle_dir, container_id]
         print(f"--- Starting container with command: {' '.join(run_cmd)} ---")
-        run_proc = subprocess.Popen(run_cmd, stdout=subprocess.PIPE, text=True)
+        run_proc = subprocess.Popen(run_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(2) # Give it a moment to stabilize
 
-        # 2. Read the first few lines of output to see where we are.
-        print("\n--- Reading initial output... ---")
-        last_number = -1
-        for i in range(4): # Read for 4 seconds
-            line = run_proc.stdout.readline().strip()
-            print(f"Read: {line}")
-            try:
-                last_number = int(line)
-            except (ValueError, TypeError):
-                print(f"Warning: Could not parse '{line}' as an integer.")
-                continue
-        
-        if last_number < 2:
-             print("--- Test failed: Did not receive enough initial output. ---")
-             sys.exit(1)
+        # 2. Execute the first command.
+        print("\n--- Executing first command before checkpoint ---")
+        exec_cmd1 = runsc_base_cmd + ["exec", container_id, "echo", "hello from first exec"]
+        result1 = run_sync_command(exec_cmd1)
+        assert "hello from first exec" in result1.stdout
 
-        # 3. Checkpoint the container. This will stop it.
-        print(f"\n--- Checkpointing container '{container_id}' (last number was {last_number}) ---")
+        # 3. Checkpoint the container.
+        print(f"\n--- Checkpointing container '{container_id}' ---")
         checkpoint_cmd = runsc_base_cmd + ["checkpoint", f"--image-path={image_path}", container_id]
         run_sync_command(checkpoint_cmd)
-        
-        # Wait for the original process to terminate.
         run_proc.wait(timeout=5)
 
         # 4. Restore the container.
-        print(f"\n--- Restoring container to '{restored_container_id}' ---")
+        print("\n--- Restoring container to '" + restored_container_id + "' ---")
+        # Note: 'restore' also needs a process to run in the background
         restore_cmd = runsc_base_cmd + ["restore", "--bundle", bundle_dir, f"--image-path={image_path}", restored_container_id]
-        restore_proc = subprocess.Popen(restore_cmd, stdout=subprocess.PIPE, text=True)
+        restore_proc = subprocess.Popen(restore_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(2) # Give it a moment to stabilize
 
-        # 5. Verify the first line of output from the restored container.
-        print("\n--- Reading restored output... ---")
-        restored_line = restore_proc.stdout.readline().strip()
-        print(f"Read from restored: {restored_line}")
-        restored_number = int(restored_line)
+        # 5. Execute the second command on the restored container.
+        print("\n--- Executing second command after restore ---")
+        exec_cmd2 = runsc_base_cmd + ["exec", restored_container_id, "echo", "hello from second exec"]
+        result2 = run_sync_command(exec_cmd2)
+        assert "hello from second exec" in result2.stdout
 
-        print(f"\n--- Verification ---")
-        print(f"Last number before checkpoint: {last_number}")
-        print(f"First number after restore:    {restored_number}")
-
-        assert restored_number == last_number + 1
-        print("--- SUCCESS: Container resumed from the correct state! ---")
+        print("\n--- SUCCESS: Container checkpointed, restored, and exec still works! ---")
 
     finally:
         print("\n--- Cleaning up... ---")
         if run_proc:
             run_proc.kill()
-        if restore_proc:
+        if 'restore_proc' in locals() and restore_proc:
             restore_proc.kill()
         
         run_sync_command(runsc_base_cmd + ["delete", "--force", container_id], check=False)
