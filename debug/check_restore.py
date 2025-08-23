@@ -58,8 +58,11 @@ def main():
 
     try:
         # Start a long-running shell process
-        #create_bundle(bundle_dir, ["sh", "-c", "i=0; while true; do echo $i; i=$(expr $i + 1); sleep 1; done"])  
-        create_bundle(bundle_dir, ["sh"])
+        create_bundle(bundle_dir, ["sh", "-c", "i=0; while true; do sleep 1; done"])  
+
+        # The followings don't work. They all fail with "loading sandbox: file does not exist"
+        #create_bundle(bundle_dir, ["sh"])
+        #create_bundle(bundle_dir, ["/usr/bin/sh"])
 
         # 1. Start the container in the background.
         run_cmd = runsc_base_cmd + ["run", "--bundle", bundle_dir, container_id]
