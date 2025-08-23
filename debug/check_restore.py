@@ -87,7 +87,7 @@ def main():
 
         # 5. Execute the second command on the restored container.
         print("\n--- Executing second command after restore ---")
-        exec_cmd2 = runsc_base_cmd + ["exec", restored_container_id, "echo", "hello from second exec"]
+        exec_cmd2 = runsc_base_cmd + ["exec", restored_container_id, "which", "bash"]
         result2 = run_sync_command(exec_cmd2)
         assert "hello from second exec" in result2.stdout
 
