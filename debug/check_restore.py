@@ -47,7 +47,7 @@ def main():
     Tests if a container started with 'runsc run' can be checkpointed,
     restored, and can still execute new commands.
     """
-    runsc_base_cmd = ["sudo", "runsc", "--platform=ptrace", "--network=none"]
+    runsc_base_cmd = ["sudo", "runsc", "--network=none"]
     
     bundle_dir = tempfile.mkdtemp(prefix="runsc_exec_")
     image_path = tempfile.mkdtemp(prefix="runsc_image_")
