@@ -59,7 +59,7 @@ def main():
     try:
         # Start a long-running shell process
         #create_bundle(bundle_dir, ["sh", "-c", "i=0; while true; do echo $i; i=$(expr $i + 1); sleep 1; done"])  
-        create_bundle(bundle_dir, ["/usr/bin/bash"])
+        create_bundle(bundle_dir, ["sh"])
 
         # 1. Start the container in the background.
         run_cmd = runsc_base_cmd + ["run", "--bundle", bundle_dir, container_id]
