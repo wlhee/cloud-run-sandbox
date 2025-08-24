@@ -9,7 +9,7 @@ def create_sandbox_instance(sandbox_id: str):
     config = GVisorConfig(
         use_sudo=os.environ.get('RUNSC_USE_SUDO', 'true').lower() in ['true', '1'],
         rootless=os.environ.get('RUNSC_ROOTLESS', 'false').lower() in ['true', '1'],
-        root_dir=os.environ.get('RUNSC_ROOT_DIR'),
+        root_dir_base=os.environ.get('RUNSC_ROOT_DIR_BASE', '/tmp'),
         bundle_dir_base=os.environ.get('RUNSC_BUNDLE_DIR_BASE', '/tmp'),
         ignore_cgroups=os.environ.get('RUNSC_IGNORE_CGROUPS', 'true').lower() in ['true', '1'],
         platform=os.environ.get('RUNSC_PLATFORM', 'ptrace')
