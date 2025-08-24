@@ -57,8 +57,7 @@ class GVisorSandbox(SandboxInterface):
         proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout, stderr = await proc.communicate()
         if check and proc.returncode != 0:
-            raise SandboxStartError(f"Command failed: {' '.join(cmd)}
-{stderr.decode()}")
+            raise SandboxStartError(f"Command failed: {' '.join(cmd)}\n{stderr.decode()}")
         return stdout.decode(), stderr.decode()
 
     async def create(self):
