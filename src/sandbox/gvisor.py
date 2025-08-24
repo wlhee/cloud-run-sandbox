@@ -33,7 +33,7 @@ class GVisorSandbox(SandboxInterface):
         self._streaming_task = None
 
     @property
-    def sandbox_id:
+    def sandbox_id(self):
         return self._sandbox_id
 
     def _build_runsc_cmd(self, *args):
