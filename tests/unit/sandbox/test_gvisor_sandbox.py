@@ -17,7 +17,6 @@ async def test_sandbox_create_and_delete():
     sandbox_id = "gvisor-test-cleanup"
     
     # Use the factory to create the sandbox instance.
-    # The factory will use the new default of use_sudo=False.
     sandbox = create_sandbox_instance(sandbox_id)
     
     root_dir = sandbox._root_dir
