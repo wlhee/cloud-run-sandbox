@@ -70,11 +70,13 @@ class GVisorSandbox(SandboxInterface):
             # 1. Create the OCI bundle for a long-running process.
             config = {
                 "ociVersion": "1.0.0",
-                "process": {"user": {"uid": 0, "gid": 0}, "args": ["sh", "-c", "while true; do sleep 3600; done"]},
+                "process": {"user": {"uid": 0, "gid": 0}, "args": ["sh", "-c", "while true; do sleep 3600; done"], "cwd": "/"},
                 "root": {"path": "/", "readonly": True},
                 "mounts": [{"destination": "/proc", "type": "proc", "source": "proc"}]
             }
             config_path = os.path.join(self._bundle_dir, "config.json")
+            print(f"--- Writing config.json to {config_path} ---")
+            print(json.dumps(config, indent=4))
             with open(config_path, "w") as f:
                 json.dump(config, f)
 
