@@ -38,6 +38,8 @@ jobs:
       run: |
         pip install -r requirements.txt
 
-    - name: Run Check Restore Script
+    - name: Run Tests
+      env:
+        RUNSC_IGNORE_CGROUPS: 'true'
       run: |
-        sudo python3 debug/check_restore.py
+        pytest -v -s -rA
