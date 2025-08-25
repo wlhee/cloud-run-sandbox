@@ -4,7 +4,7 @@ import shutil
 import os
 from src.sandbox.factory import create_sandbox_instance
 from src.sandbox.events import OutputType
-from src.sandbox.interface import SandboxStreamClosed
+from src.sandbox.interface import SandboxStreamClosed, SandboxError
 
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
@@ -44,7 +44,7 @@ async def test_sandbox_create_and_delete():
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_sandbox_execute_and_connect():
     """
-    Tests that the execute() and connect() methods work correctly.
+    Tests that the execute() and connect() methods work correctly for a successful run.
     """
     sandbox_id = "gvisor-test-exec"
     sandbox = create_sandbox_instance(sandbox_id)
@@ -55,20 +55,95 @@ async def test_sandbox_execute_and_connect():
         code = "import sys; print('hello'); print('world', file=sys.stderr)"
         await sandbox.execute(code)
 
-        # Collect all events from the stream
         events = []
         try:
             async for event in sandbox.connect():
                 events.append(event)
         except SandboxStreamClosed:
-            pass  # This is the expected way for the stream to end.
+            pass
 
-        # Verify the output
         assert len(events) == 2
         assert events[0]["type"] == OutputType.STDOUT
         assert events[0]["data"].strip() == "hello"
         assert events[1]["type"] == OutputType.STDERR
         assert events[1]["data"].strip() == "world"
+
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_sandbox_execute_with_syntax_error():
+    """
+    Tests that stderr is captured correctly when the executed code has a syntax error.
+    """
+    sandbox_id = "gvisor-test-syntax-error"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        code = "import sys; print('hello'; print('world', file=sys.stderr)"
+        await sandbox.execute(code)
+
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+
+        assert len(events) > 0
+        stderr = "".join([e["data"] for e in events if e["type"] == OutputType.STDERR])
+        assert "SyntaxError" in stderr
+
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_connect_before_execute_raises_error():
+    """
+    Tests that calling connect() before execute() raises a SandboxError.
+    """
+    sandbox_id = "gvisor-test-connect-fail"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        with pytest.raises(SandboxError, match="No process is running"):
+            async for _ in sandbox.connect():
+                pass
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_stop_during_execution():
+    """
+    Tests that stopping the sandbox during execution correctly terminates the stream.
+    """
+    sandbox_id = "gvisor-test-stop"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        code = "import time; print('start'); time.sleep(5); print('end')"
+        await sandbox.execute(code)
+
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+                if "start" in event["data"]:
+                    await sandbox.stop()
+        except SandboxStreamClosed:
+            pass
+
+        assert len(events) == 1
+        assert events[0]["type"] == OutputType.STDOUT
+        assert events[0]["data"].strip() == "start"
 
     finally:
         await sandbox.delete()
