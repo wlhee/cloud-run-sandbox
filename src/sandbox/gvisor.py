@@ -38,7 +38,7 @@ class GVisorSandbox(SandboxInterface):
 
     def _build_runsc_cmd(self, *args):
         """Builds a runsc command, adding configured flags."""
-        cmd = ["runsc", "--network=none"]
+        cmd = ["sudo", "runsc", "--network=none"]
         if self._config.use_sudo:
             cmd.insert(0, "sudo")
         # Always use the unique root directory.
