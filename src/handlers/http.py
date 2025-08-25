@@ -76,6 +76,7 @@ async def execute_code_streaming(language: CodeLanguage, code: str):
             yield event["data"].encode('utf-8')
 
     except SandboxStreamClosed:
+        print("Received SandboxStreamClosed exception.")
         pass # This is the expected way for the stream to end.
     except Exception as e:
         yield f"Server error: {e}\n".encode('utf-8')

@@ -4,7 +4,7 @@ import json
 import shutil
 import tempfile
 from dataclasses import dataclass
-from .interface import SandboxInterface, SandboxCreationError, SandboxStartError, SandboxStreamClosed, SandboxError
+from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStartError, SandboxStreamClosed, SandboxError
 from .types import SandboxOutputEvent, OutputType, CodeLanguage
 
 @dataclass
@@ -58,7 +58,7 @@ class GVisorSandbox(SandboxInterface):
 
         Args:
             cmd: The command to execute as a list of strings.
-            check: If True, raises SandboxStartError if the command returns a non-zero exit code.
+            check: If True, raises SandboxOperationError if the command returns a non-zero exit code.
             wait_for_output: If True, waits for the process to terminate and reads stdout/stderr.
                              If False, only waits for the process to exit (for detached processes)
                              and does not read from the output pipes to avoid deadlocks.
@@ -77,18 +77,18 @@ class GVisorSandbox(SandboxInterface):
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                raise SandboxStartError(f"Command {' '.join(cmd)} timed out.")
+                raise SandboxOperationError(f"Command {' '.join(cmd)} timed out.")
 
             if check and proc.returncode != 0:
                 # Can't read stderr here without risking a deadlock.
-                raise SandboxStartError(f"Command failed: {' '.join(cmd)} with exit code {proc.returncode}")
+                raise SandboxOperationError(f"Command failed: {' '.join(cmd)} with exit code {proc.returncode}")
             return "", ""
 
         # For regular commands, wait for output.
         stdout, stderr = await proc.communicate()
         if check and proc.returncode != 0:
             cmd_str = " ".join(cmd)
-            raise SandboxStartError(f"Command failed: {cmd_str}\n{stderr.decode()}")
+            raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
         return stdout.decode(), stderr.decode()
 
     async def create(self):
@@ -106,7 +106,8 @@ class GVisorSandbox(SandboxInterface):
                     "args": ["sh", "-c", "while true; do sleep 3600; done"],
                     "cwd": "/",
                     "env": [
-                        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                        "PYTHONUNBUFFERED=1"
                     ]
                 },
                 "root": {"path": "/", "readonly": True},
@@ -218,26 +219,35 @@ class GVisorSandbox(SandboxInterface):
 
     async def stop(self):
         """Stops the container and any running exec process."""
+        print(f"GVISOR ({self.sandbox_id}): Stopping...")
         if self._streaming_task:
+            print(f"GVISOR ({self.sandbox_id}): Cancelling streaming task...")
             self._streaming_task.cancel()
             self._streaming_task = None
+            print(f"GVISOR ({self.sandbox_id}): Cancelled streaming task.")
         
         if self._exec_proc and self._exec_proc.returncode is None:
+            print(f"GVISOR ({self.sandbox_id}): Killing exec process...")
             self._exec_proc.kill()
             await self._exec_proc.wait()
             self._exec_proc = None
+            print(f"GVISOR ({self.sandbox_id}): Killed exec process.")
 
         kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
+        print(f"GVISOR ({self.sandbox_id}): Stopped.")
 
     async def delete(self):
         """Deletes the container and its bundle."""
+        print(f"GVISOR ({self.sandbox_id}): Deleting...")
         await self.stop()
         
         delete_cmd = self._build_runsc_cmd("delete", "--force", self.sandbox_id)
-        await self._run_sync_command(delete_cmd, check=False)
+        # Don't wait for output to avoid blocking for too long.
+        await self._run_sync_command(delete_cmd, check=False, wait_for_output=False)
 
         if os.path.exists(self._bundle_dir):
             shutil.rmtree(self._bundle_dir)
         if os.path.exists(self._root_dir):
             shutil.rmtree(self._root_dir)
+        print(f"GVISOR ({self.sandbox_id}): Deleted.")
