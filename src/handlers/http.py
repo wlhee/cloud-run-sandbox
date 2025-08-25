@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, BackgroundTasks
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from typing import Annotated
 from src.sandbox.manager import manager as sandbox_manager
@@ -63,7 +63,7 @@ async def delete_container(container_id):
         return None, stderr.decode()
     return f"App {container_id} deleted", None
 
-async def execute_code_streaming(language: CodeLanguage, code: str):
+async def execute_code_streaming(language: CodeLanguage, code: str, background_tasks: BackgroundTasks):
     """
     Executes code in a new sandbox and yields the output.
     """
@@ -82,7 +82,7 @@ async def execute_code_streaming(language: CodeLanguage, code: str):
         yield f"Server error: {e}\n".encode('utf-8')
     finally:
         if sandbox:
-            await sandbox_manager.delete_sandbox(sandbox.sandbox_id)
+            background_tasks.add_task(sandbox_manager.delete_sandbox, sandbox.sandbox_id)
 
 # ==============================================================================
 # FastAPI Route Handlers
@@ -128,8 +128,12 @@ async def delete(container_id: str):
 
 @router.post("/execute")
 async def execute_code(
+    background_tasks: BackgroundTasks,
     code: Annotated[str, Body(media_type="text/plain")],
     language: CodeLanguage = CodeLanguage.PYTHON
 ):
-    """Executes code in a new gVisor sandbox and streams the output."""
-    return StreamingResponse(execute_code_streaming(language, code), media_type="text/plain")
+    """
+    Executes code in a new gVisor sandbox and streams the output.
+    The sandbox is deleted in a background task after the stream is closed.
+    """
+    return StreamingResponse(execute_code_streaming(language, code, background_tasks), media_type="text/plain")

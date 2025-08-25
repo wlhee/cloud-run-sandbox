@@ -6,6 +6,7 @@ from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage
 from src.sandbox.interface import SandboxStreamClosed
 from src.handlers.http import execute_code_streaming
+from fastapi import BackgroundTasks
 
 client = TestClient(app)
 
@@ -65,10 +66,16 @@ async def test_execute_code_streaming_handles_stream_closed(mock_manager):
     
     mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
     mock_manager.delete_sandbox = AsyncMock()
+    
+    background_tasks = BackgroundTasks()
 
     # Act
-    stream = [item async for item in execute_code_streaming(CodeLanguage.PYTHON, "test")]
+    stream = [item async for item in execute_code_streaming(CodeLanguage.PYTHON, "test", background_tasks)]
     
+    # Manually run the background tasks
+    for task in background_tasks.tasks:
+        await task()
+
     # Assert
     assert len(stream) == 1
     assert stream[0] == b"line 1\n"

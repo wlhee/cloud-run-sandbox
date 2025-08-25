@@ -10,13 +10,26 @@ from .types import SandboxOutputEvent, OutputType, CodeLanguage
 @dataclass
 class GVisorConfig:
     """Configuration for the GVisorSandbox."""
+    # Whether to use sudo for runsc commands.
     use_sudo: bool = False
+    # Whether to run in rootless mode.
     rootless: bool = False
-    # root_dir is now an optional base path. A unique dir will be created inside it.
+    # The base directory for sandbox root directories.
     root_dir_base: str = "/tmp"
+    # The base directory for OCI bundles.
     bundle_dir_base: str = "/tmp"
+    # Whether to ignore cgroup errors.
     ignore_cgroups: bool = False
+    # The gVisor platform to use (e.g., ptrace, kvm).
     platform: str = "ptrace"
+    # Whether to enable gVisor's debug logging.
+    debug: bool = False
+    # Whether to enable strace for sandboxed processes.
+    strace: bool = False
+    # The base directory for gVisor's debug logs.
+    # The actual log path directory will be this plus the sandbox ID.
+    # runsc will create different log files in this directory.
+    debug_log_dir: str = "/tmp/runsc"
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -42,6 +55,16 @@ class GVisorSandbox(SandboxInterface):
         cmd = ["runsc"]
         if self._config.use_sudo:
             cmd.insert(0, "sudo")
+        
+        # Add debugging flags if enabled
+        if self._config.debug:
+            log_path = os.path.join(self._config.debug_log_dir, self.sandbox_id) + "/"
+            os.makedirs(log_path, exist_ok=True)
+            cmd.extend(["--debug-log", log_path])
+            cmd.append("--debug")
+        if self._config.strace:
+            cmd.append("--strace")
+
         # Always use the unique root directory.
         cmd.extend([f"--root={self._root_dir}"])
         if self._config.rootless:
