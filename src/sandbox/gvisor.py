@@ -70,7 +70,14 @@ class GVisorSandbox(SandboxInterface):
             # 1. Create the OCI bundle for a long-running process.
             config = {
                 "ociVersion": "1.0.0",
-                "process": {"user": {"uid": 0, "gid": 0}, "args": ["sh", "-c", "while true; do sleep 3600; done"], "cwd": "/"},
+                "process": {
+                    "user": {"uid": 0, "gid": 0},
+                    "args": ["sh", "-c", "while true; do sleep 3600; done"],
+                    "cwd": "/",
+                    "env": [
+                        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                    ]
+                },
                 "root": {"path": "/", "readonly": True},
                 "mounts": [{"destination": "/proc", "type": "proc", "source": "proc"}]
             }
