@@ -3,6 +3,7 @@ import asyncio
 import shutil
 import os
 from src.sandbox.factory import create_sandbox_instance
+from src.sandbox.events import OutputType
 
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
@@ -37,3 +38,31 @@ async def test_sandbox_create_and_delete():
         await sandbox.delete()
         assert not os.path.exists(root_dir)
         assert not os.path.exists(bundle_dir)
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_sandbox_execute_and_connect():
+    """
+    Tests that the execute() and connect() methods work correctly.
+    """
+    sandbox_id = "gvisor-test-exec"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        code = "import sys; print('hello'); print('world', file=sys.stderr)"
+        await sandbox.execute(code)
+
+        # Collect all events from the stream
+        events = [event async for event in sandbox.connect()]
+
+        # Verify the output
+        assert len(events) == 2
+        assert events[0]["type"] == OutputType.STDOUT
+        assert events[0]["data"].strip() == "hello"
+        assert events[1]["type"] == OutputType.STDERR
+        assert events[1]["data"].strip() == "world"
+
+    finally:
+        await sandbox.delete()

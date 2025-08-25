@@ -4,7 +4,7 @@ import json
 import shutil
 import tempfile
 from dataclasses import dataclass
-from .interface import SandboxInterface, SandboxCreationError, SandboxStartError, SandboxStreamClosed
+from .interface import SandboxInterface, SandboxCreationError, SandboxStartError, SandboxStreamClosed, SandboxError
 from .events import SandboxOutputEvent, OutputType
 
 @dataclass
@@ -110,7 +110,13 @@ class GVisorSandbox(SandboxInterface):
                     ]
                 },
                 "root": {"path": "/", "readonly": True},
-                "mounts": [{"destination": "/proc", "type": "proc", "source": "proc"}]
+                "mounts": [
+                    {"destination": "/proc", "type": "proc", "source": "proc"},
+                    {
+                        "destination": self._bundle_dir, "type": "bind",
+                        "source": self._bundle_dir, "options": ["rbind", "rw"]
+                    }
+                ]
             }
             config_path = os.path.join(self._bundle_dir, "config.json")
             print(f"--- Writing config.json to {config_path} ---")
@@ -127,10 +133,82 @@ class GVisorSandbox(SandboxInterface):
             raise SandboxCreationError(f"Failed to create gVisor container: {e}")
 
     async def execute(self, code: str):
-        pass
+        """
+        Executes the given code in the sandbox using 'runsc exec'.
+        """
+        # Write the code to a file inside the bundle directory, which is mounted
+        # into the container.
+        code_filename = "main.py"
+        code_path_host = os.path.join(self._bundle_dir, code_filename)
+        with open(code_path_host, "w") as f:
+            f.write(code)
+
+        # Execute the code using python.
+        code_path_sandbox = os.path.join(self._bundle_dir, code_filename)
+        exec_cmd = self._build_runsc_cmd(
+            "exec", "--cwd", "/", self.sandbox_id, "python3", "-u", code_path_sandbox
+        )
+        
+        self._exec_proc = await asyncio.create_subprocess_exec(
+            *exec_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+    async def _stream_output(self):
+        """
+        Reads from the stdout and stderr of the exec process and
+        broadcasts the output to all connected listeners.
+        """
+        async def broadcast(stream, stream_type):
+            async for line in stream:
+                event = SandboxOutputEvent(type=stream_type, data=line.decode('utf-8'))
+                for queue in self._listener_queues:
+                    await queue.put(event)
+
+        try:
+            await asyncio.gather(
+                broadcast(self._exec_proc.stdout, OutputType.STDOUT),
+                broadcast(self._exec_proc.stderr, OutputType.STDERR)
+            )
+        finally:
+            for queue in self._listener_queues:
+                await queue.put(SandboxStreamClosed())
+
+    async def connect(self):
+        """
+        Connects a client to the sandbox's output stream.
+        """
+        if not self._exec_proc:
+            raise SandboxError("No process is running in the sandbox.")
+
+        q = asyncio.Queue()
+        self._listener_queues.append(q)
+
+        if not self._streaming_task:
+            self._streaming_task = asyncio.create_task(self._stream_output())
+
+        try:
+            while True:
+                event = await q.get()
+                if isinstance(event, SandboxStreamClosed):
+                    raise event
+                yield event
+        finally:
+            if q in self._listener_queues:
+                self._listener_queues.remove(q)
 
     async def stop(self):
-        """Stops the container using 'runsc kill'."""
+        """Stops the container and any running exec process."""
+        if self._streaming_task:
+            self._streaming_task.cancel()
+            self._streaming_task = None
+        
+        if self._exec_proc and self._exec_proc.returncode is None:
+            self._exec_proc.kill()
+            await self._exec_proc.wait()
+            self._exec_proc = None
+
         kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
 
@@ -145,7 +223,3 @@ class GVisorSandbox(SandboxInterface):
             shutil.rmtree(self._bundle_dir)
         if os.path.exists(self._root_dir):
             shutil.rmtree(self._root_dir)
-
-    async def connect(self):
-        if False:
-            yield
