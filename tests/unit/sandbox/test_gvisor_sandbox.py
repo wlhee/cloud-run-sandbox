@@ -225,20 +225,21 @@ async def test_stream_closes_after_execution():
         await sandbox.execute(CodeLanguage.PYTHON, code)
 
         all_events = []
-        # This test works by wrapping the stream consumption in a timeout.
-        # If the stream hangs (the bug), `asyncio.timeout` will raise a
-        # `TimeoutError`, which is an unhandled exception that will cause
-        # the test to fail.
-        # If the stream closes correctly (the fix), the `async for` loop
-        # will terminate gracefully by catching the expected
-        # `SandboxStreamClosed` exception. The test will then proceed to
-        # the assertions.
-        async with asyncio.timeout(5):
+        
+        async def consume_stream():
             try:
                 async for event in sandbox.connect():
                     all_events.append(event)
             except SandboxStreamClosed:
                 pass
+
+        # This test works by wrapping the stream consumption in a timeout.
+        # If the stream hangs (the bug), `asyncio.wait_for` will raise a
+        # `TimeoutError`, which is an unhandled exception that will cause
+        # the test to fail.
+        # If the stream closes correctly (the fix), the `consume_stream`
+        # coroutine will complete successfully.
+        await asyncio.wait_for(consume_stream(), timeout=5)
 
         assert len(all_events) == 1
         assert all_events[0]["data"].strip() == "hello"

@@ -169,16 +169,21 @@ class GVisorSandbox(SandboxInterface):
         """
         async def broadcast(stream, stream_type):
             async for line in stream:
+                print(f"BROADCAST: {stream_type.value}: {line.decode('utf-8').strip()}")
                 event = SandboxOutputEvent(type=stream_type, data=line.decode('utf-8'))
                 for queue in self._listener_queues:
                     await queue.put(event)
 
         try:
+            print("STREAM: Starting to gather output...")
             await asyncio.gather(
                 broadcast(self._exec_proc.stdout, OutputType.STDOUT),
-                broadcast(self._exec_proc.stderr, OutputType.STDERR)
+                broadcast(self._exec_proc.stderr, OutputType.STDERR),
+                self._exec_proc.wait()
             )
+            print("STREAM: Finished gathering output.")
         finally:
+            print("STREAM: Closing listener queues.")
             for queue in self._listener_queues:
                 await queue.put(SandboxStreamClosed())
 
@@ -191,19 +196,25 @@ class GVisorSandbox(SandboxInterface):
 
         q = asyncio.Queue()
         self._listener_queues.append(q)
+        print(f"CONNECT: New listener connected. Total listeners: {len(self._listener_queues)}")
 
         if not self._streaming_task:
+            print("CONNECT: Starting streaming task.")
             self._streaming_task = asyncio.create_task(self._stream_output())
 
         try:
             while True:
+                print("CONNECT: Waiting for event...")
                 event = await q.get()
+                print(f"CONNECT: Got event: {event}")
                 if isinstance(event, SandboxStreamClosed):
+                    print("CONNECT: Stream closed event received.")
                     raise event
                 yield event
         finally:
             if q in self._listener_queues:
                 self._listener_queues.remove(q)
+            print(f"CONNECT: Listener disconnected. Total listeners: {len(self._listener_queues)}")
 
     async def stop(self):
         """Stops the container and any running exec process."""
