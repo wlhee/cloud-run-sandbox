@@ -207,3 +207,41 @@ async def test_stop_during_execution():
 
     finally:
         await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_stream_closes_after_execution():
+    """
+    Tests that the output stream closes automatically after the script finishes.
+    This is a regression test for a bug where the stream would hang open.
+    """
+    sandbox_id = "gvisor-test-stream-close"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        code = "print('hello')"
+        await sandbox.execute(CodeLanguage.PYTHON, code)
+
+        all_events = []
+        # This test works by wrapping the stream consumption in a timeout.
+        # If the stream hangs (the bug), `asyncio.timeout` will raise a
+        # `TimeoutError`, which is an unhandled exception that will cause
+        # the test to fail.
+        # If the stream closes correctly (the fix), the `async for` loop
+        # will terminate gracefully by catching the expected
+        # `SandboxStreamClosed` exception. The test will then proceed to
+        # the assertions.
+        async with asyncio.timeout(5):
+            try:
+                async for event in sandbox.connect():
+                    all_events.append(event)
+            except SandboxStreamClosed:
+                pass
+
+        assert len(all_events) == 1
+        assert all_events[0]["data"].strip() == "hello"
+
+    finally:
+        await sandbox.delete()
