@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from src.server import app
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
 from src.sandbox.interface import SandboxCreationError, SandboxStartError
-from src.sandbox.events import SandboxOutputEvent, OutputType
+from src.sandbox.types import SandboxOutputEvent, OutputType
 from unittest.mock import patch, MagicMock, AsyncMock
 
 client = TestClient(app)

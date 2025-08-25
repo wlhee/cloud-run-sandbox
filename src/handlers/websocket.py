@@ -1,7 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from src.sandbox.manager import manager as sandbox_manager
 from src.sandbox.interface import SandboxCreationError, SandboxStartError
-from src.sandbox.events import SandboxStateEvent
+from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 
 router = APIRouter()
@@ -19,7 +19,8 @@ async def create(websocket: WebSocket):
         sandbox = await sandbox_manager.create_sandbox()
         await websocket.send_json({"event": "sandbox_id", "sandbox_id": sandbox.sandbox_id})
         
-        await sandbox.execute(code="") # In future, code will come from client
+        # For now, we'll just execute a simple python script.
+        await sandbox.execute(CodeLanguage.PYTHON, code="print('hello')")
         await websocket.send_json({"event": "status_update", "status": SandboxStateEvent.SANDBOX_RUNNING.value})
         
         async for event in sandbox.connect():

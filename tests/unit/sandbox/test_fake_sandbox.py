@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
 from src.sandbox.interface import SandboxCreationError, SandboxStartError
-from src.sandbox.events import SandboxOutputEvent, OutputType
+from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage
 
 pytestmark = pytest.mark.asyncio
 
@@ -21,7 +21,7 @@ async def test_fake_sandbox_lifecycle_and_output():
 
     # 1. Create and start
     await sandbox.create()
-    await sandbox.execute("some code")
+    await sandbox.execute(CodeLanguage.PYTHON, "some code")
     assert sandbox.is_running
 
     # 2. Connect and verify the output stream
@@ -58,4 +58,4 @@ async def test_fake_sandbox_start_error():
     sandbox = FakeSandbox("fake-error", config=config)
     
     with pytest.raises(SandboxStartError):
-        await sandbox.execute("any code")
+        await sandbox.execute(CodeLanguage.PYTHON, "any code")

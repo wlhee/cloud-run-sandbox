@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from .events import SandboxOutputEvent
+from .types import SandboxOutputEvent, CodeLanguage
 
 class SandboxError(Exception):
     """Base exception for sandbox-related errors."""
@@ -34,7 +34,7 @@ class SandboxInterface(ABC):
         pass
 
     @abstractmethod
-    async def execute(self, code: str):
+    async def execute(self, language: CodeLanguage, code: str):
         """
         Executes code in the sandbox.
         Raises SandboxStartError on failure.

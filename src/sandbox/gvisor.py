@@ -5,7 +5,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from .interface import SandboxInterface, SandboxCreationError, SandboxStartError, SandboxStreamClosed, SandboxError
-from .events import SandboxOutputEvent, OutputType
+from .types import SandboxOutputEvent, OutputType, CodeLanguage
 
 @dataclass
 class GVisorConfig:
@@ -132,21 +132,28 @@ class GVisorSandbox(SandboxInterface):
             await self.delete()
             raise SandboxCreationError(f"Failed to create gVisor container: {e}")
 
-    async def execute(self, code: str):
+    async def execute(self, language: CodeLanguage, code: str):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
+        if language == CodeLanguage.PYTHON:
+            code_filename = "main.py"
+            exec_args = ["python3", "-u", os.path.join(self._bundle_dir, code_filename)]
+        elif language == CodeLanguage.BASH:
+            code_filename = "main.sh"
+            exec_args = ["bash", os.path.join(self._bundle_dir, code_filename)]
+        else:
+            raise SandboxError(f"Unsupported language: {language}")
+
         # Write the code to a file inside the bundle directory, which is mounted
         # into the container.
-        code_filename = "main.py"
         code_path_host = os.path.join(self._bundle_dir, code_filename)
         with open(code_path_host, "w") as f:
             f.write(code)
 
-        # Execute the code using python.
-        code_path_sandbox = os.path.join(self._bundle_dir, code_filename)
+        # Execute the code.
         exec_cmd = self._build_runsc_cmd(
-            "exec", "--cwd", "/", self.sandbox_id, "python3", "-u", code_path_sandbox
+            "exec", "--cwd", "/", self.sandbox_id, *exec_args
         )
         
         self._exec_proc = await asyncio.create_subprocess_exec(

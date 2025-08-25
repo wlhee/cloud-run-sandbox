@@ -3,7 +3,7 @@ import asyncio
 import shutil
 import os
 from src.sandbox.factory import create_sandbox_instance
-from src.sandbox.events import OutputType
+from src.sandbox.types import OutputType, CodeLanguage
 from src.sandbox.interface import SandboxStreamClosed, SandboxError
 
 # Check if 'runsc' is in the PATH
@@ -42,9 +42,9 @@ async def test_sandbox_create_and_delete():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_sandbox_execute_and_connect():
+async def test_sandbox_execute_python_success():
     """
-    Tests that the execute() and connect() methods work correctly for a successful run.
+    Tests that the execute() and connect() methods work correctly for a successful Python run.
     """
     sandbox_id = "gvisor-test-exec"
     sandbox = create_sandbox_instance(sandbox_id)
@@ -53,7 +53,7 @@ async def test_sandbox_execute_and_connect():
         await sandbox.create()
         
         code = "import sys; print('hello'); print('world', file=sys.stderr)"
-        await sandbox.execute(code)
+        await sandbox.execute(CodeLanguage.PYTHON, code)
 
         events = []
         try:
@@ -73,9 +73,40 @@ async def test_sandbox_execute_and_connect():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_sandbox_execute_with_syntax_error():
+async def test_sandbox_execute_bash_success():
     """
-    Tests that stderr is captured correctly when the executed code has a syntax error.
+    Tests that the execute() and connect() methods work correctly for bash code.
+    """
+    sandbox_id = "gvisor-test-bash"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        code = "echo 'hello from bash' >&1; echo 'error from bash' >&2"
+        await sandbox.execute(CodeLanguage.BASH, code)
+
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+
+        assert len(events) == 2
+        assert events[0]["type"] == OutputType.STDOUT
+        assert events[0]["data"].strip() == "hello from bash"
+        assert events[1]["type"] == OutputType.STDERR
+        assert events[1]["data"].strip() == "error from bash"
+
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_sandbox_execute_python_syntax_error():
+    """
+    Tests that stderr is captured correctly when the executed Python code has a syntax error.
     """
     sandbox_id = "gvisor-test-syntax-error"
     sandbox = create_sandbox_instance(sandbox_id)
@@ -84,7 +115,7 @@ async def test_sandbox_execute_with_syntax_error():
         await sandbox.create()
         
         code = "import sys; print('hello'; print('world', file=sys.stderr)"
-        await sandbox.execute(code)
+        await sandbox.execute(CodeLanguage.PYTHON, code)
 
         events = []
         try:
@@ -96,6 +127,35 @@ async def test_sandbox_execute_with_syntax_error():
         assert len(events) > 0
         stderr = "".join([e["data"] for e in events if e["type"] == OutputType.STDERR])
         assert "SyntaxError" in stderr
+
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_sandbox_execute_bash_error():
+    """
+    Tests that stderr is captured correctly when the executed bash script fails.
+    """
+    sandbox_id = "gvisor-test-bash-error"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        code = "echo 'hello from bash' >&1; not_a_command"
+        await sandbox.execute(CodeLanguage.BASH, code)
+
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+
+        assert len(events) > 0
+        stderr = "".join([e["data"] for e in events if e["type"] == OutputType.STDERR])
+        assert "command not found" in stderr
 
     finally:
         await sandbox.delete()
@@ -130,7 +190,7 @@ async def test_stop_during_execution():
         await sandbox.create()
         
         code = "import time; print('start'); time.sleep(5); print('end')"
-        await sandbox.execute(code)
+        await sandbox.execute(CodeLanguage.PYTHON, code)
 
         events = []
         try:

@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import List
 from .interface import SandboxInterface, SandboxCreationError, SandboxStartError
-from .events import SandboxOutputEvent
+from .types import SandboxOutputEvent, CodeLanguage
 
 @dataclass
 class FakeSandboxConfig:
@@ -31,7 +31,7 @@ class FakeSandbox(SandboxInterface):
         print(f"Fake sandbox {self.sandbox_id}: CREATED.")
         await asyncio.sleep(0.01)
 
-    async def execute(self, code: str):
+    async def execute(self, language: CodeLanguage, code: str):
         if self._config.start_should_fail:
             raise SandboxStartError("Fake sandbox failed to start as configured.")
         

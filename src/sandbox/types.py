@@ -1,6 +1,11 @@
 from enum import Enum
 from typing import TypedDict
 
+class CodeLanguage(Enum):
+    """Enumeration for the supported code languages."""
+    PYTHON = "python"
+    BASH = "bash"
+
 class OutputType(Enum):
     """Enumeration for the type of sandbox output stream."""
     STDOUT = "stdout"
