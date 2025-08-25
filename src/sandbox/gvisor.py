@@ -52,12 +52,43 @@ class GVisorSandbox(SandboxInterface):
         cmd.extend(args)
         return cmd
 
-    async def _run_sync_command(self, cmd, check=True):
-        """Helper to run a synchronous command."""
-        proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    async def _run_sync_command(self, cmd, check=True, wait_for_output=True):
+        """
+        Helper to run a synchronous command.
+
+        Args:
+            cmd: The command to execute as a list of strings.
+            check: If True, raises SandboxStartError if the command returns a non-zero exit code.
+            wait_for_output: If True, waits for the process to terminate and reads stdout/stderr.
+                             If False, only waits for the process to exit (for detached processes)
+                             and does not read from the output pipes to avoid deadlocks.
+        """
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        if not wait_for_output:
+            # For detached commands, just wait for the command to exit.
+            # `runsc run --detach` should exit quickly.
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise SandboxStartError(f"Command {' '.join(cmd)} timed out.")
+
+            if check and proc.returncode != 0:
+                # Can't read stderr here without risking a deadlock.
+                raise SandboxStartError(f"Command failed: {' '.join(cmd)} with exit code {proc.returncode}")
+            return "", ""
+
+        # For regular commands, wait for output.
         stdout, stderr = await proc.communicate()
         if check and proc.returncode != 0:
-            raise SandboxStartError(f"Command failed: {' '.join(cmd)}\n{stderr.decode()}")
+            cmd_str = " ".join(cmd)
+            raise SandboxStartError(f"Command failed: {cmd_str}\n{stderr.decode()}")
         return stdout.decode(), stderr.decode()
 
     async def create(self):
@@ -89,7 +120,7 @@ class GVisorSandbox(SandboxInterface):
 
             # 2. Start the container in detached mode.
             run_cmd = self._build_runsc_cmd("run", "--detach", "--bundle", self._bundle_dir, self.sandbox_id)
-            await self._run_sync_command(run_cmd)
+            await self._run_sync_command(run_cmd, wait_for_output=False)
 
         except Exception as e:
             await self.delete()
