@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Body
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from typing import Annotated
+from src.sandbox.manager import manager as sandbox_manager
+from src.sandbox.types import CodeLanguage
+from src.sandbox.interface import SandboxStreamClosed
 import asyncio
 import subprocess
 import os
@@ -60,108 +63,23 @@ async def delete_container(container_id):
         return None, stderr.decode()
     return f"App {container_id} deleted", None
 
-async def execute_code_streaming(code: str):
+async def execute_code_streaming(language: CodeLanguage, code: str):
     """
-    Executes Python code in a new gVisor sandbox and yields the output lines.
+    Executes code in a new sandbox and yields the output.
     """
-    temp_dir = "/tmp"
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    temp_filename = f"temp_code-{uuid.uuid4()}.py"
-    temp_filepath = os.path.join(temp_dir, temp_filename)
-    
-    with open(temp_filepath, "w") as f:
-        f.write(code)
-        
-    container_id = f"exec-{uuid.uuid4()}"
-    bundle_dir = f"/tmp/runsc_bundle_{container_id}"
-    os.makedirs(bundle_dir, exist_ok=True)
-
-    config = {
-        "ociVersion": "1.0.0",
-        "process": {
-            "user": {"uid": 0, "gid": 0},
-            "args": ["python3", temp_filepath],
-            "env": [
-                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                "TERM=xterm",
-                f"CONTAINER_ID={container_id}"
-            ],
-            "cwd": "/",
-            "capabilities": {
-                "bounding": ["CAP_AUDIT_WRITE", "CAP_KILL"],
-                "effective": ["CAP_AUDIT_WRITE", "CAP_KILL"],
-                "inheritable": ["CAP_AUDIT_WRITE", "CAP_KILL"],
-                "permitted": ["CAP_AUDIT_WRITE", "CAP_KILL"],
-            },
-            "rlimits": [{"type": "RLIMIT_NOFILE", "hard": 1024, "soft": 1024}],
-        },
-        "root": {"path": "/", "readonly": False},
-        "hostname": "runsc",
-        "mounts": [
-            {"destination": "/proc", "type": "proc", "source": "proc"},
-            {"destination": "/dev", "type": "tmpfs", "source": "tmpfs"},
-            {"destination": "/sys", "type": "sysfs", "source": "sysfs"},
-        ],
-        "linux": {
-            "namespaces": [
-                {"type": "pid"},
-                {"type": "network"},
-                {"type": "ipc"},
-                {"type": "uts"},
-                {"type": "mount"},
-            ],
-            "resources": {"memory": {"limit": 2147483648}},
-        },
-    }
-    with open(os.path.join(bundle_dir, "config.json"), "w") as f:
-        json.dump(config, f, indent=4)
-
-    process = None
+    sandbox = None
     try:
-        run_cmd = ["runsc", "--network=host", "run", "-bundle", bundle_dir, container_id]
-        process = await asyncio.create_subprocess_exec(
-            *run_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        async def stream_lines(stream):
-            while True:
-                line = await stream.readline()
-                if not line:
-                    break
-                yield line
-
-        # Interleave stdout and stderr by processing them concurrently
-        stdout_task = asyncio.create_task(stream_lines(process.stdout).__anext__())
-        stderr_task = asyncio.create_task(stream_lines(process.stderr).__anext__())
+        sandbox = await sandbox_manager.create_sandbox()
+        await sandbox.execute(language, code)
         
-        while not stdout_task.done() or not stderr_task.done():
-            done, pending = await asyncio.wait(
-                [stdout_task, stderr_task],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in done:
-                try:
-                    line = task.result()
-                    yield line
-                    if task is stdout_task:
-                        stdout_task = asyncio.create_task(stream_lines(process.stdout).__anext__())
-                    else:
-                        stderr_task = asyncio.create_task(stream_lines(process.stderr).__anext__())
-                except StopAsyncIteration:
-                    pass # This stream is done
-
-        await process.wait()
+        async for event in sandbox.connect():
+            yield event["data"].encode('utf-8')
 
     except Exception as e:
         yield f"Server error: {e}\n".encode('utf-8')
     finally:
-        if process and process.returncode is None:
-            process.terminate()
-            await process.wait()
-            print(f"Process {container_id} terminated.")
+        if sandbox:
+            await sandbox_manager.delete_sandbox(sandbox.sandbox_id)
 
 # ==============================================================================
 # FastAPI Route Handlers
@@ -173,7 +91,7 @@ router = APIRouter()
 async def get_status():
     return PlainTextResponse("Server is running")
 
-@router.get("/containers")
+@router.get("/list")
 async def list_all_containers():
     """Lists all running gVisor containers."""
     output, error = await list_containers()
@@ -206,6 +124,9 @@ async def delete(container_id: str):
     return {"status": output}
 
 @router.post("/execute")
-async def execute_code(code: Annotated[str, Body(media_type="text/plain")]):
-    """Executes Python code in a new gVisor sandbox and streams the output."""
-    return StreamingResponse(execute_code_streaming(code), media_type="text/plain")
+async def execute_code(
+    code: Annotated[str, Body(media_type="text/plain")],
+    language: CodeLanguage = CodeLanguage.PYTHON
+):
+    """Executes code in a new gVisor sandbox and streams the output."""
+    return StreamingResponse(execute_code_streaming(language, code), media_type="text/plain")

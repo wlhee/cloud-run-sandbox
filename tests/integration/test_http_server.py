@@ -1,9 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
 from src.server import app
-from unittest.mock import patch
+import shutil
 
 client = TestClient(app)
+
+# Check if 'runsc' is in the PATH
+runsc_path = shutil.which("runsc")
 
 def test_status_endpoint():
     """Tests the GET /status endpoint."""
@@ -11,26 +14,23 @@ def test_status_endpoint():
     assert response.status_code == 200
     assert response.text == "Server is running"
 
-@patch('src.handlers.http.execute_code_streaming')
-def test_execute_streaming_mocked(mock_execute):
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+@pytest.mark.parametrize("language, code, expected_stdout, expected_stderr", [
+    ("python", "import sys; print('hello'); print('world', file=sys.stderr)", "hello", "world"),
+    ("bash", "echo 'hello from bash'; echo 'error from bash' >&2", "hello from bash", "error from bash"),
+])
+def test_execute_streaming_gvisor(language, code, expected_stdout, expected_stderr):
     """
-    Tests the POST /execute endpoint with a mocked streaming function.
+    Tests the POST /execute endpoint with a real gVisor sandbox for different languages.
     """
-    # Arrange: Configure the mock to return a simple async generator
-    async def mock_stream_gen():
-        yield b"line 1\n"
-        yield b"line 2\n"
-    
-    mock_execute.return_value = mock_stream_gen()
-
     # Act
     response = client.post(
-        "/execute",
-        content="print('hello')",
+        f"/execute?language={language}",
+        content=code,
         headers={"Content-Type": "text/plain"}
     )
 
     # Assert
     assert response.status_code == 200
-    assert response.text == "line 1\nline 2\n"
-    mock_execute.assert_called_once_with("print('hello')")
+    assert expected_stdout in response.text
+    assert expected_stderr in response.text
