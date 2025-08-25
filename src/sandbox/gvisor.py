@@ -74,12 +74,13 @@ class GVisorSandbox(SandboxInterface):
             # For detached commands, we must still drain stdout/stderr to prevent
             # the child process from blocking if the pipe buffer fills up.
             # We do this concurrently while waiting for the process to exit.
-            async def drain_pipe(stream):
+            async def drain_pipe(stream, name):
                 while not stream.at_eof():
-                    await stream.read(1024) # Read and discard
+                    data = await stream.read(1024) # Read and discard
+                    print(f"DRAIN ({name}): {data}")
 
-            drain_stdout = asyncio.create_task(drain_pipe(proc.stdout))
-            drain_stderr = asyncio.create_task(drain_pipe(proc.stderr))
+            drain_stdout = asyncio.create_task(drain_pipe(proc.stdout, "stdout"))
+            drain_stderr = asyncio.create_task(drain_pipe(proc.stderr, "stderr"))
             self._drain_tasks.extend([drain_stdout, drain_stderr])
 
             try:
@@ -253,18 +254,20 @@ class GVisorSandbox(SandboxInterface):
         """Deletes the container and its bundle."""
         print(f"GVISOR ({self.sandbox_id}): Deleting...")
         await self.stop()
-        
+
+        print(f"GVISOR ({self.sandbox_id}): Canceling drain tasks...")
+        for task in self._drain_tasks:
+            task.cancel()
+        self._drain_tasks.clear()
+        print(f"GVISOR ({self.sandbox_id}): Drain tasks canceled.")
+
         delete_cmd = self._build_runsc_cmd("delete", "--force", self.sandbox_id)
         # Don't wait for output to avoid blocking for too long.
-        await self._run_sync_command(delete_cmd, check=False, wait_for_output=False)
+        await self._run_sync_command(delete_cmd, check=False)
 
         if os.path.exists(self._bundle_dir):
             shutil.rmtree(self._bundle_dir)
         if os.path.exists(self._root_dir):
             shutil.rmtree(self._root_dir)
-        
-        for task in self._drain_tasks:
-            task.cancel()
-        self._drain_tasks.clear()
 
         print(f"GVISOR ({self.sandbox_id}): Deleted.")
