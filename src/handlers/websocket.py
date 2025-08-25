@@ -19,7 +19,7 @@ async def create(websocket: WebSocket):
         sandbox = await sandbox_manager.create_sandbox()
         await websocket.send_json({"event": "sandbox_id", "sandbox_id": sandbox.sandbox_id})
         
-        await sandbox.start(code="") # In future, code will come from client
+        await sandbox.execute(code="") # In future, code will come from client
         await websocket.send_json({"event": "status_update", "status": SandboxStateEvent.SANDBOX_RUNNING.value})
         
         async for event in sandbox.connect():

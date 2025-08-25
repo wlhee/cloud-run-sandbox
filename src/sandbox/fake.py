@@ -31,13 +31,13 @@ class FakeSandbox(SandboxInterface):
         print(f"Fake sandbox {self.sandbox_id}: CREATED.")
         await asyncio.sleep(0.01)
 
-    async def start(self, code: str):
+    async def execute(self, code: str):
         if self._config.start_should_fail:
             raise SandboxStartError("Fake sandbox failed to start as configured.")
         
-        print(f"Fake sandbox {self.sandbox_id}: STARTING.")
+        print(f"Fake sandbox {self.sandbox_id}: EXECUTING.")
         self.is_running = True
-        print(f"Fake sandbox {self.sandbox_id}: STARTED.")
+        print(f"Fake sandbox {self.sandbox_id}: EXECUTED.")
 
     async def connect(self):
         """

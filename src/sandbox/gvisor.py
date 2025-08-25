@@ -126,7 +126,7 @@ class GVisorSandbox(SandboxInterface):
             await self.delete()
             raise SandboxCreationError(f"Failed to create gVisor container: {e}")
 
-    async def start(self, code: str):
+    async def execute(self, code: str):
         pass
 
     async def stop(self):

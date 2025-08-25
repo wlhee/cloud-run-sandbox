@@ -34,9 +34,9 @@ class SandboxInterface(ABC):
         pass
 
     @abstractmethod
-    async def start(self, code: str):
+    async def execute(self, code: str):
         """
-        Starts the sandbox execution.
+        Executes code in the sandbox.
         Raises SandboxStartError on failure.
         """
         pass

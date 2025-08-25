@@ -21,7 +21,7 @@ async def test_fake_sandbox_lifecycle_and_output():
 
     # 1. Create and start
     await sandbox.create()
-    await sandbox.start("some code")
+    await sandbox.execute("some code")
     assert sandbox.is_running
 
     # 2. Connect and verify the output stream
@@ -58,4 +58,4 @@ async def test_fake_sandbox_start_error():
     sandbox = FakeSandbox("fake-error", config=config)
     
     with pytest.raises(SandboxStartError):
-        await sandbox.start("any code")
+        await sandbox.execute("any code")
