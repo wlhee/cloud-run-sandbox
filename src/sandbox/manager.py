@@ -26,10 +26,11 @@ class SandboxManager:
         """Retrieivs a sandbox by its ID."""
         return self._sandboxes.get(sandbox_id)
 
-    async def delete_sandbox(self, sandbox_id):
-        """Deletes a sandbox and removes it from tracking."""
-        if sandbox_id in self._sandboxes:
-            sandbox = self._sandboxes[sandbox_id]
+    async def delete_sandbox(self, sandbox_id: str):
+        """Deletes a sandbox and removes it from the manager."""
+        print(f"Sandbox manager deleting sandbox {sandbox_id}...")
+        sandbox = self._sandboxes.get(sandbox_id)
+        if sandbox:
             await sandbox.delete()
             del self._sandboxes[sandbox_id]
             print(f"Sandbox manager deleted {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")

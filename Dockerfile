@@ -33,4 +33,4 @@ COPY src/ ./src/
 EXPOSE 8080
 
 # Start the server
-CMD ["python3", "main.py"]
+CMD ["python3", "-u", "main.py"]
