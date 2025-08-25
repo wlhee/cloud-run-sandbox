@@ -4,6 +4,7 @@ import shutil
 import os
 from src.sandbox.factory import create_sandbox_instance
 from src.sandbox.events import OutputType
+from src.sandbox.interface import SandboxStreamClosed
 
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
@@ -55,7 +56,12 @@ async def test_sandbox_execute_and_connect():
         await sandbox.execute(code)
 
         # Collect all events from the stream
-        events = [event async for event in sandbox.connect()]
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass  # This is the expected way for the stream to end.
 
         # Verify the output
         assert len(events) == 2
