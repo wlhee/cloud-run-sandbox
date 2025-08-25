@@ -4,17 +4,19 @@ from src.server import app
 from unittest.mock import patch, AsyncMock
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage
+from src.sandbox.interface import SandboxStreamClosed
+from src.handlers.http import execute_code_streaming
 
 client = TestClient(app)
 
-@patch('src.handlers.http.sandbox_manager')
-def test_list_sandboxes(mock_manager):
-    """Tests the successful listing of sandboxes."""
-    mock_manager.list_sandboxes.return_value = ["sandbox1", "sandbox2"]
+@patch('src.handlers.http.list_containers')
+def test_list_containers_success(mock_list_containers):
+    """Tests the successful listing of containers."""
+    mock_list_containers.return_value = ("container1\ncontainer2", None)
     
     response = client.get("/list")
     assert response.status_code == 200
-    assert response.json() == {"sandboxes": ["sandbox1", "sandbox2"]}
+    assert response.json() == {"containers": "container1\ncontainer2"}
 
 @patch('src.handlers.http.sandbox_manager')
 def test_execute_code_streaming(mock_manager):
@@ -26,6 +28,7 @@ def test_execute_code_streaming(mock_manager):
     ]
     config = FakeSandboxConfig(output_messages=output_stream)
     sandbox = FakeSandbox("fake-sandbox-http", config=config)
+    sandbox.execute = AsyncMock() # Mock the execute method
     
     mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
     mock_manager.delete_sandbox = AsyncMock()
@@ -43,3 +46,30 @@ def test_execute_code_streaming(mock_manager):
     mock_manager.create_sandbox.assert_called_once()
     sandbox.execute.assert_called_once_with(CodeLanguage.PYTHON, "print('hello')")
     mock_manager.delete_sandbox.assert_called_once_with("fake-sandbox-http")
+
+@pytest.mark.asyncio
+@patch('src.handlers.http.sandbox_manager')
+async def test_execute_code_streaming_handles_stream_closed(mock_manager):
+    """
+    Tests that the execute_code_streaming generator handles SandboxStreamClosed gracefully.
+    """
+    # Arrange
+    sandbox = FakeSandbox("fake-sandbox-stream-closed")
+    sandbox.execute = AsyncMock()
+    
+    async def mock_connect():
+        yield SandboxOutputEvent(type=OutputType.STDOUT, data="line 1\n")
+        raise SandboxStreamClosed()
+
+    sandbox.connect = mock_connect
+    
+    mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
+    mock_manager.delete_sandbox = AsyncMock()
+
+    # Act
+    stream = [item async for item in execute_code_streaming(CodeLanguage.PYTHON, "test")]
+    
+    # Assert
+    assert len(stream) == 1
+    assert stream[0] == b"line 1\n"
+    mock_manager.delete_sandbox.assert_called_once_with("fake-sandbox-stream-closed")
