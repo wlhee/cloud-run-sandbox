@@ -42,4 +42,4 @@ jobs:
       env:
         RUNSC_IGNORE_CGROUPS: 'true'
       run: |
-        sudo pytest -v -s -rA
+        sudo -E pytest -v -s -rA
