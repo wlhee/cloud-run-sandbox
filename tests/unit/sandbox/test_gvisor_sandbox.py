@@ -246,3 +246,63 @@ async def test_stream_closes_after_execution():
 
     finally:
         await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_sandbox_internet_access():
+    """
+    Tests that the sandbox can access the internet.
+    """
+    sandbox_id = "gvisor-test-internet"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        code = "curl -s https://example.com"
+        await sandbox.execute(CodeLanguage.BASH, code)
+
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+
+        stdout = "".join([e["data"] for e in events if e["type"] == OutputType.STDOUT])
+        assert "Example Domain" in stdout
+
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_sandbox_writable_filesystem():
+    """
+    Tests that the sandbox has a writable filesystem.
+    """
+    sandbox_id = "gvisor-test-writable"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        code = """
+        mkdir -p /test_dir
+        echo "hello world" > /test_dir/test_file.txt
+        cat /test_dir/test_file.txt
+        """
+        await sandbox.execute(CodeLanguage.BASH, code)
+
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+
+        stdout = "".join([e["data"] for e in events if e["type"] == OutputType.STDOUT])
+        assert "hello world" in stdout
+
+    finally:
+        await sandbox.delete()
