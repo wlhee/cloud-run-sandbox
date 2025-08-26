@@ -23,8 +23,8 @@ class GVisorConfig:
     bundle_dir_base: str = "/tmp"
     # Whether to ignore cgroup errors.
     ignore_cgroups: bool = False
-    # The gVisor platform to use (e.g., ptrace, kvm).
-    platform: str = "ptrace"
+    # The gVisor platform to use (e.g., systrap, ptrace, kvm).
+    platform: str = "systrap"
     # Whether to enable gVisor's debug logging.
     debug: bool = False
     # Whether to enable strace for sandboxed processes.
