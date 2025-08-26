@@ -27,6 +27,8 @@ class GVisorConfig:
     platform: str = "systrap"
     # The network mode to use (e.g., host, none).
     network: str = "host"
+    # Whether to enable a writable filesystem.
+    writable_filesystem: bool = True
     # Whether to enable gVisor's debug logging.
     debug: bool = False
     # Whether to enable strace for sandboxed processes.
@@ -143,8 +145,38 @@ class GVisorSandbox(SandboxInterface):
         """
         try:
             os.makedirs(self._bundle_dir, exist_ok=True)
-            
+
             # 1. Create the OCI bundle for a long-running process.
+            mounts = [
+                {"destination": "/proc", "type": "proc", "source": "proc"},
+                {
+                    "destination": self._bundle_dir, "type": "bind",
+                    "source": self._bundle_dir, "options": ["rbind", "rw"]
+                }
+            ]
+            
+            root_path = "/"
+            if self._config.writable_filesystem:
+                overlay_dirs = {
+                    "upper": os.path.join(self._bundle_dir, "upper"),
+                    "work": os.path.join(self._bundle_dir, "work"),
+                    "merged": os.path.join(self._bundle_dir, "merged")
+                }
+                for d in overlay_dirs.values():
+                    os.makedirs(d, exist_ok=True)
+                
+                mounts.append({
+                    "destination": overlay_dirs["merged"],
+                    "type": "overlay",
+                    "source": "overlay",
+                    "options": [
+                        "lowerdir=/",
+                        f"upperdir={overlay_dirs['upper']}",
+                        f"workdir={overlay_dirs['work']}"
+                    ]
+                })
+                root_path = overlay_dirs["merged"]
+
             config = {
                 "ociVersion": "1.0.0",
                 "process": {
@@ -156,14 +188,8 @@ class GVisorSandbox(SandboxInterface):
                         "PYTHONUNBUFFERED=1"
                     ]
                 },
-                "root": {"path": "/", "readonly": True},
-                "mounts": [
-                    {"destination": "/proc", "type": "proc", "source": "proc"},
-                    {
-                        "destination": self._bundle_dir, "type": "bind",
-                        "source": self._bundle_dir, "options": ["rbind", "rw"]
-                    }
-                ]
+                "root": {"path": root_path, "readonly": not self._config.writable_filesystem},
+                "mounts": mounts
             }
             config_path = os.path.join(self._bundle_dir, "config.json")
             logger.info(f"--- Writing config.json to {config_path} ---")
