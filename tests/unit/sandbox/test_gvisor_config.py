@@ -51,7 +51,6 @@ async def test_create_default_config(sandbox, mock_config):
         expected_dirs = [
             os.path.join(bundle_dir, "upper"),
             os.path.join(bundle_dir, "work"),
-            os.path.join(bundle_dir, "merged")
         ]
         for d in expected_dirs:
             mock_makedirs.assert_any_call(d, exist_ok=True)
@@ -64,10 +63,10 @@ async def test_create_default_config(sandbox, mock_config):
         written_config = json.loads(written_config_str)
         
         assert written_config["root"]["readonly"] is False
-        assert written_config["root"]["path"].endswith("/merged")
+        assert written_config["root"]["path"].endswith("/")
         
         mount_destinations = [m["destination"] for m in written_config["mounts"]]
-        assert any(d.endswith("/merged") for d in mount_destinations)
+        assert any(d.endswith("/") for d in mount_destinations)
 
 @pytest.mark.asyncio
 async def test_create_readonly_filesystem(sandbox, mock_config):

@@ -155,18 +155,17 @@ class GVisorSandbox(SandboxInterface):
                 }
             ]
             
-            root_path = "/"
+            root_config = {"path": "/", "readonly": True}
             if self._config.writable_filesystem:
                 overlay_dirs = {
                     "upper": os.path.join(self._bundle_dir, "upper"),
                     "work": os.path.join(self._bundle_dir, "work"),
-                    "merged": os.path.join(self._bundle_dir, "merged")
                 }
                 for d in overlay_dirs.values():
                     os.makedirs(d, exist_ok=True)
                 
                 mounts.append({
-                    "destination": overlay_dirs["merged"],
+                    "destination": "/",
                     "type": "overlay",
                     "source": "overlay",
                     "options": [
@@ -175,7 +174,7 @@ class GVisorSandbox(SandboxInterface):
                         f"workdir={overlay_dirs['work']}"
                     ]
                 })
-                root_path = overlay_dirs["merged"]
+                root_config["readonly"] = False
 
             config = {
                 "ociVersion": "1.0.0",
@@ -188,7 +187,7 @@ class GVisorSandbox(SandboxInterface):
                         "PYTHONUNBUFFERED=1"
                     ]
                 },
-                "root": {"path": root_path, "readonly": not self._config.writable_filesystem},
+                "root": root_config,
                 "mounts": mounts
             }
             config_path = os.path.join(self._bundle_dir, "config.json")
