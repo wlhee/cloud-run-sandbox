@@ -3,9 +3,12 @@ import os
 import json
 import shutil
 import tempfile
+import logging
 from dataclasses import dataclass
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStartError, SandboxStreamClosed, SandboxError
 from .types import SandboxOutputEvent, OutputType, CodeLanguage
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class GVisorConfig:
@@ -100,7 +103,7 @@ class GVisorSandbox(SandboxInterface):
             async def drain_pipe(stream, name):
                 while not stream.at_eof():
                     data = await stream.read(1024) # Read and discard
-                    print(f"DRAIN ({name}): {data}")
+                    logger.debug(f"DRAIN ({name}): {data}")
 
             drain_stdout = asyncio.create_task(drain_pipe(proc.stdout, "stdout"))
             drain_stderr = asyncio.create_task(drain_pipe(proc.stderr, "stderr"))
@@ -156,8 +159,8 @@ class GVisorSandbox(SandboxInterface):
                 ]
             }
             config_path = os.path.join(self._bundle_dir, "config.json")
-            print(f"--- Writing config.json to {config_path} ---")
-            print(json.dumps(config, indent=4))
+            logger.info(f"--- Writing config.json to {config_path} ---")
+            logger.info(json.dumps(config, indent=4))
             with open(config_path, "w") as f:
                 json.dump(config, f)
 
@@ -206,21 +209,21 @@ class GVisorSandbox(SandboxInterface):
         """
         async def broadcast(stream, stream_type):
             async for line in stream:
-                print(f"BROADCAST: {stream_type.value}: {line.decode('utf-8').strip()}")
+                logger.debug(f"BROADCAST: {stream_type.value}: {line.decode('utf-8').strip()}")
                 event = SandboxOutputEvent(type=stream_type, data=line.decode('utf-8'))
                 for queue in self._listener_queues:
                     await queue.put(event)
 
         try:
-            print("STREAM: Starting to gather output...")
+            logger.debug("STREAM: Starting to gather output...")
             await asyncio.gather(
                 broadcast(self._exec_proc.stdout, OutputType.STDOUT),
                 broadcast(self._exec_proc.stderr, OutputType.STDERR),
                 self._exec_proc.wait()
             )
-            print("STREAM: Finished gathering output.")
+            logger.debug("STREAM: Finished gathering output.")
         finally:
-            print("STREAM: Closing listener queues.")
+            logger.debug("STREAM: Closing listener queues.")
             for queue in self._listener_queues:
                 await queue.put(SandboxStreamClosed())
 
@@ -233,56 +236,56 @@ class GVisorSandbox(SandboxInterface):
 
         q = asyncio.Queue()
         self._listener_queues.append(q)
-        print(f"CONNECT: New listener connected. Total listeners: {len(self._listener_queues)}")
+        logger.debug(f"CONNECT: New listener connected. Total listeners: {len(self._listener_queues)}")
 
         if not self._streaming_task:
-            print("CONNECT: Starting streaming task.")
+            logger.debug("CONNECT: Starting streaming task.")
             self._streaming_task = asyncio.create_task(self._stream_output())
 
         try:
             while True:
-                print("CONNECT: Waiting for event...")
+                logger.debug("CONNECT: Waiting for event...")
                 event = await q.get()
-                print(f"CONNECT: Got event: {event}")
+                logger.debug(f"CONNECT: Got event: {event}")
                 if isinstance(event, SandboxStreamClosed):
-                    print("CONNECT: Stream closed event received.")
+                    logger.debug("CONNECT: Stream closed event received.")
                     raise event
                 yield event
         finally:
             if q in self._listener_queues:
                 self._listener_queues.remove(q)
-            print(f"CONNECT: Listener disconnected. Total listeners: {len(self._listener_queues)}")
+            logger.debug(f"CONNECT: Listener disconnected. Total listeners: {len(self._listener_queues)}")
 
     async def stop(self):
         """Stops the container and any running exec process."""
-        print(f"GVISOR ({self.sandbox_id}): Stopping...")
+        logger.info(f"GVISOR ({self.sandbox_id}): Stopping...")
         if self._streaming_task:
-            print(f"GVISOR ({self.sandbox_id}): Cancelling streaming task...")
+            logger.debug(f"GVISOR ({self.sandbox_id}): Cancelling streaming task...")
             self._streaming_task.cancel()
             self._streaming_task = None
-            print(f"GVISOR ({self.sandbox_id}): Cancelled streaming task.")
+            logger.debug(f"GVISOR ({self.sandbox_id}): Cancelled streaming task.")
         
         if self._exec_proc and self._exec_proc.returncode is None:
-            print(f"GVISOR ({self.sandbox_id}): Killing exec process...")
+            logger.debug(f"GVISOR ({self.sandbox_id}): Killing exec process...")
             self._exec_proc.kill()
             await self._exec_proc.wait()
             self._exec_proc = None
-            print(f"GVISOR ({self.sandbox_id}): Killed exec process.")
+            logger.debug(f"GVISOR ({self.sandbox_id}): Killed exec process.")
 
         kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
-        print(f"GVISOR ({self.sandbox_id}): Stopped.")
+        logger.info(f"GVISOR ({self.sandbox_id}): Stopped.")
 
     async def delete(self):
         """Deletes the container and its bundle."""
-        print(f"GVISOR ({self.sandbox_id}): Deleting...")
+        logger.info(f"GVISOR ({self.sandbox_id}): Deleting...")
         await self.stop()
 
-        print(f"GVISOR ({self.sandbox_id}): Canceling drain tasks...")
+        logger.debug(f"GVISOR ({self.sandbox_id}): Canceling drain tasks...")
         for task in self._drain_tasks:
             task.cancel()
         self._drain_tasks.clear()
-        print(f"GVISOR ({self.sandbox_id}): Drain tasks canceled.")
+        logger.debug(f"GVISOR ({self.sandbox_id}): Drain tasks canceled.")
 
         delete_cmd = self._build_runsc_cmd("delete", "--force", self.sandbox_id)
         # Don't wait for output to avoid blocking for too long.
@@ -293,4 +296,4 @@ class GVisorSandbox(SandboxInterface):
         if os.path.exists(self._root_dir):
             shutil.rmtree(self._root_dir)
 
-        print(f"GVISOR ({self.sandbox_id}): Deleted.")
+        logger.info(f"GVISOR ({self.sandbox_id}): Deleted.")

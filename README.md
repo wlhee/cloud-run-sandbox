@@ -12,14 +12,20 @@ gcloud run deploy sandbox --source . --project=<YOUR_PROJECT_ID> --region=us-cen
 
 Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
 
-## 2. Executing Python Code
+## 2. Executing Python or Bash Code
 
-To execute a Python script, you can send a POST request to the `/execute` endpoint with the content of the script as the request body.
+To execute a Python or Bash script, you can send a POST request to the `/execute` endpoint with the content of the script as the request body, and `language=[python|bash]` as a query parameter.
 
 For example, to execute the `test_hello.py` script in `example` directory:
 
 ```bash
-curl -X POST -H "Content-Type: text/plain" --data-binary @example/test_hello.py https://<YOUR_SERVICE_URL>/execute
+curl -s -X POST -H "Content-Type: text/plain" --data-binary @example/test_hello.py https://<YOUR_SERVICE_URL>/execute?language=python
+```
+
+For bash scripts,
+
+```bash
+curl -s -X POST -H "Content-Type: text/plain" --data "echo 'hello from bash'" https://<YOUR_SERVICE_URL>/execute?language=bash
 ```
 
 Replace `<YOUR_SERVICE_URL>` with the URL of your deployed Cloud Run service. The output of the script will be available in the Cloud Run logs.

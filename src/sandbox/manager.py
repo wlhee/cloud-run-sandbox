@@ -1,5 +1,8 @@
 import uuid
+import logging
 from . import factory
+
+logger = logging.getLogger(__name__)
 
 class SandboxManager:
     """
@@ -19,7 +22,7 @@ class SandboxManager:
         
         await sandbox.create()
         self._sandboxes[sandbox_id] = sandbox
-        print(f"Sandbox manager created {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
+        logger.info(f"Sandbox manager created {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
         return sandbox
 
     def get_sandbox(self, sandbox_id):
@@ -28,12 +31,12 @@ class SandboxManager:
 
     async def delete_sandbox(self, sandbox_id: str):
         """Deletes a sandbox and removes it from the manager."""
-        print(f"Sandbox manager deleting sandbox {sandbox_id}...")
+        logger.info(f"Sandbox manager deleting sandbox {sandbox_id}...")
         sandbox = self._sandboxes.get(sandbox_id)
         if sandbox:
             await sandbox.delete()
             del self._sandboxes[sandbox_id]
-            print(f"Sandbox manager deleted {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
+            logger.info(f"Sandbox manager deleted {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
 
 # Create a single, global instance of the manager that the application will use.
 manager = SandboxManager()
