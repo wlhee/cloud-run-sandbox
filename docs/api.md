@@ -16,6 +16,7 @@ The following environment variables can be used to configure the gVisor sandbox:
 | `RUNSC_BUNDLE_DIR_BASE` | The base directory for OCI bundles. | `/tmp` |
 | `RUNSC_IGNORE_CGROUPS` | Set to `true` to ignore cgroup errors. | `true` |
 | `RUNSC_PLATFORM` | The gVisor platform to use (e.g., `ptrace`, `kvm`). | `ptrace` |
+| `RUNSC_DISABLE_NETWORKING` | Set to `true` to disable networking for the sandbox. | `false` |
 | `GVISOR_DEBUG` | Set to `true` to enable gVisor's debug logging. | `false` |
 | `GVISOR_STRACE` | Set to `true` to enable strace for sandboxed processes. | `false` |
 | `GVISOR_DEBUG_LOG_DIR` | The base directory for gVisor's debug logs. | `/tmp/runsc` |

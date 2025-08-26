@@ -25,6 +25,8 @@ class GVisorConfig:
     ignore_cgroups: bool = False
     # The gVisor platform to use (e.g., systrap, ptrace, kvm).
     platform: str = "systrap"
+    # The network mode to use (e.g., host, none).
+    network: str = "host"
     # Whether to enable gVisor's debug logging.
     debug: bool = False
     # Whether to enable strace for sandboxed processes.
@@ -76,6 +78,11 @@ class GVisorSandbox(SandboxInterface):
             cmd.append("--ignore-cgroups")
         if self._config.platform:
             cmd.extend(["--platform", self._config.platform])
+        
+        # Networking flags only apply to the 'run' command.
+        if "run" in args:
+            cmd.extend(["--network", self._config.network])
+
         cmd.extend(args)
         return cmd
 
