@@ -9,6 +9,7 @@ import signal
 from unittest.mock import patch, AsyncMock
 from src.server import lifespan, app
 import asyncio
+import sys
 
 def test_server_sigterm_shutdown_deletes_sandboxes():
     """
@@ -31,9 +32,9 @@ def test_server_sigterm_shutdown_deletes_sandboxes():
 
     server_process = None
     try:
-        # 4. Start the server using the correct entrypoint.
+        # 4. Start the server using the correct entrypoint and interpreter.
         server_process = subprocess.Popen(
-            ["python3", "main.py"],
+            [sys.executable, "main.py"],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
