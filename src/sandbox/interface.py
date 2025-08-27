@@ -9,10 +9,6 @@ class SandboxCreationError(SandboxError):
     """Raised when a sandbox fails to create."""
     pass
 
-class SandboxStartError(SandboxError):
-    """Raised when a sandbox fails to start execution."""
-    pass
-
 class SandboxOperationError(SandboxError):
     """Raised when an operation on a sandbox fails."""
     pass
@@ -41,7 +37,7 @@ class SandboxInterface(ABC):
     async def execute(self, language: CodeLanguage, code: str):
         """
         Executes code in the sandbox.
-        Raises SandboxStartError on failure.
+        Raises SandboxOperationError on failure.
         """
         pass
 
