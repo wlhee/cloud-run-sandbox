@@ -1,20 +1,18 @@
 from fastapi import FastAPI
 from .handlers import http, websocket
 from .sandbox.manager import manager as sandbox_manager
-import signal
-import asyncio
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    loop = asyncio.get_event_loop()
-    loop.add_signal_handler(
-        signal.SIGTERM,
-        lambda: asyncio.create_task(sandbox_manager.delete_all_sandboxes())
-    )
+    """
+    Handles application startup and shutdown events. The ASGI server (e.g., uvicorn)
+    is responsible for catching OS signals like SIGTERM and triggering the
+    shutdown part of this lifespan context.
+    """
+    # Code to run on startup can go here
     yield
-    # Shutdown
+    # Code to run on shutdown
     await sandbox_manager.delete_all_sandboxes()
 
 app = FastAPI(lifespan=lifespan)
