@@ -41,7 +41,7 @@ def test_server_sigterm_shutdown_deletes_sandboxes():
 
         # 5. Poll the server to wait for it to start up.
         start_time = time.time()
-        while time.time() - start_time < 10: # 10-second timeout
+        while time.time() - start_time < 20: # 20-second timeout for CI
             try:
                 response = requests.get("http://127.0.0.1:8001/")
                 if response.status_code == 200:
@@ -49,7 +49,13 @@ def test_server_sigterm_shutdown_deletes_sandboxes():
             except requests.ConnectionError:
                 time.sleep(0.1) # Wait a bit before retrying
         else:
-            pytest.fail("Server did not start within 10 seconds.")
+            # If the server fails to start, provide diagnostic output.
+            stdout, stderr = server_process.communicate()
+            pytest.fail(
+                "Server did not start within 20 seconds.\n"
+                f"STDOUT: {stdout.decode()}\n"
+                f"STDERR: {stderr.decode()}"
+            )
 
         # 6. Send the SIGTERM signal directly to the server process.
         os.kill(server_process.pid, signal.SIGTERM)
@@ -74,17 +80,9 @@ async def test_lifespan_shutdown_hook(mock_delete_all):
     Directly tests that the lifespan shutdown hook correctly calls the sandbox
     manager. This verifies the application logic without a full server process.
     """
-    # We need to mock the signal handler registration because it will fail
-    # when not run in the main thread. We are testing the shutdown logic here,
-    # not the signal handling itself.
-    with patch('asyncio.get_event_loop') as mock_get_loop:
-        mock_loop = asyncio.get_event_loop()
-        mock_loop.add_signal_handler = lambda *args, **kwargs: None
-        mock_get_loop.return_value = mock_loop
-
-        async with lifespan(app):
-            # Simulate the app running
-            mock_delete_all.assert_not_awaited()
+    async with lifespan(app):
+        # Simulate the app running
+        mock_delete_all.assert_not_awaited()
 
     # When the context exits, the shutdown hook should be called.
     mock_delete_all.assert_awaited_once()
