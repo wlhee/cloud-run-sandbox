@@ -4,7 +4,7 @@ import shutil
 import os
 from src.sandbox.factory import create_sandbox_instance
 from src.sandbox.types import OutputType, CodeLanguage
-from src.sandbox.interface import SandboxStreamClosed, SandboxError
+from src.sandbox.interface import SandboxStreamClosed, SandboxError, SandboxOperationError
 
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
@@ -303,6 +303,68 @@ async def test_sandbox_writable_filesystem():
 
         stdout = "".join([e["data"] for e in events if e["type"] == OutputType.STDOUT])
         assert "hello world" in stdout
+
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_multiple_executions():
+    """
+    Tests that multiple calls to execute() are handled correctly.
+    """
+    sandbox_id = "gvisor-test-multiple-exec"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        # First execution
+        await sandbox.execute(CodeLanguage.PYTHON, "print('first')")
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+        
+        assert len(events) == 1
+        assert events[0]["data"].strip() == "first"
+
+        # Second execution
+        await sandbox.execute(CodeLanguage.BASH, "echo 'second'")
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+
+        assert len(events) == 1
+        assert events[0]["data"].strip() == "second"
+
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_reject_simultaneous_execution():
+    """
+    Tests that the sandbox rejects a new execution if one is already running.
+    """
+    sandbox_id = "gvisor-test-simultaneous"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        # Start a long-running process
+        long_running_code = "import time; print('start'); time.sleep(5); print('end')"
+        await sandbox.execute(CodeLanguage.PYTHON, long_running_code)
+
+        # Try to start another execution while the first is running
+        with pytest.raises(SandboxOperationError, match="An execution is already in progress"):
+            await sandbox.execute(CodeLanguage.PYTHON, "print('should fail')")
 
     finally:
         await sandbox.delete()

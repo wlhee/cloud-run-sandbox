@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError
 from .types import SandboxOutputEvent, OutputType, CodeLanguage
+from .execution import Execution
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +49,7 @@ class GVisorSandbox(SandboxInterface):
         self._bundle_dir = os.path.join(config.bundle_dir_base, f"runsc_bundle_{sandbox_id}")
         # Each sandbox gets a unique, named root directory.
         self._root_dir = os.path.join(config.root_dir_base, f"runsc_root_{sandbox_id}")
-        self._exec_proc = None
-        self._listener_queues = []
-        self._streaming_task = None
+        self._current_execution = None
         self._drain_tasks = []
 
     @property
@@ -208,6 +207,10 @@ class GVisorSandbox(SandboxInterface):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
+        if self._current_execution:
+            await self._current_execution.stop()
+            self._current_execution = None
+
         if language == CodeLanguage.PYTHON:
             code_filename = "main.py"
             exec_args = ["python3", "-u", os.path.join(self._bundle_dir, code_filename)]
@@ -228,81 +231,30 @@ class GVisorSandbox(SandboxInterface):
             "exec", "--cwd", "/", self.sandbox_id, *exec_args
         )
         
-        self._exec_proc = await asyncio.create_subprocess_exec(
+        process = await asyncio.create_subprocess_exec(
             *exec_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-
-    async def _stream_output(self):
-        """
-        Reads from the stdout and stderr of the exec process and
-        broadcasts the output to all connected listeners.
-        """
-        async def broadcast(stream, stream_type):
-            async for line in stream:
-                logger.debug(f"BROADCAST: {stream_type.value}: {line.decode('utf-8').strip()}")
-                event = SandboxOutputEvent(type=stream_type, data=line.decode('utf-8'))
-                for queue in self._listener_queues:
-                    await queue.put(event)
-
-        try:
-            logger.debug("STREAM: Starting to gather output...")
-            await asyncio.gather(
-                broadcast(self._exec_proc.stdout, OutputType.STDOUT),
-                broadcast(self._exec_proc.stderr, OutputType.STDERR),
-                self._exec_proc.wait()
-            )
-            logger.debug("STREAM: Finished gathering output.")
-        finally:
-            logger.debug("STREAM: Closing listener queues.")
-            for queue in self._listener_queues:
-                await queue.put(SandboxStreamClosed())
+        self._current_execution = Execution(process)
+        await self._current_execution.start_streaming()
 
     async def connect(self):
         """
         Connects a client to the sandbox's output stream.
         """
-        if not self._exec_proc:
+        if not self._current_execution:
             raise SandboxError("No process is running in the sandbox.")
-
-        q = asyncio.Queue()
-        self._listener_queues.append(q)
-        logger.debug(f"CONNECT: New listener connected. Total listeners: {len(self._listener_queues)}")
-
-        if not self._streaming_task:
-            logger.debug("CONNECT: Starting streaming task.")
-            self._streaming_task = asyncio.create_task(self._stream_output())
-
-        try:
-            while True:
-                logger.debug("CONNECT: Waiting for event...")
-                event = await q.get()
-                logger.debug(f"CONNECT: Got event: {event}")
-                if isinstance(event, SandboxStreamClosed):
-                    logger.debug("CONNECT: Stream closed event received.")
-                    raise event
-                yield event
-        finally:
-            if q in self._listener_queues:
-                self._listener_queues.remove(q)
-            logger.debug(f"CONNECT: Listener disconnected. Total listeners: {len(self._listener_queues)}")
+        
+        async for event in self._current_execution.connect():
+            yield event
 
     async def stop(self):
         """Stops the container and any running exec process."""
         logger.info(f"GVISOR ({self.sandbox_id}): Stopping...")
-        if self._streaming_task:
-            logger.debug(f"GVISOR ({self.sandbox_id}): Cancelling streaming task...")
-            self._streaming_task.cancel()
-            self._streaming_task = None
-            logger.debug(f"GVISOR ({self.sandbox_id}): Cancelled streaming task.")
-        
-        if self._exec_proc and self._exec_proc.returncode is None:
-            logger.debug(f"GVISOR ({self.sandbox_id}): Killing exec process...")
-            self._exec_proc.kill()
-            await self._exec_proc.wait()
-            self._exec_proc = None
-            logger.debug(f"GVISOR ({self.sandbox_id}): Killed exec process.")
+        if self._current_execution:
+            await self._current_execution.stop()
+            self._current_execution = None
 
         kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
