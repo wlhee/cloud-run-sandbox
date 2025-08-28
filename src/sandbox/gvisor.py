@@ -54,7 +54,7 @@ class GVisorSandbox(SandboxInterface):
         self._drain_tasks = []
 
     @property
-    def sandbox_id(self):
+    def sandbox_id:
         return self._sandbox_id
 
     def _build_runsc_cmd(self, *args):
@@ -208,6 +208,11 @@ class GVisorSandbox(SandboxInterface):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
+        # If a streaming task is already running, cancel it.
+        if self._streaming_task:
+            self._streaming_task.cancel()
+            self._streaming_task = None
+
         if language == CodeLanguage.PYTHON:
             code_filename = "main.py"
             exec_args = ["python3", "-u", os.path.join(self._bundle_dir, code_filename)]

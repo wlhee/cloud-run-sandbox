@@ -306,3 +306,42 @@ async def test_sandbox_writable_filesystem():
 
     finally:
         await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_multiple_executions():
+    """
+    Tests that multiple calls to execute() are handled correctly.
+    """
+    sandbox_id = "gvisor-test-multiple-exec"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+        
+        # First execution
+        await sandbox.execute(CodeLanguage.PYTHON, "print('first')")
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+        
+        assert len(events) == 1
+        assert events[0]["data"].strip() == "first"
+
+        # Second execution
+        await sandbox.execute(CodeLanguage.BASH, "echo 'second'")
+        events = []
+        try:
+            async for event in sandbox.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+
+        assert len(events) == 1
+        assert events[0]["data"].strip() == "second"
+
+    finally:
+        await sandbox.delete()
