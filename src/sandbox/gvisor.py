@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import logging
 from dataclasses import dataclass
-from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStartError, SandboxStreamClosed, SandboxError
+from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError
 from .types import SandboxOutputEvent, OutputType, CodeLanguage
 
 logger = logging.getLogger(__name__)

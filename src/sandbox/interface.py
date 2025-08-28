@@ -13,6 +13,10 @@ class SandboxOperationError(SandboxError):
     """Raised when an operation on a sandbox fails."""
     pass
 
+class SandboxExecutionError(SandboxOperationError):
+    """Raised when code execution within a sandbox fails."""
+    pass
+
 class SandboxStreamClosed(SandboxError):
     """Raised by the connect() generator when the output stream is closed."""
     pass

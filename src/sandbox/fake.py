@@ -1,24 +1,34 @@
 import asyncio
 from dataclasses import dataclass, field
-from typing import List
-from .interface import SandboxInterface, SandboxCreationError
+from typing import List, Optional, Type
+from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError
 from .types import SandboxOutputEvent, CodeLanguage
+
+@dataclass
+class ExecConfig:
+    """Configuration for a single execution within the FakeSandbox."""
+    output_stream: List[SandboxOutputEvent] = field(default_factory=list)
+    expected_language: Optional[CodeLanguage] = None
+    expected_code: Optional[str] = None
+    exec_error: Optional[Type[Exception]] = None
+    connect_error: Optional[Type[Exception]] = None
 
 @dataclass
 class FakeSandboxConfig:
     """Configuration for the FakeSandbox."""
     create_should_fail: bool = False
-    output_messages: List[SandboxOutputEvent] = field(default_factory=list)
+    executions: List[ExecConfig] = field(default_factory=list)
 
 class FakeSandbox(SandboxInterface):
     """
-    A configurable, fake, in-memory sandbox for testing. It supports
-    multiple concurrent connections.
+    A configurable, fake, in-memory sandbox for testing that supports
+    scripted responses for multiple, sequential executions.
     """
     def __init__(self, sandbox_id, config: FakeSandboxConfig = None):
         self._sandbox_id = sandbox_id
         self._config = config or FakeSandboxConfig()
         self.is_running = False
+        self._exec_count = 0
 
     @property
     def sandbox_id(self):
@@ -31,18 +41,45 @@ class FakeSandbox(SandboxInterface):
         await asyncio.sleep(0.01)
 
     async def execute(self, language: CodeLanguage, code: str):
-        print(f"Fake sandbox {self.sandbox_id}: EXECUTING.")
+        current_exec_config = self._get_current_exec()
+        if not current_exec_config:
+            raise AssertionError("Unexpected call to execute().")
+
+        # Verify expectations
+        if current_exec_config.expected_language is not None:
+            assert language == current_exec_config.expected_language
+        if current_exec_config.expected_code is not None:
+            assert code == current_exec_config.expected_code
+        
+        # Raise a configured error, if any
+        if current_exec_config.exec_error:
+            raise current_exec_config.exec_error("Fake sandbox failed to execute as configured.")
+
+        print(f"Fake sandbox {self.sandbox_id}: EXECUTING ({self._exec_count + 1}).")
         self.is_running = True
         print(f"Fake sandbox {self.sandbox_id}: EXECUTED.")
 
     async def connect(self):
         """
-        Yields the configured output messages. This is an async generator
-        that can be consumed by multiple clients.
+        Yields the configured output messages for the current execution.
         """
-        for message in self._config.output_messages:
+        current_exec_config = self._get_current_exec()
+        if not current_exec_config:
+            return
+
+        if current_exec_config.connect_error:
+            raise current_exec_config.connect_error("Fake sandbox failed to connect as configured.")
+
+        for message in current_exec_config.output_stream:
             yield message
-            await asyncio.sleep(0.01) # Simulate network delay
+            await asyncio.sleep(0.01)
+        
+        self._exec_count += 1
+
+    def _get_current_exec(self) -> Optional[ExecConfig]:
+        if self._exec_count < len(self._config.executions):
+            return self._config.executions[self._exec_count]
+        return None
 
     async def stop(self):
         print(f"Fake sandbox {self.sandbox_id}: STOPPING.")

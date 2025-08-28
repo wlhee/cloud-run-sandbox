@@ -29,5 +29,5 @@ class SandboxStateEvent(Enum):
     SANDBOX_NOT_FOUND = "SANDBOX_NOT_FOUND"
     # A non-recoverable error occurred during the initial creation of the sandbox.
     SANDBOX_CREATION_ERROR = "SANDBOX_CREATION_ERROR"
-    # A non-recoverable error occurred while trying to start the code execution.
-    SANDBOX_START_ERROR = "SANDBOX_START_ERROR"
+    # An error occurred during the execution of code in the sandbox.
+    SANDBOX_EXECUTION_ERROR = "SANDBOX_EXECUTION_ERROR"

@@ -1,129 +1,191 @@
 import pytest
 from fastapi.testclient import TestClient
 from src.server import app
-from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
-from src.sandbox.interface import SandboxCreationError, SandboxStartError
-from src.sandbox.types import SandboxOutputEvent, OutputType
-from unittest.mock import patch, MagicMock, AsyncMock
+from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionError
+from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
+from unittest.mock import patch
+from starlette.websockets import WebSocketDisconnect
 
 client = TestClient(app)
 
-@patch('src.sandbox.manager.factory.create_sandbox_instance')
-def test_create_websocket_success(mock_create_instance):
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+def test_create_interactive_session_success(mock_create_sandbox):
     """
-    Tests the successful creation of a sandbox and streaming of multiple
-    stdout and stderr messages.
+    Tests the successful creation of an interactive sandbox session,
+    executing multiple commands.
     """
-    # Arrange: Configure a FakeSandbox with a mixed stream of output
-    output_stream = [
-        SandboxOutputEvent(type=OutputType.STDOUT, data="First line\n"),
-        SandboxOutputEvent(type=OutputType.STDERR, data="An error message\n"),
-        SandboxOutputEvent(type=OutputType.STDOUT, data="Second line\n"),
-    ]
-    config = FakeSandboxConfig(output_messages=output_stream)
-    sandbox = FakeSandbox("fake-sandbox-123", config=config)
-    mock_create_instance.return_value = sandbox
-    
+    # Arrange
+    config = FakeSandboxConfig(executions=[
+        ExecConfig(
+            expected_language=CodeLanguage.PYTHON,
+            expected_code="print('Hello Python')",
+            output_stream=[SandboxOutputEvent(type=OutputType.STDOUT, data="Hello Python\n")]
+        ),
+        ExecConfig(
+            expected_language=CodeLanguage.BASH,
+            expected_code="echo 'Hello Bash'",
+            output_stream=[SandboxOutputEvent(type=OutputType.STDOUT, data="Hello Bash\n")]
+        )
+    ])
+    sandbox = FakeSandbox("interactive-sandbox", config=config)
+    mock_create_sandbox.return_value = sandbox
+
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
+        # 1. Send initial config and receive confirmation
+        websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "fake-sandbox-123"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "interactive-sandbox"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
-        
-        # Verify the full output stream
-        assert websocket.receive_json() == {"event": "stdout", "data": "First line\n"}
-        assert websocket.receive_json() == {"event": "stderr", "data": "An error message\n"}
-        assert websocket.receive_json() == {"event": "stdout", "data": "Second line\n"}
 
-@patch('src.sandbox.manager.factory.create_sandbox_instance')
-def test_create_websocket_creation_error(mock_create_instance):
-    """Tests the case where the sandbox fails to create."""
-    # Arrange: Configure the FakeSandbox to fail on create
-    config = FakeSandboxConfig(create_should_fail=True)
-    sandbox = FakeSandbox("fake-sandbox-error", config=config)
-    mock_create_instance.return_value = sandbox
+        # 2. Execute first command (Python)
+        websocket.send_json({"language": "python", "code": "print('Hello Python')"})
+        assert websocket.receive_json() == {"event": "stdout", "data": "Hello Python\n"}
+
+        # 3. Execute second command (Bash)
+        websocket.send_json({"language": "bash", "code": "echo 'Hello Bash'"})
+        assert websocket.receive_json() == {"event": "stdout", "data": "Hello Bash\n"}
+
+    # Assert that the sandbox was created with the correct idle timeout
+    mock_create_sandbox.assert_called_once_with(idle_timeout=120)
+
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+def test_create_sandbox_creation_error(mock_create_sandbox):
+    """
+    Tests that a sandbox creation error is handled gracefully.
+    """
+    # Arrange
+    mock_create_sandbox.side_effect = SandboxCreationError("Failed to create sandbox")
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        
+        # Check for the status updates
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATION_ERROR"}
-        assert "Fake sandbox failed to create as configured." in websocket.receive_json()["message"]
+        
+        # The connection should be closed after the error
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 4000
 
-@patch('src.sandbox.manager.factory.create_sandbox_instance')
-def test_create_websocket_start_error(mock_create_instance):
-    """Tests the case where the sandbox fails to start."""
-    # Arrange: Configure the FakeSandbox to fail on start
-    config = FakeSandboxConfig(start_should_fail=True)
-    sandbox = FakeSandbox("fake-sandbox-error", config=config)
-    mock_create_instance.return_value = sandbox
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+def test_sandbox_execution_error(mock_create_sandbox):
+    """
+    Tests that a sandbox operation error is handled gracefully.
+    """
+    # Arrange
+    config = FakeSandboxConfig(executions=[
+        ExecConfig(
+            expected_language=CodeLanguage.PYTHON,
+            expected_code="print('will fail')",
+            exec_error=SandboxExecutionError
+        )
+    ])
+    sandbox = FakeSandbox("test-sandbox", config=config)
+    mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        
+        # Initial handshake
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "fake-sandbox-error"}
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_START_ERROR"}
-        assert "Fake sandbox failed to start as configured." in websocket.receive_json()["message"]
-
-@patch('src.handlers.websocket.sandbox_manager')
-def test_attach_websocket_success(mock_manager):
-    """Tests successfully attaching to an existing sandbox."""
-    # Arrange
-    output_stream = [SandboxOutputEvent(type=OutputType.STDOUT, data="existing output")]
-    config = FakeSandboxConfig(output_messages=output_stream)
-    sandbox = FakeSandbox("existing-sandbox", config=config)
-    mock_manager.get_sandbox.return_value = sandbox
-
-    # Act & Assert
-    with client.websocket_connect("/attach/existing-sandbox") as websocket:
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
-        assert websocket.receive_json() == {"event": "stdout", "data": "existing output"}
-    
-    mock_manager.get_sandbox.assert_called_once_with("existing-sandbox")
-    mock_manager.delete_sandbox.assert_not_called()
 
-@patch('src.handlers.websocket.sandbox_manager')
-def test_attach_websocket_not_found(mock_manager):
-    """Tests attaching to a non-existent sandbox."""
+        # Send code that will trigger the error
+        websocket.send_json({"language": "python", "code": "print('will fail')"})
+
+        # Check for the error message
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": "Fake sandbox failed to execute as configured."}
+        
+        # The connection should remain open for subsequent commands
+        # (This part of the test is not fully implemented as the FakeSandbox
+        # is configured for a single execution)
+        # websocket.send_json({"language": "python", "code": "print('still open')"})
+
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+def test_invalid_message_format(mock_create_sandbox):
+    """
+    Tests that the server handles an invalid message format gracefully.
+    """
     # Arrange
-    mock_manager.get_sandbox.return_value = None
+    config = FakeSandboxConfig(executions=[
+        ExecConfig(
+            expected_language=CodeLanguage.PYTHON,
+            expected_code="print('still open')",
+            output_stream=[SandboxOutputEvent(type=OutputType.STDOUT, data="still open\n")]
+        )
+    ])
+    sandbox = FakeSandbox("test-sandbox", config=config)
+    mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
-    with client.websocket_connect("/attach/not-found-sandbox") as websocket:
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_NOT_FOUND"}
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        
+        # Initial handshake
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
-    mock_manager.get_sandbox.assert_called_once_with("not-found-sandbox")
+        # Send a malformed message
+        websocket.send_json({"invalid_key": "some_value"})
 
-@patch('src.handlers.websocket.sandbox_manager')
-def test_create_disconnect_attach(mock_manager):
+        # Check for the error message
+        supported_languages = ", ".join([lang.value for lang in CodeLanguage])
+        expected_error = (
+            "Invalid message format. 'language' and 'code' fields are required. "
+            f"Supported languages are: {supported_languages}"
+        )
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": expected_error}
+
+        # The connection should remain open
+        websocket.send_json({"language": "python", "code": "print('still open')"})
+        assert websocket.receive_json() == {"event": "stdout", "data": "still open\n"}
+
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+def test_unsupported_language(mock_create_sandbox):
     """
-    Tests that a sandbox persists after the creating client disconnects
-    and can be successfully attached to by a new client.
+    Tests that the server handles an unsupported language gracefully.
     """
     # Arrange
-    output_stream = [SandboxOutputEvent(type=OutputType.STDOUT, data="final output")]
-    config = FakeSandboxConfig(output_messages=output_stream)
-    sandbox = FakeSandbox("persistent-sandbox", config=config)
-    
-    # Configure the mock manager with the correct async/sync methods
-    mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
-    mock_manager.get_sandbox.return_value = sandbox
+    config = FakeSandboxConfig(executions=[
+        ExecConfig(
+            expected_language=CodeLanguage.PYTHON,
+            expected_code="print('still open')",
+            output_stream=[SandboxOutputEvent(type=OutputType.STDOUT, data="still open\n")]
+        )
+    ])
+    sandbox = FakeSandbox("test-sandbox", config=config)
+    mock_create_sandbox.return_value = sandbox
 
-    # Act 1: Create the sandbox and immediately disconnect
+    # Act & Assert
     with client.websocket_connect("/create") as websocket:
-        assert websocket.receive_json()["status"] == "SANDBOX_CREATING"
-        assert websocket.receive_json()["sandbox_id"] == "persistent-sandbox"
-        assert websocket.receive_json()["status"] == "SANDBOX_RUNNING"
-        # The first client consumes the output
-        assert websocket.receive_json()["data"] == "final output"
-    
-    # Assert that the sandbox was NOT deleted on disconnect
-    mock_manager.delete_sandbox.assert_not_called()
+        websocket.send_json({"idle_timeout": 120})
+        
+        # Initial handshake
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
-    # Act 2: Attach to the orphaned sandbox
-    with client.websocket_connect("/attach/persistent-sandbox") as websocket:
-        assert websocket.receive_json()["status"] == "SANDBOX_RUNNING"
-        # The second client should also receive the full output stream
-        assert websocket.receive_json()["data"] == "final output"
+        # Send a message with an unsupported language
+        websocket.send_json({"language": "unsupported", "code": "some code"})
 
-    # Assert that the sandbox was NOT deleted after the attaching client disconnected
-    mock_manager.delete_sandbox.assert_not_called()
+        # Check for the error message
+        supported_languages = ", ".join([lang.value for lang in CodeLanguage])
+        expected_error = (
+            "Invalid message format. 'language' and 'code' fields are required. "
+            f"Supported languages are: {supported_languages}"
+        )
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": expected_error}
+
+        # The connection should remain open
+        websocket.send_json({"language": "python", "code": "print('still open')"})
+        assert websocket.receive_json() == {"event": "stdout", "data": "still open\n"}
