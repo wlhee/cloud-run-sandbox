@@ -15,6 +15,11 @@ class Execution:
         self._streaming_task = None
         self._listener_queues = []
 
+    @property
+    def is_running(self):
+        """Returns True if the execution process is still running."""
+        return self._process.returncode is None
+
     async def start_streaming(self):
         """Starts the background task that streams output from the process."""
         if not self._streaming_task:
@@ -26,7 +31,7 @@ class Execution:
             self._streaming_task.cancel()
             self._streaming_task = None
         
-        if self._process.returncode is None:
+        if self.is_running:
             self._process.kill()
             await self._process.wait()
 

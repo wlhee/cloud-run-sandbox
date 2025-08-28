@@ -207,9 +207,12 @@ class GVisorSandbox(SandboxInterface):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
-        if self._current_execution:
-            await self._current_execution.stop()
-            self._current_execution = None
+        # TODO: Refactor to support concurrent executions.
+        if self._current_execution and self._current_execution.is_running:
+            raise SandboxOperationError("An execution is already in progress.")
+
+        # The previous execution is finished, so we can proceed.
+        self._current_execution = None
 
         if language == CodeLanguage.PYTHON:
             code_filename = "main.py"
