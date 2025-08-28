@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from src.server import app
 from unittest.mock import patch, AsyncMock
-from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
+from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage
 from src.sandbox.interface import SandboxStreamClosed
 from src.handlers.http import execute_code_streaming
@@ -27,7 +27,7 @@ def test_execute_code_streaming(mock_manager):
         SandboxOutputEvent(type=OutputType.STDOUT, data="line 1\n"),
         SandboxOutputEvent(type=OutputType.STDOUT, data="line 2\n"),
     ]
-    config = FakeSandboxConfig(output_messages=output_stream)
+    config = FakeSandboxConfig(executions=[ExecConfig(output_stream=output_stream)])
     sandbox = FakeSandbox("fake-sandbox-http", config=config)
     sandbox.execute = AsyncMock() # Mock the execute method
     

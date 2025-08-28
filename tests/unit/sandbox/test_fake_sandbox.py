@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
+from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
 from src.sandbox.interface import SandboxCreationError
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage
 
@@ -16,7 +16,7 @@ async def test_fake_sandbox_lifecycle_and_output():
         {"type": OutputType.STDERR, "data": "error 1"},
         {"type": OutputType.STDOUT, "data": "line 2"},
     ]
-    config = FakeSandboxConfig(output_messages=output_stream)
+    config = FakeSandboxConfig(executions=[ExecConfig(output_stream=output_stream)])
     sandbox = FakeSandbox("fake-123", config=config)
 
     # 1. Create and start
@@ -28,10 +28,10 @@ async def test_fake_sandbox_lifecycle_and_output():
     messages = [msg async for msg in sandbox.connect()]
     
     # Convert the received messages for comparison
-    received_messages = [{"type": msg["type"].value, "data": msg["data"]} for msg in messages]
-    expected_messages = [{"type": "stdout", "data": "line 1"},
-                         {"type": "stderr", "data": "error 1"},
-                         {"type": "stdout", "data": "line 2"}]
+    received_messages = [{"type": msg["type"], "data": msg["data"]} for msg in messages]
+    expected_messages = [{"type": OutputType.STDOUT, "data": "line 1"},
+                         {"type": OutputType.STDERR, "data": "error 1"},
+                         {"type": OutputType.STDOUT, "data": "line 2"}]
 
     assert received_messages == expected_messages
     
