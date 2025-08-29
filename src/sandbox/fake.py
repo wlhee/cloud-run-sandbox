@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
-from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError
+from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed
 from .types import SandboxOutputEvent, CodeLanguage
 
 @dataclass
@@ -41,6 +41,9 @@ class FakeSandbox(SandboxInterface):
         await asyncio.sleep(0.01)
 
     async def execute(self, language: CodeLanguage, code: str):
+        if self.is_running:
+            raise SandboxOperationError("An execution is already in progress.")
+
         current_exec_config = self._get_current_exec()
         if not current_exec_config:
             raise AssertionError("Unexpected call to execute().")
@@ -74,7 +77,9 @@ class FakeSandbox(SandboxInterface):
             yield message
             await asyncio.sleep(0.01)
         
+        self.is_running = False
         self._exec_count += 1
+        raise SandboxStreamClosed()
 
     def _get_current_exec(self) -> Optional[ExecConfig]:
         if self._exec_count < len(self._config.executions):

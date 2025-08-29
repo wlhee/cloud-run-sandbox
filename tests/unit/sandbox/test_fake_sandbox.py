@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
-from src.sandbox.interface import SandboxCreationError
+from src.sandbox.interface import SandboxCreationError, SandboxStreamClosed
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage
 
 pytestmark = pytest.mark.asyncio
@@ -25,8 +25,13 @@ async def test_fake_sandbox_lifecycle_and_output():
     assert sandbox.is_running
 
     # 2. Connect and verify the output stream
-    messages = [msg async for msg in sandbox.connect()]
-    
+    messages = []
+    try:
+        async for msg in sandbox.connect():
+            messages.append(msg)
+    except SandboxStreamClosed:
+        pass  # Expected at the end of the stream
+
     # Convert the received messages for comparison
     received_messages = [{"type": msg["type"], "data": msg["data"]} for msg in messages]
     expected_messages = [{"type": OutputType.STDOUT, "data": "line 1"},
@@ -35,8 +40,8 @@ async def test_fake_sandbox_lifecycle_and_output():
 
     assert received_messages == expected_messages
     
-    # 3. The sandbox should remain running until explicitly stopped
-    assert sandbox.is_running
+    # 3. The sandbox should not be running after the stream is closed
+    assert not sandbox.is_running
     await sandbox.stop()
     assert not sandbox.is_running
 

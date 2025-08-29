@@ -6,11 +6,13 @@ from src.sandbox.interface import SandboxCreationError, SandboxExecutionError
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from unittest.mock import patch
 from starlette.websockets import WebSocketDisconnect
+import asyncio
 
 client = TestClient(app)
 
+@pytest.mark.asyncio
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
-def test_create_interactive_session_success(mock_create_sandbox):
+async def test_create_interactive_session_success(mock_create_sandbox):
     """
     Tests the successful creation of an interactive sandbox session,
     executing multiple commands.
@@ -41,10 +43,12 @@ def test_create_interactive_session_success(mock_create_sandbox):
 
         # 2. Execute first command (Python)
         websocket.send_json({"language": "python", "code": "print('Hello Python')"})
+        await asyncio.sleep(0.1)  # Allow the event loop to process the task
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello Python\n"}
 
         # 3. Execute second command (Bash)
         websocket.send_json({"language": "bash", "code": "echo 'Hello Bash'"})
+        await asyncio.sleep(0.1)  # Allow the event loop to process the task
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello Bash\n"}
 
     # Assert that the sandbox was created with the correct idle timeout
@@ -62,9 +66,10 @@ def test_create_sandbox_creation_error(mock_create_sandbox):
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         
-        # Check for the status updates
+        # Check for the status updates and the error message
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATION_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": "Failed to create sandbox"}
         
         # The connection should be closed after the error
         with pytest.raises(WebSocketDisconnect) as e:
