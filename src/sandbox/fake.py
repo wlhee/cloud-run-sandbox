@@ -1,8 +1,11 @@
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed
 from .types import SandboxOutputEvent, CodeLanguage, SandboxStateEvent
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ExecConfig:
@@ -37,7 +40,7 @@ class FakeSandbox(SandboxInterface):
     async def create(self):
         if self._config.create_should_fail:
             raise SandboxCreationError("Fake sandbox failed to create as configured.")
-        print(f"Fake sandbox {self.sandbox_id}: CREATED.")
+        logger.info(f"Fake sandbox {self.sandbox_id}: CREATED.")
         await asyncio.sleep(0.01)
 
     async def execute(self, language: CodeLanguage, code: str):
@@ -58,9 +61,9 @@ class FakeSandbox(SandboxInterface):
         if current_exec_config.exec_error:
             raise current_exec_config.exec_error("Fake sandbox failed to execute as configured.")
 
-        print(f"Fake sandbox {self.sandbox_id}: EXECUTING ({self._exec_count + 1}).")
+        logger.info(f"Fake sandbox {self.sandbox_id}: EXECUTING ({self._exec_count + 1}).")
         self.is_running = True
-        print(f"Fake sandbox {self.sandbox_id}: EXECUTED.")
+        logger.info(f"Fake sandbox {self.sandbox_id}: EXECUTED.")
 
     async def connect(self):
         """
@@ -91,11 +94,11 @@ class FakeSandbox(SandboxInterface):
         return None
 
     async def stop(self):
-        print(f"Fake sandbox {self.sandbox_id}: STOPPING.")
+        logger.info(f"Fake sandbox {self.sandbox_id}: STOPPING.")
         self.is_running = False
-        print(f"Fake sandbox {self.sandbox_id}: STOPPED.")
+        logger.info(f"Fake sandbox {self.sandbox_id}: STOPPED.")
 
     async def delete(self):
-        print(f"Fake sandbox {self.sandbox_id}: DELETING.")
+        logger.info(f"Fake sandbox {self.sandbox_id}: DELETING.")
         await self.stop()
-        print(f"Fake sandbox {self.sandbox_id}: DELETED.")
+        logger.info(f"Fake sandbox {self.sandbox_id}: DELETED.")
