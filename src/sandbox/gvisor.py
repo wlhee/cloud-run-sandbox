@@ -270,8 +270,9 @@ class GVisorSandbox(SandboxInterface):
         """Stops the container and any running exec process."""
         print(f">>> [GVISOR] ({self.sandbox_id}): Stopping...")
         if self._current_execution:
-            await self._current_execution.stop()
+            execution_to_stop = self._current_execution
             self._current_execution = None
+            await execution_to_stop.stop()
 
         kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
