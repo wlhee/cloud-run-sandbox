@@ -99,7 +99,7 @@ class GVisorSandbox(SandboxInterface):
                              If False, only waits for the process to exit (for detached processes)
                              and does not read from the output pipes to avoid deadlocks.
         """
-        print(f">>> [GVISOR] Running command: {' '.join(cmd)})")
+        print(f">>> [GVISOR] Running command: {" ".join(cmd)})")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -125,12 +125,12 @@ class GVisorSandbox(SandboxInterface):
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                raise SandboxOperationError(f"Command {' '.join(cmd)} timed out.")
+                raise SandboxOperationError(f"Command {" ".join(cmd)} timed out.")
 
             if check and proc.returncode != 0:
                 # We can't reliably get stderr here because we were just draining,
                 # but we can report the exit code.
-                raise SandboxOperationError(f"Command failed: {' '.join(cmd)} with exit code {proc.returncode}")
+                raise SandboxOperationError(f"Command failed: {" ".join(cmd)} with exit code {proc.returncode}")
             return "", ""
 
         # For regular commands, wait for output.
@@ -138,7 +138,7 @@ class GVisorSandbox(SandboxInterface):
         if check and proc.returncode != 0:
             cmd_str = " ".join(cmd)
             raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
-        print(f">>> [GVISOR] Command finished: {' '.join(cmd)})")
+        print(f">>> [GVISOR] Command finished: {" ".join(cmd)})")
         return stdout.decode(), stderr.decode()
 
     async def create(self):
@@ -256,17 +256,14 @@ class GVisorSandbox(SandboxInterface):
         if not self._current_execution:
             raise SandboxError("No process is running in the sandbox.")
         
-        print(f">>> [GVISOR] Connecting to output stream for sandbox_id: {self.sandbox_id}")
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_RUNNING.value}
         
-        print(f">>> [GVISOR] Starting to stream events for sandbox_id: {self.sandbox_id}")
         async for event in self._current_execution.connect():
-            print(f">>> [GVISOR] Yielding event for sandbox_id: {self.sandbox_id}: {event}")
             yield event
-        print(f">>> [GVISOR] Finished streaming events for sandbox_id: {self.sandbox_id}")
+        
+        await self._current_execution.wait()
             
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
-        print(f">>> [GVISOR] Yielded SANDBOX_EXECUTION_DONE for sandbox_id: {self.sandbox_id}")
 
     async def stop(self):
         """Stops the container and any running exec process."""
