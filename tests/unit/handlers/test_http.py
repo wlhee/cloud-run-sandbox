@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from src.server import app
 from unittest.mock import patch, AsyncMock
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
-from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage
+from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from src.sandbox.interface import SandboxStreamClosed
 from src.handlers.http import execute_code_streaming
 from fastapi import BackgroundTasks
@@ -24,8 +24,10 @@ def test_execute_code_streaming(mock_manager):
     """Tests the streaming execution of code."""
     # Arrange
     output_stream = [
+        {"type": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"},
         SandboxOutputEvent(type=OutputType.STDOUT, data="line 1\n"),
         SandboxOutputEvent(type=OutputType.STDOUT, data="line 2\n"),
+        {"type": "status_update", "status": "SANDBOX_EXECUTION_DONE"},
     ]
     config = FakeSandboxConfig(executions=[ExecConfig(output_stream=output_stream)])
     sandbox = FakeSandbox("fake-sandbox-http", config=config)
@@ -33,6 +35,7 @@ def test_execute_code_streaming(mock_manager):
     
     mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
     mock_manager.delete_sandbox = AsyncMock()
+
 
     # Act
     response = client.post(

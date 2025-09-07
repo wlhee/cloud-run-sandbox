@@ -3,7 +3,7 @@ import asyncio
 import shutil
 import os
 from src.sandbox.factory import create_sandbox_instance
-from src.sandbox.types import OutputType, CodeLanguage
+from src.sandbox.types import OutputType, CodeLanguage, SandboxStateEvent
 from src.sandbox.interface import SandboxStreamClosed, SandboxError, SandboxOperationError
 
 # Check if 'runsc' is in the PATH
@@ -62,11 +62,15 @@ async def test_sandbox_execute_python_success():
         except SandboxStreamClosed:
             pass
 
-        assert len(events) == 2
-        assert events[0]["type"] == OutputType.STDOUT
-        assert events[0]["data"].strip() == "hello"
-        assert events[1]["type"] == OutputType.STDERR
-        assert events[1]["data"].strip() == "world"
+        assert len(events) == 4
+        assert events[0]["type"] == "status_update"
+        assert events[0]["status"] == "SANDBOX_EXECUTION_RUNNING"
+        assert events[1]["type"] == OutputType.STDOUT
+        assert events[1]["data"].strip() == "hello"
+        assert events[2]["type"] == OutputType.STDERR
+        assert events[2]["data"].strip() == "world"
+        assert events[3]["type"] == "status_update"
+        assert events[3]["status"] == "SANDBOX_EXECUTION_DONE"
 
     finally:
         await sandbox.delete()
@@ -93,11 +97,15 @@ async def test_sandbox_execute_bash_success():
         except SandboxStreamClosed:
             pass
 
-        assert len(events) == 2
-        assert events[0]["type"] == OutputType.STDOUT
-        assert events[0]["data"].strip() == "hello from bash"
-        assert events[1]["type"] == OutputType.STDERR
-        assert events[1]["data"].strip() == "error from bash"
+        assert len(events) == 4
+        assert events[0]["type"] == "status_update"
+        assert events[0]["status"] == "SANDBOX_EXECUTION_RUNNING"
+        assert events[1]["type"] == OutputType.STDOUT
+        assert events[1]["data"].strip() == "hello from bash"
+        assert events[2]["type"] == OutputType.STDERR
+        assert events[2]["data"].strip() == "error from bash"
+        assert events[3]["type"] == "status_update"
+        assert events[3]["status"] == "SANDBOX_EXECUTION_DONE"
 
     finally:
         await sandbox.delete()
@@ -124,8 +132,8 @@ async def test_sandbox_execute_python_syntax_error():
         except SandboxStreamClosed:
             pass
 
-        assert len(events) > 0
-        stderr = "".join([e["data"] for e in events if e["type"] == OutputType.STDERR])
+        assert len(events) > 2
+        stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
         assert "SyntaxError" in stderr
 
     finally:
@@ -153,8 +161,8 @@ async def test_sandbox_execute_bash_error():
         except SandboxStreamClosed:
             pass
 
-        assert len(events) > 0
-        stderr = "".join([e["data"] for e in events if e["type"] == OutputType.STDERR])
+        assert len(events) > 2
+        stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
         assert "command not found" in stderr
 
     finally:
@@ -196,14 +204,16 @@ async def test_stop_during_execution():
         try:
             async for event in sandbox.connect():
                 events.append(event)
-                if "start" in event["data"]:
+                if event.get("type") == OutputType.STDOUT and "start" in event["data"]:
                     await sandbox.stop()
         except SandboxStreamClosed:
             pass
 
-        assert len(events) == 1
-        assert events[0]["type"] == OutputType.STDOUT
-        assert events[0]["data"].strip() == "start"
+        assert len(events) == 2
+        assert events[0]["type"] == "status_update"
+        assert events[0]["status"] == "SANDBOX_EXECUTION_RUNNING"
+        assert events[1]["type"] == OutputType.STDOUT
+        assert events[1]["data"].strip() == "start"
 
     finally:
         await sandbox.delete()
@@ -241,8 +251,10 @@ async def test_stream_closes_after_execution():
         # coroutine will complete successfully.
         await asyncio.wait_for(consume_stream(), timeout=5)
 
-        assert len(all_events) == 1
-        assert all_events[0]["data"].strip() == "hello"
+        assert len(all_events) == 3
+        assert all_events[0]["status"] == "SANDBOX_EXECUTION_RUNNING"
+        assert all_events[1]["data"].strip() == "hello"
+        assert all_events[2]["status"] == "SANDBOX_EXECUTION_DONE"
 
     finally:
         await sandbox.delete()
@@ -269,7 +281,7 @@ async def test_sandbox_internet_access():
         except SandboxStreamClosed:
             pass
 
-        stdout = "".join([e["data"] for e in events if e["type"] == OutputType.STDOUT])
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "Example Domain" in stdout
 
     finally:
@@ -301,7 +313,7 @@ async def test_sandbox_writable_filesystem():
         except SandboxStreamClosed:
             pass
 
-        stdout = "".join([e["data"] for e in events if e["type"] == OutputType.STDOUT])
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "hello world" in stdout
 
     finally:
@@ -328,8 +340,8 @@ async def test_multiple_executions():
         except SandboxStreamClosed:
             pass
         
-        assert len(events) == 1
-        assert events[0]["data"].strip() == "first"
+        assert len(events) == 3
+        assert events[1]["data"].strip() == "first"
 
         # Second execution
         await sandbox.execute(CodeLanguage.BASH, "echo 'second'")
@@ -340,8 +352,8 @@ async def test_multiple_executions():
         except SandboxStreamClosed:
             pass
 
-        assert len(events) == 1
-        assert events[0]["data"].strip() == "second"
+        assert len(events) == 3
+        assert events[1]["data"].strip() == "second"
 
     finally:
         await sandbox.delete()

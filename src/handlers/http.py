@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Body, BackgroundTasks
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from typing import Annotated
 from src.sandbox.manager import manager as sandbox_manager
-from src.sandbox.types import CodeLanguage
+from src.sandbox.types import CodeLanguage, OutputType
 from src.sandbox.interface import SandboxStreamClosed
 import asyncio
 import subprocess
@@ -73,7 +73,8 @@ async def execute_code_streaming(language: CodeLanguage, code: str, background_t
         await sandbox.execute(language, code)
         
         async for event in sandbox.connect():
-            yield event["data"].encode('utf-8')
+            if event.get("type") in [OutputType.STDOUT, OutputType.STDERR]:
+                yield event["data"].encode('utf-8')
 
     except SandboxStreamClosed:
         print("Received SandboxStreamClosed exception.")

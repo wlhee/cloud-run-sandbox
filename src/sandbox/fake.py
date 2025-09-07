@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed
-from .types import SandboxOutputEvent, CodeLanguage
+from .types import SandboxOutputEvent, CodeLanguage, SandboxStateEvent
 
 @dataclass
 class ExecConfig:
@@ -73,9 +73,13 @@ class FakeSandbox(SandboxInterface):
         if current_exec_config.connect_error:
             raise current_exec_config.connect_error("Fake sandbox failed to connect as configured.")
 
+        yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_RUNNING.value}
+
         for message in current_exec_config.output_stream:
             yield message
             await asyncio.sleep(0.01)
+        
+        yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
         
         self.is_running = False
         self._exec_count += 1

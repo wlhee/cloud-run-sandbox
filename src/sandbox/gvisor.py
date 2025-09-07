@@ -6,7 +6,7 @@ import tempfile
 import logging
 from dataclasses import dataclass
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError
-from .types import SandboxOutputEvent, OutputType, CodeLanguage
+from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from .execution import Execution
 
 logger = logging.getLogger(__name__)
@@ -249,8 +249,12 @@ class GVisorSandbox(SandboxInterface):
         if not self._current_execution:
             raise SandboxError("No process is running in the sandbox.")
         
+        yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_RUNNING.value}
+        
         async for event in self._current_execution.connect():
             yield event
+            
+        yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
 
     async def stop(self):
         """Stops the container and any running exec process."""

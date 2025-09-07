@@ -70,10 +70,13 @@ class WebsocketHandler:
             await self.sandbox.execute(language, code=code)
             
             async for event in self.sandbox.connect():
-                await self.websocket.send_json({
-                    "event": event["type"].value,
-                    "data": event["data"]
-                })
+                if event["type"] == "status_update":
+                    await self.send_status(SandboxStateEvent(event["status"]))
+                else:
+                    await self.websocket.send_json({
+                        "event": event["type"].value,
+                        "data": event["data"]
+                    })
 
         except SandboxStreamClosed:
             # This is the expected end of a stream, not an error.

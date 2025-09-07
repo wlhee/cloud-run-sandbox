@@ -2,7 +2,7 @@ import pytest
 import asyncio
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
 from src.sandbox.interface import SandboxCreationError, SandboxStreamClosed
-from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage
+from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 
 pytestmark = pytest.mark.asyncio
 
@@ -33,10 +33,14 @@ async def test_fake_sandbox_lifecycle_and_output():
         pass  # Expected at the end of the stream
 
     # Convert the received messages for comparison
-    received_messages = [{"type": msg["type"], "data": msg["data"]} for msg in messages]
-    expected_messages = [{"type": OutputType.STDOUT, "data": "line 1"},
-                         {"type": OutputType.STDERR, "data": "error 1"},
-                         {"type": OutputType.STDOUT, "data": "line 2"}]
+    received_messages = [{"type": msg.get("type"), "data": msg.get("data"), "status": msg.get("status")} for msg in messages]
+    expected_messages = [
+        {"type": "status_update", "status": "SANDBOX_EXECUTION_RUNNING", "data": None},
+        {"type": OutputType.STDOUT, "data": "line 1", "status": None},
+        {"type": OutputType.STDERR, "data": "error 1", "status": None},
+        {"type": OutputType.STDOUT, "data": "line 2", "status": None},
+        {"type": "status_update", "status": "SANDBOX_EXECUTION_DONE", "data": None},
+    ]
 
     assert received_messages == expected_messages
     

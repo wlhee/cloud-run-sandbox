@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from src.server import app
 import shutil
+import asyncio
 from starlette.websockets import WebSocketDisconnect
 
 client = TestClient(app)
@@ -29,11 +30,15 @@ def test_gvisor_sandbox_creation_and_execution():
 
         # 2. Execute a python command
         websocket.send_json({"language": "python", "code": "print('Hello from gVisor')"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello from gVisor\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
         # 3. Execute a bash command
         websocket.send_json({"language": "bash", "code": "echo 'Hello again from gVisor'"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello again from gVisor\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 def test_gvisor_sandbox_execution_error_exit():
@@ -49,11 +54,15 @@ def test_gvisor_sandbox_execution_error_exit():
 
         # 2. Execute a command that exits with an error
         websocket.send_json({"language": "bash", "code": "echo 'error' >&2; exit 1"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stderr", "data": "error\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
         # 3. The connection should remain open for another command
         websocket.send_json({"language": "bash", "code": "echo 'still alive'"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stdout", "data": "still alive\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 def test_gvisor_sandbox_reject_simultaneous_execution():
@@ -68,11 +77,18 @@ def test_gvisor_sandbox_reject_simultaneous_execution():
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # 2. Start a long-running command
-        websocket.send_json({"language": "bash", "code": "sleep 5"})
+        websocket.send_json({"language": "bash", "code": "sleep 0.2; echo 'done'"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
 
         # 3. Try to start another execution while the first is running
         websocket.send_json({"language": "python", "code": "print('should fail')"})
 
         # 4. Assert that the server sends an error message
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_ERROR"}
-        assert "An execution is already in progress" in websocket.receive_json()["message"]
+        error_message = websocket.receive_json()
+        assert error_message["event"] == "error"
+        assert "An execution is already in progress" in error_message["message"]
+        
+        # 5. Wait for the first command to finish and receive its output
+        assert websocket.receive_json() == {"event": "stdout", "data": "done\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}

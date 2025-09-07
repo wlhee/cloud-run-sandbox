@@ -43,13 +43,15 @@ async def test_create_interactive_session_success(mock_create_sandbox):
 
         # 2. Execute first command (Python)
         websocket.send_json({"language": "python", "code": "print('Hello Python')"})
-        await asyncio.sleep(0.1)  # Allow the event loop to process the task
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello Python\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
         # 3. Execute second command (Bash)
         websocket.send_json({"language": "bash", "code": "echo 'Hello Bash'"})
-        await asyncio.sleep(0.1)  # Allow the event loop to process the task
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello Bash\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
     # Assert that the sandbox was created with the correct idle timeout
     mock_create_sandbox.assert_called_once_with(idle_timeout=120)
@@ -152,7 +154,9 @@ def test_invalid_message_format(mock_create_sandbox):
 
         # The connection should remain open
         websocket.send_json({"language": "python", "code": "print('still open')"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stdout", "data": "still open\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
 def test_unsupported_language(mock_create_sandbox):
@@ -193,4 +197,6 @@ def test_unsupported_language(mock_create_sandbox):
 
         # The connection should remain open
         websocket.send_json({"language": "python", "code": "print('still open')"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stdout", "data": "still open\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
