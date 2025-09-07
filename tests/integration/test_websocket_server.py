@@ -16,8 +16,9 @@ def test_websocket_attach_not_found():
         data = websocket.receive_json()
         assert data == {"event": "status_update", "status": "SANDBOX_NOT_FOUND"}
 
+@pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-def test_gvisor_sandbox_creation_and_execution():
+async def test_gvisor_sandbox_creation_and_execution():
     """
     Tests the creation and execution of a gVisor sandbox via the WebSocket interface.
     """
@@ -40,8 +41,9 @@ def test_gvisor_sandbox_creation_and_execution():
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello again from gVisor\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
+@pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-def test_gvisor_sandbox_execution_error_exit():
+async def test_gvisor_sandbox_execution_error_exit():
     """
     Tests that the websocket connection remains open after a failed execution.
     """
@@ -64,8 +66,9 @@ def test_gvisor_sandbox_execution_error_exit():
         assert websocket.receive_json() == {"event": "stdout", "data": "still alive\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
+@pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-def test_gvisor_sandbox_reject_simultaneous_execution():
+async def test_gvisor_sandbox_reject_simultaneous_execution():
     """
     Tests that the server rejects a new execution if one is already running.
     """
