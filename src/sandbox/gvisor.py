@@ -51,6 +51,7 @@ class GVisorSandbox(SandboxInterface):
         self._root_dir = os.path.join(config.root_dir_base, f"runsc_root_{sandbox_id}")
         self._current_execution = None
         self._drain_tasks = []
+        logger.info(f"GVisorSandbox initialized for sandbox_id: {self.sandbox_id}")
 
     @property
     def sandbox_id(self):
@@ -98,6 +99,7 @@ class GVisorSandbox(SandboxInterface):
                              If False, only waits for the process to exit (for detached processes)
                              and does not read from the output pipes to avoid deadlocks.
         """
+        logger.info(f"Running command: {' '.join(cmd)}")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -136,12 +138,14 @@ class GVisorSandbox(SandboxInterface):
         if check and proc.returncode != 0:
             cmd_str = " ".join(cmd)
             raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
+        logger.info(f"Command finished: {' '.join(cmd)}")
         return stdout.decode(), stderr.decode()
 
     async def create(self):
         """
         Creates the OCI bundle and starts a long-running, detached container.
         """
+        logger.info(f"Creating gVisor container for sandbox_id: {self.sandbox_id}")
         try:
             os.makedirs(self._bundle_dir, exist_ok=True)
 
@@ -198,8 +202,10 @@ class GVisorSandbox(SandboxInterface):
             # 2. Start the container in detached mode.
             run_cmd = self._build_runsc_cmd("run", "--detach", "--bundle", self._bundle_dir, self.sandbox_id)
             await self._run_sync_command(run_cmd, wait_for_output=False)
+            logger.info(f"gVisor container created for sandbox_id: {self.sandbox_id}")
 
         except Exception as e:
+            logger.error(f"Failed to create gVisor container for sandbox_id: {self.sandbox_id}: {e}", exc_info=True)
             await self.delete()
             raise SandboxCreationError(f"Failed to create gVisor container: {e}")
 
@@ -207,6 +213,7 @@ class GVisorSandbox(SandboxInterface):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
+        logger.info(f"Executing code in sandbox_id: {self.sandbox_id}")
         # TODO: Refactor to support concurrent executions.
         if self._current_execution and self._current_execution.is_running:
             raise SandboxOperationError("An execution is already in progress.")
@@ -234,6 +241,7 @@ class GVisorSandbox(SandboxInterface):
             "exec", "--cwd", "/", self.sandbox_id, *exec_args
         )
         
+        logger.info(f"Starting execution process for sandbox_id: {self.sandbox_id}")
         process = await asyncio.create_subprocess_exec(
             *exec_cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -241,6 +249,7 @@ class GVisorSandbox(SandboxInterface):
         )
         self._current_execution = Execution(process)
         await self._current_execution.start_streaming()
+        logger.info(f"Execution started for sandbox_id: {self.sandbox_id}")
 
     async def connect(self):
         """
@@ -249,12 +258,17 @@ class GVisorSandbox(SandboxInterface):
         if not self._current_execution:
             raise SandboxError("No process is running in the sandbox.")
         
+        logger.info(f"Connecting to output stream for sandbox_id: {self.sandbox_id}")
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_RUNNING.value}
         
+        logger.info(f"Starting to stream events for sandbox_id: {self.sandbox_id}")
         async for event in self._current_execution.connect():
+            logger.debug(f"Yielding event for sandbox_id: {self.sandbox_id}: {event}")
             yield event
+        logger.info(f"Finished streaming events for sandbox_id: {self.sandbox_id}")
             
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
+        logger.info(f"Yielded SANDBOX_EXECUTION_DONE for sandbox_id: {self.sandbox_id}")
 
     async def stop(self):
         """Stops the container and any running exec process."""
