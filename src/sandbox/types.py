@@ -35,3 +35,5 @@ class SandboxStateEvent(Enum):
     SANDBOX_EXECUTION_RUNNING = "SANDBOX_EXECUTION_RUNNING"
     # The sandbox has finished executing code.
     SANDBOX_EXECUTION_DONE = "SANDBOX_EXECUTION_DONE"
+    # The sandbox is already in use by another client.
+    SANDBOX_IN_USE = "SANDBOX_IN_USE"

@@ -32,10 +32,19 @@ class FakeSandbox(SandboxInterface):
         self._config = config or FakeSandboxConfig()
         self.is_running = False
         self._exec_count = 0
+        self._is_attached = False
 
     @property
     def sandbox_id(self):
         return self._sandbox_id
+
+    @property
+    def is_attached(self) -> bool:
+        return self._is_attached
+
+    @is_attached.setter
+    def is_attached(self, value: bool):
+        self._is_attached = value
 
     async def create(self):
         if self._config.create_should_fail:

@@ -58,3 +58,12 @@ async def test_fake_sandbox_create_error():
     
     with pytest.raises(SandboxCreationError):
         await sandbox.create()
+
+async def test_fake_sandbox_is_attached():
+    """
+    Tests the is_attached property of the FakeSandbox.
+    """
+    sandbox = FakeSandbox("fake-123")
+    assert not sandbox.is_attached
+    sandbox.is_attached = True
+    assert sandbox.is_attached

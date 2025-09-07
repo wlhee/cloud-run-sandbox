@@ -382,3 +382,19 @@ async def test_reject_simultaneous_execution():
 
     finally:
         await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_is_attached():
+    """
+    Tests the is_attached property of the GVisorSandbox.
+    """
+    sandbox_id = "gvisor-test-is-attached"
+    sandbox = create_sandbox_instance(sandbox_id)
+    try:
+        await sandbox.create()
+        assert not sandbox.is_attached
+        sandbox.is_attached = True
+        assert sandbox.is_attached
+    finally:
+        await sandbox.delete()

@@ -4,6 +4,7 @@ from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, S
 from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 import logging
+from functools import partial
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -14,26 +15,18 @@ class WebsocketHandler:
         self.sandbox = None
         self.active_tasks = set()
 
-    async def handle_create(self):
+    async def _websocket_lifecycle(self, setup_coro):
+        """
+        Manages the entire lifecycle of a websocket connection, ensuring
+        proper setup and teardown.
+        """
         await self.websocket.accept()
-        
         try:
-            # 1. Wait for the initial configuration message
-            init_message = await self.websocket.receive_json()
-            idle_timeout = init_message.get("idle_timeout", 300)
-
-            # 2. Create the sandbox
-            await self.send_status(SandboxStateEvent.SANDBOX_CREATING)
-            self.sandbox = await sandbox_manager.create_sandbox(idle_timeout=idle_timeout)
-            await self.websocket.send_json({"event": "sandbox_id", "sandbox_id": self.sandbox.sandbox_id})
-            
-            # 3. Signal that the sandbox is ready and enter the execution loop
-            await self.send_status(SandboxStateEvent.SANDBOX_RUNNING)
-            await self.execution_loop()
-
-        except SandboxCreationError as e:
-            logger.error(f"Sandbox creation failed: {e}")
-            await self.handle_error(e, close_connection=True)
+            # Run the specific setup logic (create or attach)
+            success = await setup_coro()
+            if success:
+                # If setup was successful, start the main execution loop
+                await self.execution_loop()
         except (WebSocketDisconnect, WebSocketException) as e:
             # This will catch disconnects that happen outside the main execution loop
             # (e.g., during sandbox creation).
@@ -43,7 +36,55 @@ class WebsocketHandler:
             for task in self.active_tasks:
                 task.cancel()
             if self.sandbox:
+                self.sandbox.is_attached = False
                 logger.info(f"Finished handling websocket for sandbox {self.sandbox.sandbox_id}")
+
+    async def _setup_create(self):
+        """Sets up the handler for a new sandbox."""
+        try:
+            # 1. Wait for the initial configuration message
+            init_message = await self.websocket.receive_json()
+            idle_timeout = init_message.get("idle_timeout", 300)
+
+            # 2. Create the sandbox
+            await self.send_status(SandboxStateEvent.SANDBOX_CREATING)
+            self.sandbox = await sandbox_manager.create_sandbox(idle_timeout=idle_timeout)
+            self.sandbox.is_attached = True
+            await self.websocket.send_json({"event": "sandbox_id", "sandbox_id": self.sandbox.sandbox_id})
+            
+            # 3. Signal that the sandbox is ready
+            await self.send_status(SandboxStateEvent.SANDBOX_RUNNING)
+            return True  # Indicates success
+        except SandboxCreationError as e:
+            logger.error(f"Sandbox creation failed: {e}")
+            await self.handle_error(e, close_connection=True)
+            return False  # Indicates failure
+
+    async def _setup_attach(self, sandbox_id: str):
+        """Sets up the handler for an existing sandbox."""
+        self.sandbox = sandbox_manager.get_sandbox(sandbox_id)
+        if not self.sandbox:
+            await self.send_status(SandboxStateEvent.SANDBOX_NOT_FOUND)
+            await self.websocket.close(code=1011)
+            return False  # Indicates failure
+        
+        if self.sandbox.is_attached:
+            await self.send_status(SandboxStateEvent.SANDBOX_IN_USE)
+            await self.websocket.close(code=1011)
+            return False
+
+        self.sandbox.is_attached = True
+        await self.send_status(SandboxStateEvent.SANDBOX_RUNNING)
+        return True  # Indicates success
+
+    async def handle_create(self):
+        """Public entrypoint to handle a 'create' websocket connection."""
+        await self._websocket_lifecycle(self._setup_create)
+
+    async def handle_attach(self, sandbox_id: str):
+        """Public entrypoint to handle an 'attach' websocket connection."""
+        setup_coro = partial(self._setup_attach, sandbox_id=sandbox_id)
+        await self._websocket_lifecycle(setup_coro)
 
     async def execution_loop(self):
         """
@@ -121,20 +162,5 @@ async def attach(websocket: WebSocket, sandbox_id: str):
     """
     Attaches to an existing sandbox.
     """
-    # This endpoint remains unchanged for now.
-    await websocket.accept()
-    sandbox = sandbox_manager.get_sandbox(sandbox_id)
-    
-    if sandbox:
-        try:
-            await websocket.send_json({"event": "status_update", "status": SandboxStateEvent.SANDBOX_RUNNING.value})
-            async for event in sandbox.connect():
-                await websocket.send_json({
-                    "event": event["type"].value,
-                    "data": event["data"]
-                })
-        except (WebSocketDisconnect, SandboxStreamClosed):
-            logger.info(f"Attached client for {sandbox.sandbox_id} disconnected.")
-    else:
-        await websocket.send_json({"event": "status_update", "status": SandboxStateEvent.SANDBOX_NOT_FOUND.value})
-        await websocket.close(code=1011)
+    handler = WebsocketHandler(websocket)
+    await handler.handle_attach(sandbox_id)

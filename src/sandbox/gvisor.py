@@ -51,11 +51,20 @@ class GVisorSandbox(SandboxInterface):
         self._root_dir = os.path.join(config.root_dir_base, f"runsc_root_{sandbox_id}")
         self._current_execution = None
         self._drain_tasks = []
+        self._is_attached = False
         logger.info(f"GVISOR: Initialized for sandbox_id: {self.sandbox_id}")
 
     @property
     def sandbox_id(self):
         return self._sandbox_id
+
+    @property
+    def is_attached(self) -> bool:
+        return self._is_attached
+
+    @is_attached.setter
+    def is_attached(self, value: bool):
+        self._is_attached = value
 
     def _build_runsc_cmd(self, *args):
         """Builds a runsc command, adding configured flags."""

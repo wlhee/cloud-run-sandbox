@@ -43,6 +43,54 @@ async def test_gvisor_sandbox_creation_and_execution():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_attach_and_execution():
+    """
+    Tests that a client can attach to an existing sandbox and execute commands.
+    """
+    # 1. Create a sandbox and get its ID
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json()["event"] == "status_update"
+        sandbox_id_event = websocket.receive_json()
+        assert sandbox_id_event["event"] == "sandbox_id"
+        sandbox_id = sandbox_id_event["sandbox_id"]
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+    # 2. Attach to the sandbox in a new session
+    with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        # 3. Execute a command in the attached session
+        websocket.send_json({"language": "python", "code": "print('Hello from attached session')"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+        assert websocket.receive_json() == {"event": "stdout", "data": "Hello from attached session\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_concurrent_attach_fails():
+    """
+    Tests that a second client's attempt to attach to an active sandbox fails.
+    """
+    # 1. Client A creates a sandbox
+    with client.websocket_connect("/create") as ws_a:
+        ws_a.send_json({"idle_timeout": 120})
+        assert ws_a.receive_json()["event"] == "status_update"
+        sandbox_id = ws_a.receive_json()["sandbox_id"]
+        assert ws_a.receive_json()["status"] == "SANDBOX_RUNNING"
+
+        # 2. Client B attempts to attach to the same sandbox
+        with client.websocket_connect(f"/attach/{sandbox_id}") as ws_b:
+            assert ws_b.receive_json() == {"event": "status_update", "status": "SANDBOX_IN_USE"}
+        
+        # 3. Client A can still execute a command
+        ws_a.send_json({"language": "python", "code": "print('hello from client A')"})
+        assert ws_a.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+        assert ws_a.receive_json() == {"event": "stdout", "data": "hello from client A\n"}
+        assert ws_a.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_gvisor_sandbox_execution_error_exit():
     """
     Tests that the websocket connection remains open after a failed execution.

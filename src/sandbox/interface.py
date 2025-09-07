@@ -29,6 +29,14 @@ class SandboxInterface(ABC):
     def sandbox_id(self):
         pass
 
+    @property
+    def is_attached(self) -> bool:
+        return False
+
+    @is_attached.setter
+    def is_attached(self, value: bool):
+        pass
+
     @abstractmethod
     async def create(self):
         """

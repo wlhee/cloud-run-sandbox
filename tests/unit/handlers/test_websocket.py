@@ -79,6 +79,47 @@ def test_create_sandbox_creation_error(mock_create_sandbox):
         assert e.value.code == 4000
 
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.handlers.websocket.sandbox_manager.get_sandbox')
+def test_create_and_attach_session(mock_get_sandbox, mock_create_sandbox):
+    """
+    Tests that a client can create a sandbox, disconnect, and another client
+    can attach to it.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_sandbox.return_value = sandbox
+    mock_get_sandbox.return_value = sandbox
+
+    # Act & Assert
+    # 1. Create the sandbox
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+    # 2. Attach to the sandbox
+    with client.websocket_connect("/attach/test-sandbox") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+@patch('src.handlers.websocket.sandbox_manager.get_sandbox')
+def test_attach_to_in_use_sandbox(mock_get_sandbox):
+    """
+    Tests that attaching to a sandbox that is already in use fails.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    sandbox.is_attached = True
+    mock_get_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/attach/test-sandbox") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_IN_USE"}
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 1011
+
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
 def test_sandbox_execution_error(mock_create_sandbox):
     """
     Tests that a sandbox operation error is handled gracefully.
@@ -108,7 +149,7 @@ def test_sandbox_execution_error(mock_create_sandbox):
 
         # Check for the error message
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_ERROR"}
-        assert websocket.receive_json() == {"event": "error", "message": "Fake sandbox failed to execute as configured."}
+        assert websocket.receive_json() == {"event": "error", "message": "Fake sandbox failed to execute as configured."} 
         
         # The connection should remain open for subsequent commands
         # (This part of the test is not fully implemented as the FakeSandbox
