@@ -209,11 +209,13 @@ async def test_stop_during_execution():
         except SandboxStreamClosed:
             pass
 
-        assert len(events) == 2
+        assert len(events) == 3
         assert events[0]["type"] == "status_update"
         assert events[0]["status"] == "SANDBOX_EXECUTION_RUNNING"
         assert events[1]["type"] == OutputType.STDOUT
         assert events[1]["data"].strip() == "start"
+        assert events[2]["type"] == "status_update"
+        assert events[2]["status"] == "SANDBOX_EXECUTION_DONE"
 
     finally:
         await sandbox.delete()
