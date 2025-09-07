@@ -51,7 +51,7 @@ class GVisorSandbox(SandboxInterface):
         self._root_dir = os.path.join(config.root_dir_base, f"runsc_root_{sandbox_id}")
         self._current_execution = None
         self._drain_tasks = []
-        print(f">>> [GVISOR] Initialized for sandbox_id: {self.sandbox_id}")
+        logger.info(f"GVISOR: Initialized for sandbox_id: {self.sandbox_id}")
 
     @property
     def sandbox_id(self):
@@ -99,7 +99,7 @@ class GVisorSandbox(SandboxInterface):
                              If False, only waits for the process to exit (for detached processes)
                              and does not read from the output pipes to avoid deadlocks.
         """
-        print(f">>> [GVISOR] Running command: {' '.join(cmd)})")
+        logger.info(f"GVISOR: Running command: {' '.join(cmd)})")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -113,7 +113,7 @@ class GVisorSandbox(SandboxInterface):
             async def drain_pipe(stream, name):
                 while not stream.at_eof():
                     data = await stream.read(1024) # Read and discard
-                    print(f">>> [GVISOR] DRAIN ({name}): {data}")
+                    logger.debug(f"GVISOR: DRAIN ({name}): {data}")
 
             drain_stdout = asyncio.create_task(drain_pipe(proc.stdout, "stdout"))
             drain_stderr = asyncio.create_task(drain_pipe(proc.stderr, "stderr"))
@@ -138,14 +138,14 @@ class GVisorSandbox(SandboxInterface):
         if check and proc.returncode != 0:
             cmd_str = " ".join(cmd)
             raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
-        print(f">>> [GVISOR] Command finished: {' '.join(cmd)})")
+        logger.info(f"GVISOR: Command finished: {' '.join(cmd)})")
         return stdout.decode(), stderr.decode()
 
     async def create(self):
         """
         Creates the OCI bundle and starts a long-running, detached container.
         """
-        print(f">>> [GVISOR] Creating container for sandbox_id: {self.sandbox_id}")
+        logger.info(f"GVISOR: Creating container for sandbox_id: {self.sandbox_id}")
         try:
             os.makedirs(self._bundle_dir, exist_ok=True)
 
@@ -194,16 +194,18 @@ class GVisorSandbox(SandboxInterface):
                 "mounts": mounts
             }
             config_path = os.path.join(self._bundle_dir, "config.json")
+            logger.info(f"--- Writing config.json to {config_path} ---")
+            logger.info(json.dumps(config, indent=4))
             with open(config_path, "w") as f:
                 json.dump(config, f)
 
             # 2. Start the container in detached mode.
             run_cmd = self._build_runsc_cmd("run", "--detach", "--bundle", self._bundle_dir, self.sandbox_id)
             await self._run_sync_command(run_cmd, wait_for_output=False)
-            print(f">>> [GVISOR] Container created for sandbox_id: {self.sandbox_id}")
+            logger.info(f"GVISOR: Container created for sandbox_id: {self.sandbox_id}")
 
         except Exception as e:
-            print(f">>> [GVISOR] Failed to create container for sandbox_id: {self.sandbox_id}: {e}")
+            logger.error(f"GVISOR: Failed to create container for sandbox_id: {self.sandbox_id}: {e}")
             await self.delete()
             raise SandboxCreationError(f"Failed to create gVisor container: {e}")
 
@@ -211,7 +213,7 @@ class GVisorSandbox(SandboxInterface):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
-        print(f">>> [GVISOR] Executing code in sandbox_id: {self.sandbox_id}")
+        logger.info(f"GVISOR: Executing code in sandbox_id: {self.sandbox_id}")
         # TODO: Refactor to support concurrent executions.
         if self._current_execution and self._current_execution.is_running:
             raise SandboxOperationError("An execution is already in progress.")
@@ -239,7 +241,7 @@ class GVisorSandbox(SandboxInterface):
             "exec", "--cwd", "/", self.sandbox_id, *exec_args
         )
         
-        print(f">>> [GVISOR] Starting execution process for sandbox_id: {self.sandbox_id}")
+        logger.info(f"GVISOR: Starting execution process for sandbox_id: {self.sandbox_id}")
         process = await asyncio.create_subprocess_exec(
             *exec_cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -247,7 +249,7 @@ class GVisorSandbox(SandboxInterface):
         )
         self._current_execution = Execution(process)
         await self._current_execution.start_streaming()
-        print(f">>> [GVISOR] Execution started for sandbox_id: {self.sandbox_id}")
+        logger.info(f"GVISOR: Execution started for sandbox_id: {self.sandbox_id}")
 
     async def connect(self):
         """
@@ -268,7 +270,7 @@ class GVisorSandbox(SandboxInterface):
 
     async def stop(self):
         """Stops the container and any running exec process."""
-        print(f">>> [GVISOR] ({self.sandbox_id}): Stopping...")
+        logger.info(f"GVISOR ({self.sandbox_id}): Stopping...")
         if self._current_execution:
             execution_to_stop = self._current_execution
             self._current_execution = None
@@ -276,18 +278,18 @@ class GVisorSandbox(SandboxInterface):
 
         kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
-        print(f">>> [GVISOR] ({self.sandbox_id}): Stopped.")
+        logger.info(f"GVISOR ({self.sandbox_id}): Stopped.")
 
     async def delete(self):
         """Deletes the container and its bundle."""
-        print(f">>> [GVISOR] ({self.sandbox_id}): Deleting...")
+        logger.info(f"GVISOR ({self.sandbox_id}): Deleting...")
         await self.stop()
 
-        print(f">>> [GVISOR] ({self.sandbox_id}): Canceling drain tasks...")
+        logger.debug(f"GVISOR ({self.sandbox_id}): Canceling drain tasks...")
         for task in self._drain_tasks:
             task.cancel()
         self._drain_tasks.clear()
-        print(f">>> [GVISOR] ({self.sandbox_id}): Drain tasks canceled.")
+        logger.debug(f"GVISOR ({self.sandbox_id}): Drain tasks canceled.")
 
         delete_cmd = self._build_runsc_cmd("delete", "--force", self.sandbox_id)
         # Don't wait for output to avoid blocking for too long.
@@ -298,4 +300,4 @@ class GVisorSandbox(SandboxInterface):
         if os.path.exists(self._root_dir):
             shutil.rmtree(self._root_dir)
 
-        print(f">>> [GVISOR] ({self.sandbox_id}): Deleted.")
+        logger.info(f"GVISOR ({self.sandbox_id}): Deleted.")
