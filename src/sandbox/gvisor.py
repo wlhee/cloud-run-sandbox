@@ -99,7 +99,7 @@ class GVisorSandbox(SandboxInterface):
                              If False, only waits for the process to exit (for detached processes)
                              and does not read from the output pipes to avoid deadlocks.
         """
-        print(f">>> [GVISOR] Running command: {" ".join(cmd)})")
+        print(f">>> [GVISOR] Running command: {' '.join(cmd)})")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -125,12 +125,12 @@ class GVisorSandbox(SandboxInterface):
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                raise SandboxOperationError(f"Command {" ".join(cmd)} timed out.")
+                raise SandboxOperationError(f"Command {' '.join(cmd)} timed out.")
 
             if check and proc.returncode != 0:
                 # We can't reliably get stderr here because we were just draining,
                 # but we can report the exit code.
-                raise SandboxOperationError(f"Command failed: {" ".join(cmd)} with exit code {proc.returncode}")
+                raise SandboxOperationError(f"Command failed: {' '.join(cmd)} with exit code {proc.returncode}")
             return "", ""
 
         # For regular commands, wait for output.
@@ -138,7 +138,7 @@ class GVisorSandbox(SandboxInterface):
         if check and proc.returncode != 0:
             cmd_str = " ".join(cmd)
             raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
-        print(f">>> [GVISOR] Command finished: {" ".join(cmd)})")
+        print(f">>> [GVISOR] Command finished: {' '.join(cmd)})")
         return stdout.decode(), stderr.decode()
 
     async def create(self):
