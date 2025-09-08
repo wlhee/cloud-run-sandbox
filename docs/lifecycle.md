@@ -53,11 +53,14 @@ When the `event` is `status_update`, the message will also contain a `status` fi
 value will be one of the following strings, corresponding to the `SandboxStateEvent`
 enum.
  
- *   `SANDBOX_CREATING`
- *   `SANDBOX_RUNNING`
- *   `SANDBOX_NOT_FOUND`
- *   `SANDBOX_CREATION_ERROR`
- *   `SANDBOX_START_ERROR`
+ *   `SANDBOX_CREATING`: The sandbox is being created and initialized.
+ *   `SANDBOX_RUNNING`: The sandbox is running and ready to process code.
+ *   `SANDBOX_NOT_FOUND`: The requested sandbox could not be found.
+ *   `SANDBOX_IN_USE`: The requested sandbox is already attached to another client.
+ *   `SANDBOX_CREATION_ERROR`: A non-recoverable error occurred during sandbox creation.
+ *   `SANDBOX_EXECUTION_ERROR`: An error occurred during code execution.
+ *   `SANDBOX_EXECUTION_RUNNING`: The sandbox is currently executing code.
+ *   `SANDBOX_EXECUTION_DONE`: The sandbox has finished executing code.
   
  ### 3.3. Message Payloads
   
@@ -66,21 +69,86 @@ enum.
  *   **Output Stream:** `{"event": "stdout", "data": "hello from sandbox\n"}`
  *   **Error:** `{"event": "error", "message": "The sandbox failed to start."}`
 
-## 4. Protocol: WebSocket-First Control & Data Plane
+## 4. Concurrency Model
+
+The system is designed with a strict and simple concurrency model to ensure predictable behavior.
+
+### 4.1. Concurrent Execution
+
+**Not Supported.** A single sandbox can only execute one command at a time. If a client sends a new execution request while a previous one is still running, the server will reject the new request with a `SANDBOX_EXECUTION_ERROR` and a descriptive error message. The client must wait for the `SANDBOX_EXECUTION_DONE` event before sending a new command.
+
+### 4.2. Concurrent Attachments
+
+**Not Supported.** Only one client may be connected to a sandbox at any given time. This prevents conflicting commands and ensures that the output stream is unambiguous.
+
+*   When a client connects via `WS /create`, it becomes the sole attached client.
+*   If another client attempts to connect to the same sandbox via `WS /attach/{sandbox_id}`, the server will reject the connection with a `SANDBOX_IN_USE` status and immediately close the WebSocket.
+*   A client can only attach to a sandbox if no other client is currently connected. This typically happens after the creating client has disconnected.
+
+## 5. Protocol: WebSocket-First Control & Data Plane
 
 Communication is exclusively over WebSockets.
 
-### 4.1. WebSocket Endpoints
+### 5.1. WebSocket Endpoints
 
 *   `WS /create`: Creates a new sandbox.
 *   `WS /attach/<sandbox_id>`: Connects to a pre-existing sandbox.
 
-### 4.2. WebSocket Message Schema
-(Schema remains the same as previous version)
+### 5.2. WebSocket Message Schema
 
-## 5. Connection Scenarios & Handoff Protocol
+The following diagrams illustrate the typical message flows between the client and server.
 
-### 5.1. Scenario 1: Creating a New Sandbox (`WS /create`)
+#### Create and Execute
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+
+    Client->>Server: Connect to WS /create
+    Server-->>Client: WebSocket Connection Established
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_CREATING"}
+    Server->>Client: {"event": "sandbox_id", "sandbox_id": "sandbox-123"}
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+    Client->>Server: {"language": "python", "code": "print('hello')"}
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+    Server->>Client: {"event": "stdout", "data": "hello\n"}
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+    Client->>Server: {"language": "bash", "code": "echo 'world'"}
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+    Server->>Client: {"event": "stdout", "data": "world\n"}
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+    Client->>Server: Close WebSocket
+    Server-->>Client: WebSocket Closed
+```
+
+#### Attach and Execute
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+
+    Client->>Server: Connect to WS /attach/sandbox-123
+    Server-->>Client: WebSocket Connection Established
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+    Client->>Server: {"language": "python", "code": "print('hello from attached client')"}
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+    Server->>Client: {"event": "stdout", "data": "hello from attached client\n"}
+    Server->>Client: {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+    Client->>Server: Close WebSocket
+    Server-->>Client: WebSocket Closed
+```
+
+
+## 6. Connection Scenarios & Handoff Protocol
+
+### 6.1. Scenario 1: Creating a New Sandbox (`WS /create`)
 
 This is the initial entry point for a user.
 
@@ -112,7 +180,7 @@ sequenceDiagram
     deactivate Client
 ```
 
-### 5.2. Scenario 2: Reconnecting to an Existing Sandbox (No Handoff)
+### 6.2. Scenario 2: Reconnecting to an Existing Sandbox (No Handoff)
 
 This is the "happy path" for reconnecting after a temporary network drop or when the client restarts.
 
@@ -138,7 +206,7 @@ sequenceDiagram
     deactivate Client
 ```
 
-### 5.3. Scenario 3: Reconnecting to an Existing Sandbox (With Handoff)
+### 6.3. Scenario 3: Reconnecting to an Existing Sandbox (With Handoff)
 
 This is the "affinity miss" path, which triggers the full handoff protocol. An affinity miss can happen for several reasons, such as the original instance crashing, being shut down during a scale-down event, the client not providing the affinity cookie, or the load balancer simply failing to honor it.
 
