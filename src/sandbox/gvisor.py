@@ -90,9 +90,11 @@ class GVisorSandbox(SandboxInterface):
         if self._config.platform:
             cmd.extend(["--platform", self._config.platform])
         
-        # Networking flags only apply to the 'run' command.
+        # Flags that only apply to the 'run' command.
         if "run" in args:
             cmd.extend(["--network", self._config.network])
+            if self._config.writable_filesystem:
+                cmd.append("--overlay2=root:memory")
 
         cmd.extend(args)
         return cmd
@@ -168,25 +170,6 @@ class GVisorSandbox(SandboxInterface):
             ]
             
             root_config = {"path": "/", "readonly": True}
-            if self._config.writable_filesystem:
-                overlay_dirs = {
-                    "upper": os.path.join(self._bundle_dir, "upper"),
-                    "work": os.path.join(self._bundle_dir, "work"),
-                }
-                for d in overlay_dirs.values():
-                    os.makedirs(d, exist_ok=True)
-                
-                mounts.append({
-                    "destination": "/",
-                    "type": "overlay",
-                    "source": "overlay",
-                    "options": [
-                        "lowerdir=/",
-                        f"upperdir={overlay_dirs['upper']}",
-                        f"workdir={overlay_dirs['work']}"
-                    ]
-                })
-                root_config["readonly"] = False
 
             config = {
                 "ociVersion": "1.0.0",

@@ -18,20 +18,18 @@ def sandbox(mock_config):
     return GVisorSandbox(sandbox_id="test-sandbox", config=mock_config)
 
 @pytest.mark.asyncio
-async def test_create_default_config(sandbox, mock_config):
-    """Tests that the default config creates a writable filesystem with an overlay."""
+async def test_create_writable_filesystem(sandbox, mock_config):
+    """Tests that a writable filesystem is created when configured."""
     mock_config.writable_filesystem = True
 
-    with patch("os.makedirs") as mock_makedirs, \
+    with patch("os.makedirs"), \
          patch("builtins.open", mock_open()) as m, \
          patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
         
-        # Mock the subprocess to return a successful exit code
         mock_proc = AsyncMock()
         mock_proc.wait.return_value = 0
         mock_proc.returncode = 0
         
-        # Configure stdout and stderr mocks to prevent RuntimeWarning
         mock_stdout = MagicMock()
         mock_stdout.at_eof.side_effect = [False, True]
         mock_stdout.read = AsyncMock(return_value=b"")
@@ -46,27 +44,19 @@ async def test_create_default_config(sandbox, mock_config):
 
         await sandbox.create()
 
-        # Check that the overlay directories were created
-        bundle_dir = sandbox._bundle_dir
-        expected_dirs = [
-            os.path.join(bundle_dir, "upper"),
-            os.path.join(bundle_dir, "work"),
-        ]
-        for d in expected_dirs:
-            mock_makedirs.assert_any_call(d, exist_ok=True)
+        # Check that the runsc command includes the overlay flag
+        run_cmd = mock_exec.call_args[0]
+        assert "--overlay2=root:memory" in run_cmd
 
-        # Check the generated config.json
+        # Check that the generated config.json has a readonly root
+        bundle_dir = sandbox._bundle_dir
         m.assert_called_once_with(os.path.join(bundle_dir, "config.json"), "w")
         
-        # Correctly capture the written content
         written_config_str = "".join(call.args[0] for call in m().write.call_args_list)
         written_config = json.loads(written_config_str)
-        
-        assert written_config["root"]["readonly"] is False
-        assert written_config["root"]["path"].endswith("/")
-        
-        mount_destinations = [m["destination"] for m in written_config["mounts"]]
-        assert any(d.endswith("/") for d in mount_destinations)
+
+        assert written_config["root"]["readonly"] is True
+        assert written_config["root"]["path"] == "/"
 
 @pytest.mark.asyncio
 async def test_create_readonly_filesystem(sandbox, mock_config):
@@ -81,7 +71,6 @@ async def test_create_readonly_filesystem(sandbox, mock_config):
         mock_proc.wait.return_value = 0
         mock_proc.returncode = 0
         
-        # Configure stdout and stderr mocks to prevent RuntimeWarning
         mock_stdout = MagicMock()
         mock_stdout.at_eof.side_effect = [False, True]
         mock_stdout.read = AsyncMock(return_value=b"")
@@ -96,6 +85,11 @@ async def test_create_readonly_filesystem(sandbox, mock_config):
 
         await sandbox.create()
 
+        # Check that the runsc command does NOT include the overlay flag
+        run_cmd = mock_exec.call_args[0]
+        assert "--overlay2=root:memory" not in run_cmd
+
+        # Check that the generated config.json has a readonly root
         bundle_dir = sandbox._bundle_dir
         m.assert_called_once_with(os.path.join(bundle_dir, "config.json"), "w")
         
