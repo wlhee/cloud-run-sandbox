@@ -169,7 +169,7 @@ class GVisorSandbox(SandboxInterface):
                 }
             ]
             
-            root_config = {"path": "/", "readonly": True}
+            root_config = {"path": "/", "readonly": not self._config.writable_filesystem}
 
             config = {
                 "ociVersion": "1.0.0",

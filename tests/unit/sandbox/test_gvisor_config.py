@@ -55,7 +55,7 @@ async def test_create_writable_filesystem(sandbox, mock_config):
         written_config_str = "".join(call.args[0] for call in m().write.call_args_list)
         written_config = json.loads(written_config_str)
 
-        assert written_config["root"]["readonly"] is True
+        assert written_config["root"]["readonly"] is False
         assert written_config["root"]["path"] == "/"
 
 @pytest.mark.asyncio
