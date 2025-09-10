@@ -19,7 +19,6 @@ The most convenient way to interact with the sandbox is by using the Python clie
 Here is a simple example of how to connect to the sandbox, execute a command, and print its output:
 
 ```python
-import asyncio
 from codesandbox import Sandbox
 
 # Replace `https` with `wss` of the Cloud Run service URL.
