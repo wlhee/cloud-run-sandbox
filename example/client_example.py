@@ -1,6 +1,7 @@
 import asyncio
 import os
 import ssl
+import certifi
 from codesandbox import Sandbox
 
 async def main():
@@ -13,7 +14,7 @@ async def main():
     The WebSocket URL should be in the format: wss://<your-cloud-run-url>
     
     Example:
-        export CLOUD_RUN_URL="wss://sandbox-xxxxxxxxxx-uc.a.run.app"
+        CLOUD_RUN_URL="wss://sandbox-xxxxxxxxxx-uc.a.run.app" 
         python3 example/client_example.py
     """
     url = os.environ.get("CLOUD_RUN_URL")
@@ -24,11 +25,9 @@ async def main():
 
     print(f"Connecting to sandbox at {url}...")
     
-    # This is a workaround for local SSL certificate verification issues.
-    # It is insecure and should NOT be used in production.
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
+    # Create a secure SSL context using certifi's certificate bundle.
+    # This is the recommended approach for ensuring secure connections.
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
 
     try:
         # Create a new sandbox session
@@ -50,20 +49,27 @@ async def main():
             print(f"STDERR:\n{stderr}")
         print("-------------------")
 
-        # Execute a python command
-        print("\nExecuting command: print('Hello from python!')")
-        process = await sandbox.exec("print('Hello from python!')", "python")
+        # Execute a python command demonstrating streaming I/O
+        py_command = (
+            "import time\n"
+            "for i in range(1, 6):\n"
+            "    print(i)\n"
+            "    time.sleep(1)"
+        )
+        print("\nExecuting streaming Python command:")
+        print(py_command)
+        process = await sandbox.exec(py_command, "python")
 
-        # Read the output streams
-        stdout = await process.stdout.read()
-        stderr = await process.stderr.read()
+        # Read the output streams using async iteration
+        print("\n--- Python Streaming Output ---")
+        print("STDOUT:")
+        async for chunk in process.stdout:
+            print(chunk, end="", flush=True)
         
-        print("\n--- Python Output ---")
-        if stdout:
-            print(f"STDOUT:\n{stdout}")
-        if stderr:
-            print(f"STDERR:\n{stderr}")
-        print("---------------------")
+        print("\nSTDERR:")
+        async for chunk in process.stderr:
+            print(chunk, end="", flush=True)
+        print("\n-----------------------------")
 
     except Exception as e:
         print(f"\nAn error occurred: {e}")

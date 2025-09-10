@@ -4,3 +4,4 @@ pytest
 pytest-asyncio
 httpx
 requests
+certifi

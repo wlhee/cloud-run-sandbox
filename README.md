@@ -12,9 +12,38 @@ gcloud run deploy sandbox --source . --project=<YOUR_PROJECT_ID> --region=us-cen
 
 Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
 
-## 2. Executing Python or Bash Code
+## 2. Using the Python Client Library
 
-To execute a Python or Bash script, you can send a POST request to the `/execute` endpoint with the content of the script as the request body, and `language=[python|bash]` as a query parameter.
+The most convenient way to interact with the sandbox is by using the Python client library located in the `clients/python` directory.
+
+Here is a simple example of how to connect to the sandbox, execute a command, and print its output:
+
+```python
+import asyncio
+from codesandbox import Sandbox
+
+# Replace `https` with `wss` of the Cloud Run service URL.
+url = "wss://<YOUR_SERVICE_URL>"
+sandbox = await Sandbox.create(url)
+
+# Execute a command
+process = await sandbox.exec("echo 'Hello from the sandbox!'", "bash")
+
+# Read the output
+stdout = await process.stdout.read()
+print(f"STDOUT: {stdout}")
+
+# Clean up the sandbox session
+await sandbox.terminate()
+```
+
+For a more detailed and robust example that includes secure SSL/TLS setup, please see `example/client_example.py`.
+
+## 3. Executing Python or Bash Code via HTTP (One-off testing)
+
+To execute a Python or Bash script with HTTP, you can send a POST request to the `/execute`
+endpoint with the content of the script as the request body, and `language=[python|bash]` as a
+query parameter.
 
 For example, to execute the `test_hello.py` script in `example` directory:
 
@@ -29,42 +58,6 @@ curl -s -X POST -H "Content-Type: text/plain" --data "echo 'hello from bash'" ht
 ```
 
 Replace `<YOUR_SERVICE_URL>` with the URL of your deployed Cloud Run service. The output of the script will be available in the Cloud Run logs.
-
-## 3. Container Management
-
-You can manage the running sandboxes using the following endpoints:
-
-### List Containers
-
-To list all running containers:
-
-```bash
-curl https://<YOUR_SERVICE_URL>/list
-```
-
-### Suspend a Container
-
-To suspend a running container, you will need its ID from the `/list` endpoint.
-
-```bash
-curl https://<YOUR_SERVICE_URL>/suspend/<CONTAINER_ID>
-```
-
-### Restore a Container
-
-To restore a suspended container:
-
-```bash
-curl https://<YOUR_SERVICE_URL>/restore/<CONTAINER_ID>
-```
-
-### Delete a Container
-
-To delete a container:
-
-```bash
-curl https://<YOUR_SERVICE_URL>/delete/<CONTAINER_ID>
-```
 
 ## 4. Limitation
 
