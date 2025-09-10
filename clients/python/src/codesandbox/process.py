@@ -88,7 +88,7 @@ class SandboxProcess:
         Processes events from the websocket to manage the process lifecycle.
         """
         try:
-            while not self._ws.closed:
+            while True:
                 message_str = await self._ws.recv()
                 message = json.loads(message_str)
                 event_type = message.get(MessageKey.EVENT)

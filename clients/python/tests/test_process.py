@@ -15,7 +15,6 @@ async def test_process_exec_success_read():
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     messages = [
         json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING}),
         json.dumps({MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "Hello "}),
@@ -33,7 +32,6 @@ async def test_process_exec_success_read():
     async def recv_side_effect():
         item = await q.get()
         if isinstance(item, Exception):
-            mock_ws.closed = True
             raise item
         return item
     mock_ws.recv.side_effect = recv_side_effect
@@ -58,7 +56,6 @@ async def test_process_stream_iteration():
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     messages = [
         json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING}),
         json.dumps({MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "Chunk 1"}),
@@ -76,7 +73,6 @@ async def test_process_stream_iteration():
     async def recv_side_effect():
         item = await q.get()
         if isinstance(item, Exception):
-            mock_ws.closed = True
             raise item
         return item
     mock_ws.recv.side_effect = recv_side_effect
@@ -107,7 +103,6 @@ async def test_process_exec_failure():
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     messages = [
         json.dumps({
             MessageKey.EVENT: EventType.STATUS_UPDATE,
@@ -124,7 +119,6 @@ async def test_process_exec_failure():
     async def recv_side_effect():
         item = await q.get()
         if isinstance(item, Exception):
-            mock_ws.closed = True
             raise item
         return item
     mock_ws.recv.side_effect = recv_side_effect
@@ -141,7 +135,6 @@ async def test_process_terminate():
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     
     messages = [
         json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING}),
@@ -190,7 +183,6 @@ async def test_process_terminate_while_reading():
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     
     messages = [
         json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING}),
@@ -249,7 +241,6 @@ async def test_process_terminate_while_full_reading():
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     
     messages = [
         json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING}),
@@ -298,7 +289,6 @@ async def test_process_connection_closed_before_start():
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     
     # The connection closes before the SANDBOX_EXECUTION_RUNNING message is received
     side_effects = [websockets.exceptions.ConnectionClosed(None, None)]
@@ -310,7 +300,6 @@ async def test_process_connection_closed_before_start():
     async def recv_side_effect():
         item = await q.get()
         if isinstance(item, Exception):
-            mock_ws.closed = True
             raise item
         return item
     mock_ws.recv.side_effect = recv_side_effect
@@ -327,7 +316,6 @@ async def test_process_connection_closed_after_start():
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     messages = [
         json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING}),
         json.dumps({MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "Partial output"}),
@@ -342,7 +330,6 @@ async def test_process_connection_closed_after_start():
     async def recv_side_effect():
         item = await q.get()
         if isinstance(item, Exception):
-            mock_ws.closed = True
             raise item
         return item
     mock_ws.recv.side_effect = recv_side_effect

@@ -25,13 +25,13 @@ class Sandbox:
         return self._sandbox_id
 
     @classmethod
-    async def create(cls, url: str, idle_timeout: int = 60):
+    async def create(cls, url: str, idle_timeout: int = 60, ssl=None):
         """
         Creates a new sandbox session.
         """
         try:
             # Use __await__ to make it compatible with the AsyncMock from tests
-            websocket = await websockets.connect(f"{url}/create")
+            websocket = await websockets.connect(f"{url}/create", ssl=ssl)
         except websockets.exceptions.InvalidURI as e:
             raise SandboxConnectionError(f"Invalid WebSocket URI: {e}")
         except ConnectionRefusedError:
@@ -70,7 +70,7 @@ class Sandbox:
         try:
             # The `async for` is not compatible with the `recv` mock pattern.
             # This `while` loop makes it directly compatible.
-            while not self._ws.closed:
+            while True:
                 message_str = await self._ws.recv()
                 message = json.loads(message_str)
                 event = message.get(MessageKey.EVENT)
@@ -112,7 +112,7 @@ class Sandbox:
         # Terminate all running processes concurrently
         await asyncio.gather(*(process.terminate() for process in self._processes))
 
-        if not self._ws.closed:
+        if self._ws.state != websockets.protocol.State.CLOSED:
             await self._ws.close()
         
         self._listen_task.cancel()

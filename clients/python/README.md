@@ -15,8 +15,9 @@ import asyncio
 from codesandbox import Sandbox
 
 async def main():
-    # Create a new sandbox
-    sandbox = await Sandbox.create("ws://localhost:8000")
+    # The URL should be the WebSocket endpoint of your deployed service,
+    # typically "wss://<your-cloud-run-url>"
+    sandbox = await Sandbox.create("wss://<CLOUD_RUN_URL>")
 
     # Execute a command
     process = await sandbox.exec("echo 'Hello from the sandbox!'", "bash")

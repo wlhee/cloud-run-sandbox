@@ -16,7 +16,6 @@ async def test_sandbox_create_success(mock_connect):
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     mock_connect.return_value = mock_ws
 
     messages = [
@@ -34,7 +33,6 @@ async def test_sandbox_create_success(mock_connect):
     async def recv_side_effect():
         item = await q.get()
         if isinstance(item, Exception):
-            mock_ws.closed = True
             raise item
         return item
     mock_ws.recv.side_effect = recv_side_effect
@@ -58,7 +56,6 @@ async def test_sandbox_create_failure(mock_connect):
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     mock_connect.return_value = mock_ws
 
     messages = [
@@ -77,7 +74,6 @@ async def test_sandbox_create_failure(mock_connect):
     async def recv_side_effect():
         item = await q.get()
         if isinstance(item, Exception):
-            mock_ws.closed = True
             raise item
         return item
     mock_ws.recv.side_effect = recv_side_effect
@@ -95,7 +91,6 @@ async def test_sandbox_terminate_kills_processes(MockSandboxProcess, mock_connec
     """
     # Arrange
     mock_ws = AsyncMock()
-    mock_ws.closed = False
     mock_connect.return_value = mock_ws
 
     messages = [
