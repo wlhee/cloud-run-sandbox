@@ -39,8 +39,8 @@ async def main():
         process = await sandbox.exec("echo 'Hello from bash!'", "bash")
 
         # Read the output streams
-        stdout = await process.stdout.read()
-        stderr = await process.stderr.read()
+        stdout = await process.stdout.read_all()
+        stderr = await process.stderr.read_all()
         
         print("\n--- Bash Output ---")
         if stdout:

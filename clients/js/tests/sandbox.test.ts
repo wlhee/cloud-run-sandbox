@@ -9,15 +9,6 @@ jest.mock('ws');
 
 const MockWebSocket = WebSocket as jest.MockedClass<typeof WebSocket>;
 
-// Helper function to collect stream data
-async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString('utf-8');
-}
-
 describe('Sandbox', () => {
   let mockWsInstance: EventEmitter & { send: jest.Mock; close: jest.Mock; terminate: jest.Mock; readyState: number; };
 
@@ -181,8 +172,8 @@ describe('Sandbox', () => {
     }));
     const process = await processPromise;
 
-    const stdoutPromise = streamToString(process.stdout);
-    const stderrPromise = streamToString(process.stderr);
+    const stdoutPromise = process.stdout.readAll();
+    const stderrPromise = process.stderr.readAll();
 
     sandbox.terminate();
     mockWsInstance.emit('close');

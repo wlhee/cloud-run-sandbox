@@ -12,9 +12,11 @@ gcloud run deploy sandbox --source . --project=<YOUR_PROJECT_ID> --region=us-cen
 
 Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
 
-## 2. Using the Python Client Library
+## 2. Using the Client Libraries
 
-The most convenient way to interact with the sandbox is by using the Python client library located in the `clients/python` directory.
+The most convenient way to interact with the sandbox is by using one of the client libraries.
+
+### Python
 
 Here is a simple example of how to connect to the sandbox, execute a command, and print its output:
 
@@ -29,7 +31,7 @@ sandbox = await Sandbox.create(url)
 process = await sandbox.exec("echo 'Hello from the sandbox!'", "bash")
 
 # Read the output
-stdout = await process.stdout.read()
+stdout = await process.stdout.read_all()
 print(f"STDOUT: {stdout}")
 
 # Clean up the sandbox session
@@ -37,6 +39,30 @@ await sandbox.terminate()
 ```
 
 For a more detailed and robust example that includes secure SSL/TLS setup, please see `example/client_example.py`.
+
+### TypeScript
+
+Here is a simple example of how to connect to the sandbox, execute a command, and print its output:
+
+```typescript
+import { Sandbox } from './clients/js/src/sandbox';
+
+// Replace `https` with `wss` of the Cloud Run service URL.
+const url = "wss://<YOUR_SERVICE_URL>";
+const sandbox = await Sandbox.create(url);
+
+// Execute a command
+const process = await sandbox.exec("echo 'Hello from the sandbox!'", "bash");
+
+// Read the output
+const stdout = await process.stdout.readAll();
+console.log(`STDOUT: ${stdout}`);
+
+// Clean up the sandbox session
+sandbox.terminate();
+```
+
+For a more detailed example, please see `example/client_example.ts`.
 
 ## 3. Executing Python or Bash Code via HTTP (One-off testing)
 

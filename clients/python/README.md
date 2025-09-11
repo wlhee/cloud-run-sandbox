@@ -23,7 +23,7 @@ async def main():
     process = await sandbox.exec("echo 'Hello from the sandbox!'", "bash")
 
     # Read the output
-    output = await process.stdout.read()
+    output = await process.stdout.read_all()
     print(output)
 
     # Terminate the sandbox

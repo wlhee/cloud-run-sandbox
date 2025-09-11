@@ -9,6 +9,17 @@ class SandboxStream extends Readable {
   // _read() method is a no-op because the stream itself doesn't actively
   // fetch data; it just waits for data to be pushed.
   _read() {}
+
+  /**
+   * Reads the entire stream until EOF and returns it as a single string.
+   */
+  public async readAll(): Promise<string> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of this) {
+      chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString('utf-8');
+  }
 }
 
 export class SandboxProcess {
@@ -48,6 +59,7 @@ export class SandboxProcess {
           this.eventEmitter.emit('started');
         } else if (message.status === SandboxEvent.SANDBOX_EXECUTION_DONE) {
           this._isDone = true;
+          this.cleanup();
           this.eventEmitter.emit('done');
         }
         break;
@@ -78,7 +90,6 @@ export class SandboxProcess {
     
     return new Promise((resolve) => {
       this.eventEmitter.once('done', () => {
-        this.cleanup();
         resolve();
       });
     });

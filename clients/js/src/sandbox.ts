@@ -10,7 +10,6 @@ export class Sandbox {
   private eventEmitter = new EventEmitter();
   private _sandboxId: string | null = null;
   private _creationError: Error | null = null;
-  private _isRunning: boolean = false;
   private activeProcess: SandboxProcess | null = null;
   private state: SandboxState = 'creating';
 
@@ -27,7 +26,6 @@ export class Sandbox {
 
   private handleMessage(data: WebSocket.Data) {
     const message: WebSocketMessage = JSON.parse(data.toString());
-    console.log('[SANDBOX] handleMessage received:', message);
 
     // Process-specific events are always forwarded
     if (
@@ -35,12 +33,10 @@ export class Sandbox {
       message.event === EventType.STDERR ||
       (message.event === EventType.STATUS_UPDATE &&
         message.status &&
-        message.status.startsWith('sandbox_execution_'))
+        message.status.startsWith('SANDBOX_EXECUTION_'))
     ) {
       if (this.activeProcess) {
         this.activeProcess.handleMessage(message);
-      } else {
-        console.warn('Received process message without an active process:', message);
       }
       return;
     }
@@ -48,21 +44,14 @@ export class Sandbox {
     // Handle sandbox lifecycle events
     if (message.event === EventType.SANDBOX_ID) {
       this._sandboxId = message.sandbox_id;
-      if (this._isRunning) {
-        this.state = 'running';
-        this.eventEmitter.emit('created', this);
-      }
       return;
     }
 
     if (message.event === EventType.STATUS_UPDATE) {
       switch (message.status) {
         case SandboxEvent.SANDBOX_RUNNING:
-          this._isRunning = true;
-          if (this._sandboxId) {
-            this.state = 'running';
-            this.eventEmitter.emit('created', this);
-          }
+          this.state = 'running';
+          this.eventEmitter.emit('created', this);
           break;
         case SandboxEvent.SANDBOX_CREATION_ERROR:
           if (this.state === 'creating') {
@@ -74,15 +63,10 @@ export class Sandbox {
       }
       return;
     }
-    
-    console.warn('Unhandled sandbox event:', message);
   }
 
   private handleClose(code: number, reason: Buffer) {
-    const reasonStr = reason ? reason.toString() : '';
-    console.log(`[SANDBOX] WebSocket closed: code=${code}, reason=${reasonStr}`);
     if (this.state === 'creating') {
-      console.log('[SANDBOX] handleClose emitting failed');
       this.state = 'failed';
       const err = new Error(`Connection closed during creation: code=${code}`);
       this.eventEmitter.emit('failed', err);
@@ -97,9 +81,7 @@ export class Sandbox {
   }
 
   private handleError(err: Error) {
-    console.error('[SANDBOX] WebSocket error:', err);
     if (this.state === 'creating') {
-      console.log('[SANDBOX] handleError emitting failed');
       this.state = 'failed';
       this.eventEmitter.emit('failed', err);
     }
@@ -114,25 +96,21 @@ export class Sandbox {
 
   static create(url: string, options: { idleTimeout?: number, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
     const { idleTimeout = 60, wsOptions } = options;
-    console.log('[SANDBOX] create called');
     
     const sanitizedUrl = url.replace(/\/$/, '');
     const ws = new WebSocket(`${sanitizedUrl}/create`, wsOptions);
     const sandbox = new Sandbox(ws);
 
     ws.on('open', () => {
-      console.log('[SANDBOX] ws open');
       ws.send(JSON.stringify({ idle_timeout: idleTimeout }));
     });
     
     return new Promise((resolve, reject) => {
       sandbox.eventEmitter.once('created', (createdSandbox) => {
-        console.log('[PROMISE] "created" event received. Resolving.');
         resolve(createdSandbox);
       });
       
       sandbox.eventEmitter.once('failed', (err) => {
-        console.log('[PROMISE] "failed" event received. Terminating and rejecting.');
         // On failure, ensure the socket is completely destroyed.
         if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
           ws.terminate();

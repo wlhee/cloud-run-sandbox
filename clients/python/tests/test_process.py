@@ -11,7 +11,7 @@ from codesandbox.types import MessageKey, EventType, SandboxEvent
 async def test_process_exec_success_read():
     """
     Tests that a process starts successfully and can read stdout/stderr
-    using the .read() method.
+    using the .read_all() method.
     """
     # Arrange
     mock_ws = AsyncMock()
@@ -40,8 +40,8 @@ async def test_process_exec_success_read():
     process = SandboxProcess(mock_ws)
     await process.exec("echo 'Hello World'", "bash")
     
-    stdout = await process.stdout.read()
-    stderr = await process.stderr.read()
+    stdout = await process.stdout.read_all()
+    stderr = await process.stderr.read_all()
     await process.wait()
 
     # Assert
@@ -172,7 +172,7 @@ async def test_process_terminate():
     await asyncio.wait_for(process.wait(), timeout=0.1)
     
     # The streams should be closed and contain the partial output
-    stdout = await process.stdout.read()
+    stdout = await process.stdout.read_all()
     assert stdout == "" # The rest of the stream is empty
 
 @pytest.mark.asyncio
@@ -236,7 +236,7 @@ async def test_process_terminate_while_reading():
 @pytest.mark.asyncio
 async def test_process_terminate_while_full_reading():
     """
-    Tests that a reader calling .read() is unblocked gracefully when
+    Tests that a reader calling .read_all() is unblocked gracefully when
     the process is terminated.
     """
     # Arrange
@@ -265,8 +265,8 @@ async def test_process_terminate_while_full_reading():
     await process.exec("some long-running command", "bash")
 
     # Act
-    # Start the .read() in the background
-    reader_task = asyncio.create_task(process.stdout.read())
+    # Start the .read_all() in the background
+    reader_task = asyncio.create_task(process.stdout.read_all())
 
     # Give the reader a moment to start and consume the first chunk
     await asyncio.sleep(0)
@@ -343,5 +343,5 @@ async def test_process_connection_closed_after_start():
     
     # Assert
     # The process should not hang, and the partial output should be available.
-    stdout = await process.stdout.read()
+    stdout = await process.stdout.read_all()
     assert stdout == "Partial output"

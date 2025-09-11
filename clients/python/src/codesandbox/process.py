@@ -21,7 +21,7 @@ class SandboxStream:
                 break
             yield item
 
-    async def read(self) -> str:
+    async def read_all(self) -> str:
         """Reads the entire stream until EOF and returns it as a single string."""
         return "".join([item async for item in self])
 

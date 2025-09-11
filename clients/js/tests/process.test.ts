@@ -2,16 +2,6 @@ import { SandboxProcess } from '../src/process';
 import { EventEmitter } from 'events';
 import { MessageKey, EventType, SandboxEvent, WebSocketMessage } from '../src/types';
 
-// Helper function to collect stream data
-async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-    stream.on('error', reject);
-    stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-  });
-}
-
 /**
  * A test helper to simulate the server side of the WebSocket connection.
  */
@@ -134,8 +124,8 @@ describe('SandboxProcess', () => {
     await execPromise;
 
     const allPromise = Promise.all([
-      streamToString(process.stdout),
-      streamToString(process.stderr),
+      process.stdout.readAll(),
+      process.stderr.readAll(),
       process.wait(),
     ]);
 
@@ -224,5 +214,25 @@ describe('SandboxProcess', () => {
 
     // Assert
     await expect(execPromise).rejects.toThrow('Syntax error');
+  });
+
+  it('does not hang if stdout is fully consumed before wait() is called', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+
+    // Act
+    const execPromise = process.exec('test', 'bash');
+    server.sendRunning();
+    await execPromise;
+
+    const streamPromise = process.stdout.readAll();
+
+    server.sendStdout('some data');
+    server.sendDone(); // This is the key: the stream should end here.
+
+    // Assert
+    await expect(streamPromise).resolves.toBe('some data');
+    await expect(process.wait()).resolves.toBeUndefined();
   });
 });

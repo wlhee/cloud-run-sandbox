@@ -14,15 +14,6 @@
  *    `ts-node example/client_example.ts`
  */
 import { Sandbox } from '../clients/js/src/sandbox';
-import { Readable } from 'stream';
-
-async function streamToString(stream: Readable): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString('utf-8');
-}
 
 async function main() {
   const url = process.env.CLOUD_RUN_URL;
@@ -54,8 +45,8 @@ async function main() {
 
     // Concurrently read streams and wait for the process to complete
     const [stdout, stderr] = await Promise.all([
-      streamToString(process.stdout),
-      streamToString(process.stderr),
+      process.stdout.readAll(),
+      process.stderr.readAll(),
       process.wait(),
     ]);
     
@@ -68,6 +59,25 @@ async function main() {
     }
     console.log("-------------------");
     console.log('Process finished.');
+
+    // Iterative read example
+    console.log("\nExecuting Python script and reading output iteratively...");
+    const pythonScript = `
+import time
+for i in range(5):
+    print(f"Line {i+1}")
+    time.sleep(0.5)
+`;
+    const pythonProcess = await sandbox.exec(pythonScript, "python");
+
+    console.log("\n--- Python Output (Iterative) ---");
+    for await (const chunk of pythonProcess.stdout) {
+      console.log(chunk.toString());
+    }
+    console.log("---------------------------------");
+    await pythonProcess.wait();
+    console.log('Python script finished.');
+
 
   } catch (e) {
     console.error("\nAn error occurred:", e);

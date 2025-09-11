@@ -14,11 +14,12 @@ export enum EventType {
 }
 
 export enum SandboxEvent {
-  SANDBOX_RUNNING = 'sandbox_running',
-  SANDBOX_CREATION_ERROR = 'sandbox_creation_error',
-  SANDBOX_EXECUTION_RUNNING = 'sandbox_execution_running',
-  SANDBOX_EXECUTION_DONE = 'sandbox_execution_done',
-  SANDBOX_EXECUTION_ERROR = 'sandbox_execution_error',
+  SANDBOX_CREATING = 'SANDBOX_CREATING',
+  SANDBOX_RUNNING = 'SANDBOX_RUNNING',
+  SANDBOX_CREATION_ERROR = 'SANDBOX_CREATION_ERROR',
+  SANDBOX_EXECUTION_RUNNING = 'SANDBOX_EXECUTION_RUNNING',
+  SANDBOX_EXECUTION_DONE = 'SANDBOX_EXECUTION_DONE',
+  SANDBOX_EXECUTION_ERROR = 'SANDBOX_EXECUTION_ERROR',
 }
 
 export interface BaseMessage {
