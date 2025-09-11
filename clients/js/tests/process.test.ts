@@ -1,0 +1,228 @@
+import { SandboxProcess } from '../src/process';
+import { EventEmitter } from 'events';
+import { MessageKey, EventType, SandboxEvent, WebSocketMessage } from '../src/types';
+
+// Helper function to collect stream data
+async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    stream.on('error', reject);
+    stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+  });
+}
+
+/**
+ * A test helper to simulate the server side of the WebSocket connection.
+ */
+class MockServer {
+  public readonly ws: EventEmitter & { send: jest.Mock };
+  private process: SandboxProcess | null = null;
+
+  constructor() {
+    this.ws = new EventEmitter() as any;
+    this.ws.send = jest.fn();
+  }
+
+  connect(process: SandboxProcess) {
+    this.process = process;
+  }
+
+  private sendMessage(message: Partial<WebSocketMessage>) {
+    if (!this.process) {
+      throw new Error('No process connected to the mock server');
+    }
+    this.process.handleMessage(message as WebSocketMessage);
+  }
+
+  sendRunning() {
+    this.sendMessage({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
+    });
+  }
+
+  sendStdout(data: string) {
+    this.sendMessage({ [MessageKey.EVENT]: EventType.STDOUT, [MessageKey.DATA]: data });
+  }
+
+  sendStderr(data: string) {
+    this.sendMessage({ [MessageKey.EVENT]: EventType.STDERR, [MessageKey.DATA]: data });
+  }
+
+  sendDone() {
+    this.sendMessage({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_DONE,
+    });
+  }
+
+  sendError(errorMessage: string) {
+    this.sendMessage({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_ERROR,
+      [MessageKey.MESSAGE]: errorMessage,
+    });
+  }
+}
+
+
+describe('SandboxProcess', () => {
+  let server: MockServer;
+
+  beforeEach(() => {
+    server = new MockServer();
+  });
+
+  it('sends the correct execution request to the server', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+
+    // Act
+    const execPromise = process.exec('print("hello")', 'python');
+    server.sendRunning();
+    await execPromise;
+
+    // Assert
+    expect(server.ws.send).toHaveBeenCalledWith(JSON.stringify({
+      language: 'python',
+      code: 'print("hello")',
+    }));
+  });
+
+  it('resolves the wait promise when called before the done message', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+    const execPromise = process.exec('test', 'bash');
+    server.sendRunning();
+    await execPromise;
+
+    // Act
+    const waitPromise = process.wait();
+    server.sendDone();
+
+    // Assert
+    await expect(waitPromise).resolves.toBeUndefined();
+  });
+
+  it('resolves the wait promise when called after the done message', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+    const execPromise = process.exec('test', 'bash');
+    server.sendRunning();
+    await execPromise;
+
+    // Act
+    server.sendDone();
+    const waitPromise = process.wait(); // Called after 'done'
+
+    // Assert
+    await expect(waitPromise).resolves.toBeUndefined();
+  });
+
+  it('streams stdout and stderr chunks correctly using full read', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+
+    // Act
+    const execPromise = process.exec('test', 'bash');
+    server.sendRunning();
+    await execPromise;
+
+    const allPromise = Promise.all([
+      streamToString(process.stdout),
+      streamToString(process.stderr),
+      process.wait(),
+    ]);
+
+    server.sendStdout('Hello, ');
+    server.sendStderr('Error, ');
+    server.sendStdout('World!');
+    server.sendStderr('Test!');
+    server.sendDone();
+    
+    const [stdout, stderr] = await allPromise;
+    
+    // Assert
+    expect(stdout).toBe('Hello, World!');
+    expect(stderr).toBe('Error, Test!');
+  });
+
+  it('streams stdout and stderr chunks correctly using iterative read', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+
+    let resolveStdout1: () => void;
+    const stdoutPromise1 = new Promise<void>(resolve => { resolveStdout1 = resolve; });
+    
+    let resolveStdout2: () => void;
+    const stdoutPromise2 = new Promise<void>(resolve => { resolveStdout2 = resolve; });
+
+    let resolveStderr1: () => void;
+    const stderrPromise1 = new Promise<void>(resolve => { resolveStderr1 = resolve; });
+
+    // Act
+    const execPromise = process.exec('test', 'bash');
+    server.sendRunning();
+    await execPromise;
+
+    const readStreams = async () => {
+      const stdoutIterator = process.stdout[Symbol.asyncIterator]();
+      const stderrIterator = process.stderr[Symbol.asyncIterator]();
+
+      let chunk = await stdoutIterator.next();
+      stdoutChunks.push(chunk.value.toString());
+      resolveStdout1();
+
+      chunk = await stderrIterator.next();
+      stderrChunks.push(chunk.value.toString());
+      resolveStderr1();
+
+      chunk = await stdoutIterator.next();
+      stdoutChunks.push(chunk.value.toString());
+      resolveStdout2();
+    };
+    
+    const allPromise = Promise.all([
+      readStreams(),
+      process.wait(),
+    ]);
+    
+    server.sendStdout('chunk1');
+    await stdoutPromise1;
+    
+    server.sendStderr('error1');
+    await stderrPromise1;
+
+    server.sendStdout('chunk2');
+    await stdoutPromise2;
+
+    server.sendDone();
+
+    await allPromise;
+    
+    // Assert
+    expect(stdoutChunks).toEqual(['chunk1', 'chunk2']);
+    expect(stderrChunks).toEqual(['error1']);
+  });
+
+  it('rejects the exec promise when the server sends an execution error', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+
+    // Act
+    const execPromise = process.exec('bad code', 'python');
+    server.sendError('Syntax error');
+
+    // Assert
+    await expect(execPromise).rejects.toThrow('Syntax error');
+  });
+});
