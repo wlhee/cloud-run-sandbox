@@ -42,6 +42,9 @@ async def main():
         stdout = await process.stdout.read_all()
         stderr = await process.stderr.read_all()
         
+        # Wait for the process to finish before starting the next one.
+        await process.wait()
+        
         print("\n--- Bash Output ---")
         if stdout:
             print(f"STDOUT:\n{stdout}")

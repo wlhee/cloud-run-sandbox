@@ -14,10 +14,11 @@ class Sandbox:
     def __init__(self, websocket):
         self._ws = websocket
         self._sandbox_id = None
-        self._processes = weakref.WeakSet()
+        self._active_process = None
         self._created_event = asyncio.Event()
         self._creation_error = None
         self._listen_task = asyncio.create_task(self._listen())
+        self._state = "creating"
 
     @property
     def sandbox_id(self):
@@ -58,66 +59,97 @@ class Sandbox:
         """
         Creates and starts a new process in the sandbox for code execution.
         """
-        # Note: The server currently only supports one execution at a time.
-        process = SandboxProcess(self._ws)
-        self._processes.add(process)
+        if self._active_process:
+            raise RuntimeError("Another process is already running in this sandbox.")
+        if self._state != "running":
+            raise RuntimeError(f"Sandbox is not in a running state. Current state: {self._state}")
+
+        process = SandboxProcess(self._ws, on_done=self._clear_active_process)
+        self._active_process = process
+        
         await process.exec(code, language)
         return process
 
+    def _clear_active_process(self):
+        self._active_process = None
+
     async def _listen(self):
         """
-        Listens for connection-level events.
+        Listens for all incoming WebSocket messages and dispatches them.
         """
         try:
-            # The `async for` is not compatible with the `recv` mock pattern.
-            # This `while` loop makes it directly compatible.
             while True:
                 message_str = await self._ws.recv()
                 message = json.loads(message_str)
                 event = message.get(MessageKey.EVENT)
 
+                # Process-specific events are always forwarded
+                if (event in [EventType.STDOUT, EventType.STDERR] or
+                    (event == EventType.STATUS_UPDATE and 
+                     message.get(MessageKey.STATUS, "").startswith("SANDBOX_EXECUTION_"))):
+                    if self._active_process:
+                        self._active_process.handle_message(message)
+                    continue
+
+                # Handle sandbox lifecycle events
                 if event == EventType.SANDBOX_ID:
                     self._sandbox_id = message.get(MessageKey.SANDBOX_ID)
                     continue
 
                 if event == EventType.STATUS_UPDATE:
                     status = message.get(MessageKey.STATUS)
-                    if status == SandboxEvent.SANDBOX_RUNNING and self._sandbox_id:
+                    if status == SandboxEvent.SANDBOX_RUNNING:
+                        self._state = "running"
                         self._created_event.set()
-                        # This listener's job is done for creation, but it needs to
-                        # stay alive for the process communication.
-                        # We will rely on the process listener to take over.
-                        # For now, we just stop processing sandbox-level events.
-                        return
-
-                    if status == SandboxEvent.SANDBOX_CREATION_ERROR:
-                        self._creation_error = SandboxCreationError(message.get(MessageKey.MESSAGE))
-                        self._created_event.set()
-                        # The listener's job is done, break the loop.
-                        break
+                    elif status == SandboxEvent.SANDBOX_CREATION_ERROR:
+                        if self._state == "creating":
+                            self._state = "failed"
+                            self._creation_error = SandboxCreationError(message.get(MessageKey.MESSAGE, status))
+                            self._created_event.set()
         
         except websockets.exceptions.ConnectionClosed:
-            pass # Expected on terminate
-        
-        finally:
-            # If the connection is lost before creation is confirmed, mark it as an error.
-            if not self._created_event.is_set():
-                self._creation_error = SandboxConnectionError("Connection lost before sandbox was created")
+            if self._state == "creating":
+                self._state = "failed"
+                self._creation_error = SandboxConnectionError("Connection closed during creation")
                 self._created_event.set()
+            else:
+                self._state = "closed"
+            
+            if self._active_process:
+                self._active_process.terminate()
+                self._active_process = None
+        
+        except Exception as e:
+            if self._state == "creating":
+                self._state = "failed"
+                self._creation_error = e
+                self._created_event.set()
+            
+            if self._active_process:
+                self._active_process.terminate()
+                self._active_process = None
 
 
     async def terminate(self):
         """
-        Terminates the sandbox session, ensuring all child processes are stopped.
+        Terminates the sandbox session.
         """
-        # Terminate all running processes concurrently
-        await asyncio.gather(*(process.terminate() for process in self._processes))
+        if self._active_process:
+            self._active_process.terminate()
+            self._active_process = None
 
         if self._ws.state != websockets.protocol.State.CLOSED:
             await self._ws.close()
         
-        self._listen_task.cancel()
-        try:
-            await self._listen_task
-        except asyncio.CancelledError:
-            pass
+        if self._listen_task and not self._listen_task.done():
+            self._listen_task.cancel()
+            try:
+                await self._listen_task
+            except asyncio.CancelledError:
+                pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.terminate()

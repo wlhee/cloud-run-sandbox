@@ -5,121 +5,234 @@ import websockets
 from unittest.mock import AsyncMock, patch
 
 from codesandbox.sandbox import Sandbox
-from codesandbox.exceptions import SandboxCreationError
+from codesandbox.exceptions import SandboxCreationError, SandboxConnectionError
 from codesandbox.types import MessageKey, EventType, SandboxEvent
 
-@pytest.mark.asyncio
-@patch('codesandbox.sandbox.websockets.connect', new_callable=AsyncMock)
-async def test_sandbox_create_success(mock_connect):
+@pytest.fixture
+def mock_websocket_factory():
     """
-    Tests that a sandbox is created successfully without race conditions.
+    A pytest fixture that provides a factory for creating a mocked websocket.
+    It patches `websockets.connect` and allows tests to specify message scripts
+    that are sent in response to client actions (like `exec`).
+    """
+    with patch('codesandbox.sandbox.websockets.connect', new_callable=AsyncMock) as mock_connect:
+        
+        async def _factory(creation_messages, exec_messages_list=None, close_on_finish=True):
+            if exec_messages_list is None:
+                exec_messages_list = []
+                
+            mock_ws = AsyncMock()
+            mock_connect.return_value = mock_ws
+            
+            message_queue = asyncio.Queue()
+            exec_called_event = asyncio.Event()
+
+            for msg in creation_messages:
+                await message_queue.put(json.dumps(msg))
+            
+            # For tests that don't call exec, the listener should terminate after creation.
+            if not exec_messages_list:
+                await message_queue.put(websockets.exceptions.ConnectionClosed(None, None))
+
+            send_count = 0
+            async def send_side_effect(message):
+                nonlocal send_count
+                msg_data = json.loads(message)
+                
+                # Check if this is the exec command by looking for the 'code' key.
+                if "code" in msg_data:
+                    exec_called_event.set()
+                    exec_called_event.clear()
+                    
+                    exec_messages = exec_messages_list[send_count]
+                    send_count += 1
+                    
+                    for msg in exec_messages:
+                        await message_queue.put(json.dumps(msg))
+                    
+                    # After the last exec, we're done.
+                    if send_count == len(exec_messages_list) and close_on_finish:
+                        await message_queue.put(websockets.exceptions.ConnectionClosed(None, None))
+                else:
+                    # This is the idle_timeout message from the Sandbox, do nothing.
+                    pass
+
+            mock_ws.send.side_effect = send_side_effect
+
+            async def recv_side_effect():
+                # If the queue is empty, it means we're in an exec test, waiting for the send() call.
+                if message_queue.empty():
+                    await exec_called_event.wait()
+
+                item = await message_queue.get()
+                if isinstance(item, Exception):
+                    raise item
+                return item
+            mock_ws.recv.side_effect = recv_side_effect
+            
+            return mock_ws
+
+        yield _factory
+
+@pytest.mark.asyncio
+async def test_sandbox_create_and_terminate(mock_websocket_factory):
+    """
+    Tests that a sandbox can be created and terminated without errors.
+    This test interacts only with the public API of the Sandbox.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    mock_connect.return_value = mock_ws
-
-    messages = [
-        json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"}),
-        json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}),
+    # Define the script of messages for a successful creation.
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
-    # The _listen loop will terminate when this is raised.
-    side_effects = messages + [websockets.exceptions.ConnectionClosed(None, None)]
-    
-    # Use a queue to feed messages to the mock recv
-    q = asyncio.Queue()
-    for item in side_effects:
-        await q.put(item)
-
-    async def recv_side_effect():
-        item = await q.get()
-        if isinstance(item, Exception):
-            raise item
-        return item
-    mock_ws.recv.side_effect = recv_side_effect
+    # Get a pre-programmed mock websocket from our factory.
+    mock_ws = await mock_websocket_factory(creation_messages)
 
     # Act
-    # This will start the _listen task and correctly wait for the _created_event
+    # Create the sandbox. The test passes if this completes without error.
     sandbox = await Sandbox.create("ws://test")
     
-    # Assert
+    # Assert (Creation)
+    # We check the public `sandbox_id` property.
     assert sandbox.sandbox_id == "test_id"
-    mock_ws.send.assert_called_once()
     
-    # Clean up the background task
+    # Act (Termination)
+    # Terminate the sandbox. The test passes if this completes without hanging.
     await sandbox.terminate()
 
+    # Assert (Termination)
+    # We verify that the public `close` method of the websocket was called.
+    mock_ws.close.assert_awaited_once()
+
 @pytest.mark.asyncio
-@patch('codesandbox.sandbox.websockets.connect', new_callable=AsyncMock)
-async def test_sandbox_create_failure(mock_connect):
+async def test_sandbox_create_failure(mock_websocket_factory):
     """
-    Tests that sandbox creation raises an exception on error.
+    Tests that Sandbox.create raises a SandboxCreationError if the server
+    reports a creation failure.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    mock_connect.return_value = mock_ws
-
-    messages = [
-        json.dumps({
+    error_messages = [
+        {
             MessageKey.EVENT: EventType.STATUS_UPDATE,
             MessageKey.STATUS: SandboxEvent.SANDBOX_CREATION_ERROR,
             MessageKey.MESSAGE: "Failed to create sandbox"
-        }),
+        },
     ]
-    side_effects = messages + [websockets.exceptions.ConnectionClosed(None, None)]
+    await mock_websocket_factory(error_messages)
 
-    q = asyncio.Queue()
-    for item in side_effects:
-        await q.put(item)
-
-    async def recv_side_effect():
-        item = await q.get()
-        if isinstance(item, Exception):
-            raise item
-        return item
-    mock_ws.recv.side_effect = recv_side_effect
-    
     # Act & Assert
     with pytest.raises(SandboxCreationError, match="Failed to create sandbox"):
         await Sandbox.create("ws://test")
 
 @pytest.mark.asyncio
-@patch('codesandbox.sandbox.websockets.connect', new_callable=AsyncMock)
-@patch('codesandbox.sandbox.SandboxProcess')
-async def test_sandbox_terminate_kills_processes(MockSandboxProcess, mock_connect):
+async def test_sandbox_connection_lost_during_creation(mock_websocket_factory):
     """
-    Tests that terminating a sandbox also terminates its active child processes.
+    Tests that a connection lost during creation raises an error.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    mock_connect.return_value = mock_ws
+    # We provide an empty list of messages, so the ConnectionClosed exception
+    # will be raised immediately on the first `recv()` call.
+    await mock_websocket_factory([])
 
-    messages = [
-        json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"}),
-        json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}),
+    # Act & Assert
+    with pytest.raises(SandboxConnectionError, match="Connection closed during creation"):
+        await Sandbox.create("ws://test")
+
+@pytest.mark.asyncio
+async def test_sandbox_exec_dispatches_messages(mock_websocket_factory):
+    """
+    Tests that the sandbox correctly dispatches messages in response to exec.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
-    side_effects = messages + [websockets.exceptions.ConnectionClosed(None, None)]
+    exec_messages = [
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING},
+        {MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "output"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE},
+    ]
+    await mock_websocket_factory(creation_messages, [exec_messages])
     
-    q = asyncio.Queue()
-    for item in side_effects:
-        await q.put(item)
-    mock_ws.recv.side_effect = q.get
-
-    # Create mock processes
-    process1 = AsyncMock()
-    process2 = AsyncMock()
-    MockSandboxProcess.side_effect = [process1, process2]
-
     sandbox = await Sandbox.create("ws://test")
     
     # Act
-    # "Start" two processes
-    await sandbox.exec("command1", "bash")
-    await sandbox.exec("command2", "bash")
-    
-    # Terminate the sandbox
-    await sandbox.terminate()
+    process = await sandbox.exec("command", "bash")
     
     # Assert
-    # Check that terminate was called on both processes
-    process1.terminate.assert_awaited_once()
-    process2.terminate.assert_awaited_once()
+    output = await process.stdout.read_all()
+    assert output == "output"
+    await process.wait()
+    await sandbox.terminate()
+
+@pytest.mark.asyncio
+async def test_can_exec_sequentially(mock_websocket_factory):
+    """
+    Tests that multiple processes can be executed one after another in the same sandbox.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    exec_messages_1 = [
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING},
+        {MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "output1"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE},
+    ]
+    exec_messages_2 = [
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING},
+        {MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "output2"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE},
+    ]
+    
+    await mock_websocket_factory(creation_messages, [exec_messages_1, exec_messages_2])
+    
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act & Assert for first process
+    process1 = await sandbox.exec("command1", "bash")
+    output1 = await process1.stdout.read_all()
+    assert output1 == "output1"
+    await process1.wait()
+
+    # Act & Assert for second process
+    process2 = await sandbox.exec("command2", "bash")
+    output2 = await process2.stdout.read_all()
+    assert output2 == "output2"
+    await process2.wait()
+
+    await sandbox.terminate()
+
+@pytest.mark.asyncio
+async def test_cannot_exec_multiple_processes_concurrently(mock_websocket_factory):
+    """
+    Tests that the sandbox raises an error if exec is called while a process is already running.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    # Note: No EXECUTION_DONE message is sent, so the first process remains active.
+    exec_messages = [
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING},
+        {MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "output"},
+    ]
+    
+    await mock_websocket_factory(creation_messages, [exec_messages], close_on_finish=False)
+    
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act & Assert
+    # Start the first process. We don't await its completion.
+    await sandbox.exec("command1", "bash")
+    
+    # Try to start a second process while the first is still "running".
+    with pytest.raises(RuntimeError, match="Another process is already running"):
+        await sandbox.exec("command2", "bash")
+
+    # Cleanup
+    await sandbox.terminate()
