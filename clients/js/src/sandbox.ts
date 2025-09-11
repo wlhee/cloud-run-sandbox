@@ -116,7 +116,8 @@ export class Sandbox {
     const { idleTimeout = 60, wsOptions } = options;
     console.log('[SANDBOX] create called');
     
-    const ws = new WebSocket(`${url}/create`, wsOptions);
+    const sanitizedUrl = url.replace(/\/$/, '');
+    const ws = new WebSocket(`${sanitizedUrl}/create`, wsOptions);
     const sandbox = new Sandbox(ws);
 
     ws.on('open', () => {

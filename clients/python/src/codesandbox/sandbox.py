@@ -31,7 +31,8 @@ class Sandbox:
         """
         try:
             # Use __await__ to make it compatible with the AsyncMock from tests
-            websocket = await websockets.connect(f"{url}/create", ssl=ssl)
+            sanitized_url = url.rstrip('/')
+            websocket = await websockets.connect(f"{sanitized_url}/create", ssl=ssl)
         except websockets.exceptions.InvalidURI as e:
             raise SandboxConnectionError(f"Invalid WebSocket URI: {e}")
         except ConnectionRefusedError:
