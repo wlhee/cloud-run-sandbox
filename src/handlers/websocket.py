@@ -94,11 +94,25 @@ class WebsocketHandler:
         try:
             while True:
                 message = await self.websocket.receive_json()
-                task = asyncio.create_task(self.run_and_stream(message))
-                self.active_tasks.add(task)
-                task.add_done_callback(self.active_tasks.discard)
+                if message.get("event") == "stdin":
+                    await self.handle_stdin(message)
+                else:
+                    task = asyncio.create_task(self.run_and_stream(message))
+                    self.active_tasks.add(task)
+                    task.add_done_callback(self.active_tasks.discard)
         except (WebSocketDisconnect, WebSocketException):
             logger.info(f"Client disconnected from sandbox {self.sandbox.sandbox_id if self.sandbox else 'unknown'}")
+
+    async def handle_stdin(self, message: dict):
+        """Handles a stdin message from the client."""
+        try:
+            data = message['data']
+            await self.sandbox.write_to_stdin(data)
+        except (KeyError, ValueError) as e:
+            await self.handle_error(e, close_connection=False, message=message)
+        except Exception as e:
+            logger.error(f"Unexpected error during stdin write: {e}")
+            await self.handle_error(e, close_connection=False, message=message)
 
     async def run_and_stream(self, message: dict):
         """
@@ -119,9 +133,6 @@ class WebsocketHandler:
                         "data": event["data"]
                     })
 
-        except SandboxStreamClosed:
-            # This is the expected end of a stream, not an error.
-            pass
         except (SandboxOperationError, KeyError, ValueError) as e:
             await self.handle_error(e, close_connection=False)
         except Exception as e:
@@ -131,16 +142,20 @@ class WebsocketHandler:
     async def send_status(self, status: SandboxStateEvent):
         await self.websocket.send_json({"event": "status_update", "status": status.value})
 
-    async def handle_error(self, e: Exception, close_connection: bool):
+    async def handle_error(self, e: Exception, close_connection: bool, message: dict = None):
         if isinstance(e, SandboxOperationError):
             error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
         elif isinstance(e, (KeyError, ValueError)):
-            supported_languages = ", ".join([lang.value for lang in CodeLanguage])
-            e = SandboxExecutionError(
-                "Invalid message format. 'language' and 'code' fields are required. "
-                f"Supported languages are: {supported_languages}"
-            )
-            error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
+            if message.get("event") == "stdin":
+                e = SandboxExecutionError("Invalid stdin message format. 'data' field is required.")
+                error_status = SandboxStateEvent.SANDBOX_STDIN_ERROR
+            else:
+                supported_languages = ", ".join([lang.value for lang in CodeLanguage])
+                e = SandboxExecutionError(
+                    "Invalid message format. 'language' and 'code' fields are required. "
+                    f"Supported languages are: {supported_languages}"
+                )
+                error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
         elif isinstance(e, SandboxCreationError):
             error_status = SandboxStateEvent.SANDBOX_CREATION_ERROR
         else:
