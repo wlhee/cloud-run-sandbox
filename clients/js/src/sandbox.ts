@@ -79,8 +79,10 @@ export class Sandbox {
   }
 
   private handleClose(code: number, reason: Buffer) {
-    console.log(`[SANDBOX] WebSocket closed: code=${code}, reason=${reason.toString()}`);
+    const reasonStr = reason ? reason.toString() : '';
+    console.log(`[SANDBOX] WebSocket closed: code=${code}, reason=${reasonStr}`);
     if (this.state === 'creating') {
+      console.log('[SANDBOX] handleClose emitting failed');
       this.state = 'failed';
       const err = new Error(`Connection closed during creation: code=${code}`);
       this.eventEmitter.emit('failed', err);
@@ -97,6 +99,7 @@ export class Sandbox {
   private handleError(err: Error) {
     console.error('[SANDBOX] WebSocket error:', err);
     if (this.state === 'creating') {
+      console.log('[SANDBOX] handleError emitting failed');
       this.state = 'failed';
       this.eventEmitter.emit('failed', err);
     }

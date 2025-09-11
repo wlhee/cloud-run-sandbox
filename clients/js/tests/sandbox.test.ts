@@ -95,10 +95,11 @@ describe('Sandbox', () => {
     
     // Simulate the race condition
     mockWsInstance.emit('error', error);
-    mockWsInstance.emit('close');
 
     // The promise should reject with the first error.
     await expect(createPromise).rejects.toThrow('Connection error');
+    
+    mockWsInstance.emit('close');
     expect(mockWsInstance.terminate).toHaveBeenCalledTimes(1);
   });
 
