@@ -16,7 +16,7 @@
 import { Sandbox } from '../clients/js/src/sandbox';
 
 async function main() {
-  const url = process.env.SANDBOX_WSS;
+  const url = process.env.CLOUD_RUN_URL;
   if (!url) {
     console.error("Error: Please set the CLOUD_RUN_URL environment variable.");
     console.error("Example: export CLOUD_RUN_URL=\"wss://your-service-url.run.app\"");
