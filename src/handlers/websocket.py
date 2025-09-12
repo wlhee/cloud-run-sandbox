@@ -133,11 +133,14 @@ class WebsocketHandler:
                         "data": event["data"]
                     })
 
+        except SandboxStreamClosed:
+            # This is the expected end of a stream, not an error.
+            pass
         except (SandboxOperationError, KeyError, ValueError) as e:
-            await self.handle_error(e, close_connection=False)
+            await self.handle_error(e, close_connection=False, message=message)
         except Exception as e:
             logger.error(f"Unexpected error during execution: {e}")
-            await self.handle_error(e, close_connection=False)
+            await self.handle_error(e, close_connection=True, message=message)
 
     async def send_status(self, status: SandboxStateEvent):
         await self.websocket.send_json({"event": "status_update", "status": status.value})
