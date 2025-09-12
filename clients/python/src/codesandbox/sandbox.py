@@ -4,7 +4,7 @@ import weakref
 import websockets
 
 from .types import MessageKey, EventType, SandboxEvent
-from .exceptions import SandboxConnectionError, SandboxCreationError
+from .exceptions import SandboxConnectionError, SandboxCreationError, SandboxStateError
 from .process import SandboxProcess
 
 class Sandbox:
@@ -17,8 +17,10 @@ class Sandbox:
         self._active_process = None
         self._created_event = asyncio.Event()
         self._creation_error = None
+        self._stop_event = asyncio.Event()
         self._listen_task = asyncio.create_task(self._listen())
         self._state = "creating"
+        self._shutdown_lock = asyncio.Lock()
 
     @property
     def sandbox_id(self):
@@ -51,7 +53,6 @@ class Sandbox:
         """
         await self._created_event.wait()
         if self._creation_error:
-            await self._listen_task
             raise self._creation_error
 
 
@@ -62,7 +63,7 @@ class Sandbox:
         if self._active_process:
             raise RuntimeError("Another process is already running in this sandbox.")
         if self._state != "running":
-            raise RuntimeError(f"Sandbox is not in a running state. Current state: {self._state}")
+            raise SandboxStateError(f"Sandbox is not in a running state. Current state: {self._state}")
 
         process = SandboxProcess(self._ws, on_done=self._clear_active_process)
         self._active_process = process
@@ -73,13 +74,31 @@ class Sandbox:
     def _clear_active_process(self):
         self._active_process = None
 
+    def _handle_creation_error(self, exc):
+        if self._state == "creating":
+            self._state = "failed"
+            self._creation_error = exc
+            self._created_event.set()
+
     async def _listen(self):
         """
         Listens for all incoming WebSocket messages and dispatches them.
         """
         try:
-            while True:
-                message_str = await self._ws.recv()
+            while not self._stop_event.is_set():
+                recv_task = asyncio.create_task(self._ws.recv())
+                stop_task = asyncio.create_task(self._stop_event.wait())
+
+                done, pending = await asyncio.wait(
+                    [recv_task, stop_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                if stop_task in done:
+                    recv_task.cancel()
+                    break
+
+                message_str = recv_task.result()
                 message = json.loads(message_str)
                 event = message.get(MessageKey.EVENT)
 
@@ -102,51 +121,42 @@ class Sandbox:
                         self._state = "running"
                         self._created_event.set()
                     elif status == SandboxEvent.SANDBOX_CREATION_ERROR:
-                        if self._state == "creating":
-                            self._state = "failed"
-                            self._creation_error = SandboxCreationError(message.get(MessageKey.MESSAGE, status))
-                            self._created_event.set()
+                        error = SandboxCreationError(message.get(MessageKey.MESSAGE, status))
+                        self._handle_creation_error(error)
+                        await self._shutdown()
+                        break
         
-        except websockets.exceptions.ConnectionClosed:
-            if self._state == "creating":
-                self._state = "failed"
-                self._creation_error = SandboxConnectionError("Connection closed during creation")
-                self._created_event.set()
-            else:
-                self._state = "closed"
-            
-            if self._active_process:
-                self._active_process.terminate()
-                self._active_process = None
+        except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError):
+            error = SandboxConnectionError("Connection closed during creation")
+            self._handle_creation_error(error)
+            await self._shutdown()
         
         except Exception as e:
-            if self._state == "creating":
-                self._state = "failed"
-                self._creation_error = e
-                self._created_event.set()
-            
+            self._handle_creation_error(e)
+            await self._shutdown()
+
+    async def _shutdown(self):
+        async with self._shutdown_lock:
+            if self._state == "running":
+                self._state = "closed"
+
             if self._active_process:
                 self._active_process.terminate()
                 self._active_process = None
 
+            if self._listen_task and not self._listen_task.done():
+                self._stop_event.set()
+                if asyncio.current_task() is not self._listen_task:
+                    await self._listen_task
+
+            if self._ws.state != websockets.protocol.State.CLOSED:
+                await self._ws.close()
 
     async def terminate(self):
         """
         Terminates the sandbox session.
         """
-        if self._active_process:
-            self._active_process.terminate()
-            self._active_process = None
-
-        if self._ws.state != websockets.protocol.State.CLOSED:
-            await self._ws.close()
-        
-        if self._listen_task and not self._listen_task.done():
-            self._listen_task.cancel()
-            try:
-                await self._listen_task
-            except asyncio.CancelledError:
-                pass
+        await self._shutdown()
 
     async def __aenter__(self):
         return self

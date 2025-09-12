@@ -39,8 +39,23 @@ jobs:
         pip install -r requirements.txt
         pip install -e ./clients/python
 
-    - name: Run Tests
+    - name: Run Sandbox Tests
       env:
         RUNSC_IGNORE_CGROUPS: 'true'
       run: |
-        sudo $(which python) -u -m pytest -v -s -rA
+        sudo $(which python) -u -m pytest -v -s -rA tests/
+
+    - name: Run Python Client Tests
+      run: |
+        sudo $(which python) -u -m pytest -v -s -rA clients/python/tests/
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install JS client dependencies
+      run: npm install --prefix clients/js
+
+    - name: Run Typescript Client Tests
+      run: npm test --prefix clients/js

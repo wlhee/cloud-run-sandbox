@@ -13,3 +13,7 @@ class SandboxCreationError(SandboxException):
 class SandboxExecutionError(SandboxException):
     """Raised when the server reports an error during code execution."""
     pass
+
+class SandboxStateError(SandboxException):
+    """Raised when an operation is attempted on a sandbox in an invalid state."""
+    pass

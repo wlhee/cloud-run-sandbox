@@ -5,7 +5,7 @@ import websockets
 from unittest.mock import AsyncMock, patch
 
 from codesandbox.sandbox import Sandbox
-from codesandbox.exceptions import SandboxCreationError, SandboxConnectionError
+from codesandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError
 from codesandbox.types import MessageKey, EventType, SandboxEvent
 
 @pytest.fixture
@@ -236,3 +236,48 @@ async def test_cannot_exec_multiple_processes_concurrently(mock_websocket_factor
 
     # Cleanup
     await sandbox.terminate()
+
+@pytest.mark.asyncio
+async def test_listen_task_is_cancelled_on_terminate(mock_websocket_factory):
+    """
+    Tests that the internal _listen task is properly awaited and cancelled
+    when the sandbox is terminated, preventing a resource leak.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    await mock_websocket_factory(creation_messages, close_on_finish=False)
+
+    # Act
+    sandbox = await Sandbox.create("ws://test")
+    listen_task = sandbox._listen_task # Access internal task for testing
+
+    # Assert (pre-condition)
+    assert not listen_task.done()
+
+    # Act
+    await sandbox.terminate()
+
+    # Assert (post-condition)
+    assert listen_task.done()
+
+@pytest.mark.asyncio
+async def test_exec_raises_error_if_not_running(mock_websocket_factory):
+    """
+    Tests that exec raises a SandboxStateError if the sandbox is not in the 'running' state.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    await mock_websocket_factory(creation_messages, close_on_finish=False)
+    
+    sandbox = await Sandbox.create("ws://test")
+    await sandbox.terminate() # Terminate the sandbox to put it in a non-running state.
+
+    # Act & Assert
+    with pytest.raises(SandboxStateError, match="Sandbox is not in a running state. Current state: closed"):
+        await sandbox.exec("command", "bash")
