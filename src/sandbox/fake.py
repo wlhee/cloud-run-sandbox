@@ -13,6 +13,7 @@ class ExecConfig:
     output_stream: List[SandboxOutputEvent] = field(default_factory=list)
     expected_language: Optional[CodeLanguage] = None
     expected_code: Optional[str] = None
+    expected_stdin: List[str] = field(default_factory=list)
     exec_error: Optional[Type[Exception]] = None
     connect_error: Optional[Type[Exception]] = None
 
@@ -111,3 +112,16 @@ class FakeSandbox(SandboxInterface):
         logger.info(f"Fake sandbox {self.sandbox_id}: DELETING.")
         await self.stop()
         logger.info(f"Fake sandbox {self.sandbox_id}: DELETED.")
+
+    async def write_to_stdin(self, data: str):
+        """Writes data to the stdin of the process."""
+        logger.info(f"Fake sandbox {self.sandbox_id}: writing to stdin: {data}")
+        current_exec_config = self._get_current_exec()
+        if not current_exec_config:
+            raise AssertionError("Unexpected call to write_to_stdin().")
+
+        if not current_exec_config.expected_stdin:
+            raise AssertionError(f"Received unexpected stdin: {data}")
+
+        expected_data = current_exec_config.expected_stdin.pop(0)
+        assert data == expected_data

@@ -109,7 +109,14 @@ class SandboxProcess:
         """Waits for the process to complete."""
         await self._done_event.wait()
 
-    def terminate(self):
+    async def write_to_stdin(self, data: str):
+        """Writes data to the stdin of the process."""
+        await self._ws.send(json.dumps({
+            "event": "stdin",
+            "data": data,
+        }))
+
+    async def terminate(self):
         """
         Terminates the running process.
         """

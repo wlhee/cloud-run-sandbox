@@ -72,3 +72,10 @@ class SandboxInterface(ABC):
         Raises SandboxStreamClosed when the stream is finished.
         """
         pass
+
+    @abstractmethod
+    async def write_to_stdin(self, data: str):
+        """
+        Writes data to the stdin of the running process.
+        """
+        pass
