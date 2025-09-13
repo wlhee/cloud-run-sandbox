@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed
@@ -125,3 +126,29 @@ class FakeSandbox(SandboxInterface):
 
         expected_data = current_exec_config.expected_stdin.pop(0)
         assert data == expected_data
+
+    async def checkpoint(self, checkpoint_path: str) -> None:
+        """
+        Simulates checkpointing by creating a dummy file.
+        """
+        logger.info(f"Fake sandbox {self.sandbox_id}: CHECKPOINTING to {checkpoint_path}.")
+        if self.is_running:
+            raise SandboxOperationError("Cannot checkpoint while an execution is in progress.")
+        
+        # In a real implementation, this would be a complex operation.
+        # Here, we just create a file to indicate success.
+        with open(checkpoint_path, "w") as f:
+            f.write("checkpoint_data")
+        logger.info(f"Fake sandbox {self.sandbox_id}: CHECKPOINTED.")
+
+    async def restore(self, checkpoint_path: str) -> None:
+        """
+        Simulates restoring by checking for the dummy checkpoint file.
+        """
+        logger.info(f"Fake sandbox {self.sandbox_id}: RESTORING from {checkpoint_path}.")
+        if not os.path.exists(checkpoint_path):
+            raise SandboxOperationError(f"Checkpoint file not found at {checkpoint_path}")
+        
+        # In a real implementation, this would rehydrate the sandbox state.
+        # Here, we just log the success.
+        logger.info(f"Fake sandbox {self.sandbox_id}: RESTORED.")

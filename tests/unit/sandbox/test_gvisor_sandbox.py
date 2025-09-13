@@ -436,3 +436,75 @@ async def test_sandbox_write_to_stdin():
 
     finally:
         await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_checkpoint_and_restore():
+    """
+    Tests the full checkpoint and restore lifecycle of a GVisorSandbox.
+    """
+    sandbox_id = "gvisor-test-checkpoint"
+    checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
+    
+    # 1. Create a sandbox and change its state
+    sandbox1 = create_sandbox_instance(sandbox_id)
+    try:
+        await sandbox1.create()
+        await sandbox1.execute(CodeLanguage.BASH, "echo 'hello' > /test.txt")
+        # Wait for the execution to finish
+        try:
+            async for _ in sandbox1.connect():
+                pass
+        except SandboxStreamClosed:
+            pass
+        
+        # 2. Checkpoint the sandbox
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        await sandbox1.checkpoint(checkpoint_dir)
+
+    finally:
+        await sandbox1.delete()
+
+    # 3. Create a new sandbox instance and restore it
+    sandbox2 = create_sandbox_instance(sandbox_id)
+    try:
+        await sandbox2.restore(checkpoint_dir)
+        
+        # 4. Verify the state was restored
+        await sandbox2.execute(CodeLanguage.BASH, "cat /test.txt")
+        events = []
+        try:
+            async for event in sandbox2.connect():
+                events.append(event)
+        except SandboxStreamClosed:
+            pass
+            
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "hello" in stdout
+
+    finally:
+        await sandbox2.delete()
+        if os.path.exists(checkpoint_dir):
+            shutil.rmtree(checkpoint_dir)
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_checkpoint_fails_if_running():
+    """
+    Tests that checkpointing fails if the sandbox is in the middle of an execution.
+    """
+    sandbox_id = "gvisor-test-checkpoint-fail"
+    sandbox = create_sandbox_instance(sandbox_id)
+    try:
+        await sandbox.create()
+        
+        # Start a long-running process
+        long_running_code = "import time; print('start'); time.sleep(5); print('end')"
+        await sandbox.execute(CodeLanguage.PYTHON, long_running_code)
+
+        # Try to checkpoint while the first is running
+        with pytest.raises(SandboxOperationError, match="Cannot checkpoint while an execution is in progress"):
+            await sandbox.checkpoint("/tmp/dummy_path")
+
+    finally:
+        await sandbox.delete()

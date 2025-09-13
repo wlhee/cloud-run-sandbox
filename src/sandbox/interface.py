@@ -79,3 +79,17 @@ class SandboxInterface(ABC):
         Writes data to the stdin of the running process.
         """
         pass
+
+    @abstractmethod
+    async def checkpoint(self, checkpoint_path: str) -> None:
+        """
+        Creates a checkpoint of the sandbox's state.
+        """
+        pass
+
+    @abstractmethod
+    async def restore(self, checkpoint_path: str) -> None:
+        """
+        Restores the sandbox's state from a checkpoint.
+        """
+        pass

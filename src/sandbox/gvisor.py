@@ -5,11 +5,20 @@ import shutil
 import tempfile
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError
 from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from .execution import Execution
 
 logger = logging.getLogger(__name__)
+
+class GVisorState(str, Enum):
+    """Represents the lifecycle state of the gVisor sandbox container."""
+    INITIALIZED = "INITIALIZED"
+    RUNNING = "RUNNING"
+    CHECKPOINTED = "CHECKPOINTED"
+    STOPPED = "STOPPED"
+    FAILED = "FAILED"
 
 @dataclass
 class GVisorConfig:
@@ -52,10 +61,11 @@ class GVisorSandbox(SandboxInterface):
         self._current_execution = None
         self._drain_tasks = []
         self._is_attached = False
+        self._state = GVisorState.INITIALIZED
         logger.info(f"GVISOR: Initialized for sandbox_id: {self.sandbox_id}")
 
     @property
-    def sandbox_id(self):
+    def sandbox_id(self) -> str:
         return self._sandbox_id
 
     @property
@@ -152,52 +162,55 @@ class GVisorSandbox(SandboxInterface):
         logger.info(f"GVISOR: Command finished: {' '.join(cmd)})")
         return stdout.decode(), stderr.decode()
 
+    def _prepare_bundle(self):
+        """
+        Creates the OCI bundle directory and config.json.
+        """
+        os.makedirs(self._bundle_dir, exist_ok=True)
+        mounts = [
+            {"destination": "/proc", "type": "proc", "source": "proc"},
+            {
+                "destination": self._bundle_dir, "type": "bind",
+                "source": self._bundle_dir, "options": ["rbind", "rw"]
+            }
+        ]
+        root_config = {"path": "/", "readonly": not self._config.writable_filesystem}
+        config = {
+            "ociVersion": "1.0.0",
+            "process": {
+                "user": {"uid": 0, "gid": 0},
+                "args": ["sh", "-c", "while true; do sleep 3600; done"],
+                "cwd": "/",
+                "env": [
+                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "PYTHONUNBUFFERED=1"
+                ]
+            },
+            "root": root_config,
+            "mounts": mounts
+        }
+        config_path = os.path.join(self._bundle_dir, "config.json")
+        logger.info(f"--- Writing config.json to {config_path} ---")
+        logger.info(json.dumps(config, indent=4))
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
     async def create(self):
         """
         Creates the OCI bundle and starts a long-running, detached container.
         """
         logger.info(f"GVISOR: Creating container for sandbox_id: {self.sandbox_id}")
         try:
-            os.makedirs(self._bundle_dir, exist_ok=True)
-
-            # 1. Create the OCI bundle for a long-running process.
-            mounts = [
-                {"destination": "/proc", "type": "proc", "source": "proc"},
-                {
-                    "destination": self._bundle_dir, "type": "bind",
-                    "source": self._bundle_dir, "options": ["rbind", "rw"]
-                }
-            ]
-            
-            root_config = {"path": "/", "readonly": not self._config.writable_filesystem}
-
-            config = {
-                "ociVersion": "1.0.0",
-                "process": {
-                    "user": {"uid": 0, "gid": 0},
-                    "args": ["sh", "-c", "while true; do sleep 3600; done"],
-                    "cwd": "/",
-                    "env": [
-                        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                        "PYTHONUNBUFFERED=1"
-                    ]
-                },
-                "root": root_config,
-                "mounts": mounts
-            }
-            config_path = os.path.join(self._bundle_dir, "config.json")
-            logger.info(f"--- Writing config.json to {config_path} ---")
-            logger.info(json.dumps(config, indent=4))
-            with open(config_path, "w") as f:
-                json.dump(config, f)
-
-            # 2. Start the container in detached mode.
+            self._prepare_bundle()
+            # Start the container in detached mode.
             run_cmd = self._build_runsc_cmd("run", "--detach", "--bundle", self._bundle_dir, self.sandbox_id)
             await self._run_sync_command(run_cmd, wait_for_output=False)
+            self._state = GVisorState.RUNNING
             logger.info(f"GVISOR: Container created for sandbox_id: {self.sandbox_id}")
 
         except Exception as e:
-            logger.error(f"GVISOR: Failed to create container for sandbox_id: {self.sandbox_id}: {e}")
+            logger.info(f"GVISOR: Failed to create container for sandbox_id: {self.sandbox_id}: {e}")
+            self._state = GVisorState.FAILED
             await self.delete()
             raise SandboxCreationError(f"Failed to create gVisor container: {e}")
 
@@ -277,6 +290,7 @@ class GVisorSandbox(SandboxInterface):
 
         kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
+        self._state = GVisorState.STOPPED
         logger.info(f"GVISOR ({self.sandbox_id}): Stopped.")
 
     async def delete(self):
@@ -300,3 +314,38 @@ class GVisorSandbox(SandboxInterface):
             shutil.rmtree(self._root_dir)
 
         logger.info(f"GVISOR ({self.sandbox_id}): Deleted.")
+
+    async def checkpoint(self, checkpoint_path: str) -> None:
+        """
+        Creates a checkpoint of the sandbox's state using 'runsc checkpoint'.
+        """
+        logger.info(f"GVISOR ({self.sandbox_id}): Checkpointing to {checkpoint_path}")
+        if self._current_execution and self._current_execution.is_running:
+            raise SandboxOperationError("Cannot checkpoint while an execution is in progress.")
+
+        cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self.sandbox_id)
+        await self._run_sync_command(cmd)
+        self._state = GVisorState.CHECKPOINTED
+        logger.info(f"GVISOR ({self.sandbox_id}): Checkpointed successfully.")
+
+    async def restore(self, checkpoint_path: str) -> None:
+        """
+        Restores the sandbox's state from a checkpoint using 'runsc restore'.
+        """
+        logger.info(f"GVISOR ({self.sandbox_id}): Restoring from {checkpoint_path}")
+        try:
+            self._prepare_bundle()
+            cmd = self._build_runsc_cmd(
+                "restore",
+                f"--image-path={checkpoint_path}",
+                "--bundle", self._bundle_dir,
+                self.sandbox_id
+            )
+            await self._run_sync_command(cmd, wait_for_output=False)
+            self._state = GVisorState.RUNNING
+            logger.info(f"GVISOR ({self.sandbox_id}): Restored successfully.")
+        except Exception as e:
+            logger.info(f"GVISOR ({self.sandbox_id}): Failed to restore: {e}")
+            self._state = GVisorState.FAILED
+            await self.delete()
+            raise SandboxCreationError(f"Failed to restore gVisor container: {e}")

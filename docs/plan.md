@@ -29,14 +29,17 @@ This phase focuses on establishing the `checkpoint` and `restore` contract and i
     *   Implement `restore`: It will check for the existence of the dummy file at `checkpoint_path`. This ensures our unit tests can validate the manager's logic without a real gVisor dependency.
 
 3.  **Implement in `GVisorSandbox` (`src/sandbox/gvisor.py`)**
+    *   **State Management**: The class will gain an internal state property (e.g., `self._state`) to track if it's `RUNNING`, `CHECKPOINTED`, etc.
     *   **`checkpoint()` Logic**:
-        *   It will use the `docker checkpoint create <container_id> <checkpoint_name>` command. The `checkpoint_path` will be a directory managed by Docker.
-        *   **Lifecycle Constraint**: A critical design decision is handling active processes. For this initial implementation, we will enforce that a sandbox can only be checkpointed when it is **idle** (i.e., no active `SandboxProcess`). If `checkpoint()` is called while a process is running, it will raise a `SandboxStateError`. This simplifies the initial design and avoids the complexity of saving in-flight process state.
-    *   **`restore()` Logic**:
-        *   This is a multi-step process that changes how containers are started. Instead of `docker run`, a restored sandbox will use:
-            1.  `docker create ...` to create the container from the image without starting it.
-            2.  `docker start --checkpoint <checkpoint_name> <container_id>` to start the container from the saved state.
-        *   The `GVisorSandbox` will need to be adapted to handle both the standard "start fresh" and this new "restore" lifecycle.
+        *   **Precondition**: Can only be called when the sandbox is idle (no active `SandboxExecution`). Will raise a `SandboxOperationError` if a process is running.
+        *   It will use the `runsc checkpoint --image-path <path> <sandbox_id>` command.
+        *   The `--leave-running` flag will **not** be used, as the instance should relinquish control after checkpointing. The container will be stopped.
+    *   **`restore()` and Lifecycle Refactoring**:
+        *   The existing `create()` method's logic will be split. A new `_prepare_bundle()` method will handle creating the OCI `config.json`.
+        *   `restore()` will call `_prepare_bundle()` and then use `runsc restore --image-path <path> --bundle <bundle_dir> <sandbox_id>` to start the container from the saved state.
+        *   `create()` will be simplified to call `_prepare_bundle()` and then `runsc run --detach ...`.
+    *   **Interaction with `SandboxExecution`**:
+        *   Under the "idle-only" checkpoint rule, a restored sandbox will always start with `self._current_execution = None`. The existing `execute()` method will work correctly for new commands. We are explicitly deferring the complexity of restoring an in-flight execution.
 
 ---
 

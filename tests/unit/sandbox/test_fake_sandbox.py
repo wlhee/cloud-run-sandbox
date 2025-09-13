@@ -1,7 +1,10 @@
 import pytest
 import asyncio
+import os
+import tempfile
+from unittest.mock import AsyncMock
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
-from src.sandbox.interface import SandboxCreationError, SandboxStreamClosed
+from src.sandbox.interface import SandboxCreationError, SandboxOperationError, SandboxStreamClosed
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 
 pytestmark = pytest.mark.asyncio
@@ -68,19 +71,16 @@ async def test_fake_sandbox_is_attached():
     sandbox.is_attached = True
     assert sandbox.is_attached
 
-async def test_fake_sandbox_delete(mocker):
+async def test_fake_sandbox_delete():
     """
     Tests that the delete method calls stop.
     """
     sandbox = FakeSandbox("fake-123")
-    async def mock_stop():
-        pass
-    sandbox.stop = mock_stop
-    stop_spy = mocker.spy(sandbox, "stop")
+    sandbox.stop = AsyncMock()
 
     await sandbox.delete()
 
-    stop_spy.assert_called_once()
+    sandbox.stop.assert_called_once()
 
 async def test_fake_sandbox_write_to_stdin():
     """
@@ -96,3 +96,44 @@ async def test_fake_sandbox_write_to_stdin():
 
     with pytest.raises(AssertionError):
         await sandbox.write_to_stdin("world\n")
+
+async def test_fake_sandbox_checkpoint_and_restore():
+    """
+    Tests that the FakeSandbox can be checkpointed and restored successfully.
+    """
+    sandbox = FakeSandbox("fake-checkpoint")
+    with tempfile.NamedTemporaryFile() as tmp:
+        checkpoint_path = tmp.name
+
+    # Checkpoint should create the file
+    await sandbox.checkpoint(checkpoint_path)
+    assert os.path.exists(checkpoint_path)
+
+    # Restore should succeed
+    await sandbox.restore(checkpoint_path)
+    
+    os.remove(checkpoint_path)
+
+async def test_fake_sandbox_checkpoint_fails_if_running():
+    """
+    Tests that checkpointing fails if the sandbox is in the middle of an execution.
+    """
+    config = FakeSandboxConfig(executions=[ExecConfig()])
+    sandbox = FakeSandbox("fake-checkpoint-fail", config=config)
+    await sandbox.create()
+    await sandbox.execute(CodeLanguage.PYTHON, "code")
+    assert sandbox.is_running
+
+    with pytest.raises(SandboxOperationError, match="Cannot checkpoint while an execution is in progress."):
+        await sandbox.checkpoint("/tmp/dummy_path")
+
+async def test_fake_sandbox_restore_fails_if_no_checkpoint():
+    """
+    Tests that restoring fails if the checkpoint file does not exist.
+    """
+    sandbox = FakeSandbox("fake-restore-fail")
+    non_existent_path = "/tmp/non_existent_checkpoint"
+    assert not os.path.exists(non_existent_path)
+
+    with pytest.raises(SandboxOperationError, match=f"Checkpoint file not found at {non_existent_path}"):
+        await sandbox.restore(non_existent_path)
