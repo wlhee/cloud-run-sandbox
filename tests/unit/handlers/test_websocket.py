@@ -56,6 +56,43 @@ async def test_create_interactive_session_success(mock_create_sandbox):
     # Assert that the sandbox was created with the correct idle timeout
     mock_create_sandbox.assert_called_once_with(idle_timeout=120)
 
+@pytest.mark.asyncio
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+async def test_interactive_session_with_stdin(mock_create_sandbox):
+    """
+    Tests that stdin is correctly handled during an interactive session.
+    """
+    # Arrange
+    config = FakeSandboxConfig(executions=[
+        ExecConfig(
+            expected_language=CodeLanguage.PYTHON,
+            expected_code="input()",
+            expected_stdin=["Hello from test"],
+            output_stream=[SandboxOutputEvent(type=OutputType.STDOUT, data="Hello from test\n")]
+        )
+    ])
+    sandbox = FakeSandbox("stdin-sandbox", config=config)
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        # 1. Send initial config and receive confirmation
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "stdin-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        # 2. Execute command
+        websocket.send_json({"language": "python", "code": "input()"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+
+        # 3. Write to stdin
+        websocket.send_json({"event": "stdin", "data": "Hello from test"})
+
+        # 4. Receive output and completion
+        assert websocket.receive_json() == {"event": "stdout", "data": "Hello from test\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
 def test_create_sandbox_creation_error(mock_create_sandbox):
     """

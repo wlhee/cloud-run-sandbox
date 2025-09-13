@@ -67,3 +67,32 @@ async def test_fake_sandbox_is_attached():
     assert not sandbox.is_attached
     sandbox.is_attached = True
     assert sandbox.is_attached
+
+async def test_fake_sandbox_delete(mocker):
+    """
+    Tests that the delete method calls stop.
+    """
+    sandbox = FakeSandbox("fake-123")
+    async def mock_stop():
+        pass
+    sandbox.stop = mock_stop
+    stop_spy = mocker.spy(sandbox, "stop")
+
+    await sandbox.delete()
+
+    stop_spy.assert_called_once()
+
+async def test_fake_sandbox_write_to_stdin():
+    """
+    Tests that the write_to_stdin method correctly validates the input.
+    """
+    config = FakeSandboxConfig(executions=[ExecConfig(expected_stdin=["hello\n"])])
+    sandbox = FakeSandbox("fake-123", config=config)
+
+    await sandbox.create()
+    await sandbox.execute(CodeLanguage.PYTHON, "some code")
+
+    await sandbox.write_to_stdin("hello\n")
+
+    with pytest.raises(AssertionError):
+        await sandbox.write_to_stdin("world\n")

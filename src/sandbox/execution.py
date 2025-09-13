@@ -29,6 +29,9 @@ class Execution:
         if self._streaming_task:
             self._streaming_task.cancel()
             self._streaming_task = None
+
+        if self._process.stdin and not self._process.stdin.is_closing():
+            self._process.stdin.close()
         
         if self._process.returncode is None:
             self._process.kill()
@@ -47,6 +50,12 @@ class Execution:
         if self._streaming_task:
             await self._streaming_task
         await self._process.wait()
+
+    async def write_to_stdin(self, data: str):
+        """Writes data to the stdin of the process."""
+        if self._process.stdin and not self._process.stdin.is_closing():
+            self._process.stdin.write(data.encode('utf-8'))
+            await self._process.stdin.drain()
 
     async def _stream_output(self):
         """

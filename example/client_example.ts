@@ -79,6 +79,32 @@ for i in range(5):
     console.log('Python script finished.');
 
 
+    // Stdin example
+    console.log("\nExecuting Python script and writing to stdin...");
+    const stdinScript = `
+import sys
+print("Python script waiting for 2 lines from stdin...")
+for i in range(2):
+    line = sys.stdin.readline()
+    print(f"Read from stdin: {line.strip()}")
+print("Python script finished.")
+`;
+    const stdinProcess = await sandbox.exec(stdinScript, "python");
+
+    // Write to stdin after a short delay
+    setTimeout(() => stdinProcess.writeToStdin("Hello from the client!\n"), 500);
+    setTimeout(() => stdinProcess.writeToStdin("Another line\n"), 1000);
+
+    console.log("\n--- Python Stdin Output ---");
+    const [stdin_stdout] = await Promise.all([
+      stdinProcess.stdout.readAll(),
+      stdinProcess.wait(),
+    ]);
+    console.log(`STDOUT:\n${stdin_stdout}`);
+    console.log("--------------------------");
+    console.log('Python script with stdin finished.');
+
+
   } catch (e) {
     console.error("\nAn error occurred:", e);
   } finally {

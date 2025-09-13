@@ -95,6 +95,16 @@ export class SandboxProcess {
     });
   }
 
+  public writeToStdin(data: string): void {
+    if (this._isDone) {
+      throw new Error("Process has already completed.");
+    }
+    this.ws.send(JSON.stringify({
+      event: 'stdin',
+      data,
+    }));
+  }
+
   private cleanup() {
     this.stdout.push(null);
     this.stderr.push(null);

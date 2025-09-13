@@ -398,3 +398,41 @@ async def test_gvisor_sandbox_is_attached():
         assert sandbox.is_attached
     finally:
         await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_sandbox_write_to_stdin():
+    """
+    Tests that the write_to_stdin method correctly writes to the process's stdin.
+    """
+    sandbox_id = "gvisor-test-stdin"
+    sandbox = create_sandbox_instance(sandbox_id)
+
+    try:
+        await sandbox.create()
+
+        code = "line = input(); print(f'read: {line}')"
+        await sandbox.execute(CodeLanguage.PYTHON, code)
+
+        # This needs to be in a separate task because connect() will block
+        # until the process is done, but the process won't be done until it
+        # receives stdin.
+        async def write_and_connect():
+            await asyncio.sleep(0.1) # Give the process time to start
+            await sandbox.write_to_stdin("hello\n")
+
+            events = []
+            try:
+                async for event in sandbox.connect():
+                    events.append(event)
+            except SandboxStreamClosed:
+                pass
+            return events
+
+        events = await asyncio.wait_for(write_and_connect(), timeout=5)
+
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "read: hello" in stdout
+
+    finally:
+        await sandbox.delete()

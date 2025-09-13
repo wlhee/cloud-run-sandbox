@@ -236,6 +236,7 @@ class GVisorSandbox(SandboxInterface):
         logger.info(f"GVISOR: Starting execution process for sandbox_id: {self.sandbox_id}")
         process = await asyncio.create_subprocess_exec(
             *exec_cmd,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -259,6 +260,12 @@ class GVisorSandbox(SandboxInterface):
             await self._current_execution.wait()
             
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
+
+    async def write_to_stdin(self, data: str):
+        """Writes data to the stdin of the running process."""
+        if not self._current_execution:
+            raise SandboxOperationError("No process is running in the sandbox.")
+        await self._current_execution.write_to_stdin(data)
 
     async def stop(self):
         """Stops the container and any running exec process."""

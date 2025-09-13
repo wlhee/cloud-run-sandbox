@@ -142,8 +142,7 @@ async def test_process_terminate():
         
         # Simulate some output
         process.handle_message({
-            MessageKey.EVENT: EventType.STDOUT,
-            MessageKey.DATA: "Partial output"
+            MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "Partial output"
         })
         await asyncio.sleep(0)
 
@@ -157,7 +156,7 @@ async def test_process_terminate():
     assert first_chunk == "Partial output"
 
     # Terminate the process while it's "running"
-    process.terminate()
+    await process.terminate()
     
     # Assert
     # The wait() should resolve immediately because terminate is synchronous
@@ -184,8 +183,7 @@ async def test_process_terminate_while_reading():
         })
         await asyncio.sleep(0)
         process.handle_message({
-            MessageKey.EVENT: EventType.STDOUT,
-            MessageKey.DATA: "First chunk"
+            MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "First chunk"
         })
         await asyncio.sleep(0)
 
@@ -208,7 +206,7 @@ async def test_process_terminate_while_reading():
     await asyncio.wait_for(first_chunk_received.wait(), timeout=0.1)
     
     # Terminate the process while the reader is blocked on the stream
-    process.terminate()
+    await process.terminate()
     
     # Assert
     # The reader task should complete without error
@@ -237,8 +235,7 @@ async def test_process_terminate_while_full_reading():
         })
         await asyncio.sleep(0)
         process.handle_message({
-            MessageKey.EVENT: EventType.STDOUT,
-            MessageKey.DATA: "First chunk"
+            MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "First chunk"
         })
         await asyncio.sleep(0)
 
@@ -254,7 +251,7 @@ async def test_process_terminate_while_full_reading():
     await asyncio.sleep(0.01)
     
     # Terminate the process while the reader is blocked
-    process.terminate()
+    await process.terminate()
     
     # Assert
     # The reader task should complete and return the partial content
@@ -305,7 +302,7 @@ async def test_multiple_waits_are_unblocked():
     await asyncio.sleep(0)
     assert not any(t.done() for t in wait_tasks)
     
-    process.terminate()
+    await process.terminate()
     
     # Assert
     await asyncio.wait_for(asyncio.gather(*wait_tasks), timeout=0.1)
@@ -322,9 +319,53 @@ async def test_terminate_is_idempotent():
     process = SandboxProcess(mock_ws, on_done=on_done_callback)
     
     # Act
-    process.terminate()
-    process.terminate()
+    await process.terminate()
+    await process.terminate()
     
     # Assert
     await process.wait()
     on_done_callback.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_process_write_to_stdin():
+    """
+    Tests that write_to_stdin sends the correct message to the websocket.
+    """
+    # Arrange
+    mock_ws = AsyncMock()
+    process = SandboxProcess(mock_ws)
+
+    async def exec_and_write():
+        # Start exec in the background
+        exec_task = asyncio.create_task(process.exec("cat", "bash"))
+        
+        # Simulate server acknowledging the execution start
+        process.handle_message({
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING
+        })
+        await exec_task
+
+        # Write to stdin
+        await process.write_to_stdin("hello\n")
+
+        # Simulate stdout and done
+        process.handle_message({MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "hello\n"})
+        process.handle_message({
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE
+        })
+
+    # Act
+    exec_and_write_task = asyncio.create_task(exec_and_write())
+    
+    # Read stdout
+    stdout = await process.stdout.read_all()
+    await process.wait()
+    await exec_and_write_task
+
+    # Assert
+    assert stdout == "hello\n"
+    assert mock_ws.send.call_count == 2
+    mock_ws.send.assert_any_call(json.dumps({"language": "bash", "code": "cat"}))
+    mock_ws.send.assert_any_call(json.dumps({"event": "stdin", "data": "hello\n"}))

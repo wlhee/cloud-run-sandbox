@@ -143,3 +143,27 @@ async def test_gvisor_sandbox_reject_simultaneous_execution():
         # 5. Wait for the first command to finish and receive its output
         assert websocket.receive_json() == {"event": "stdout", "data": "done\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_stdin():
+    """
+    Tests sending stdin to a running process via the WebSocket interface.
+    """
+    with client.websocket_connect("/create") as websocket:
+        # 1. Send initial config and receive confirmation
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json()["event"] == "status_update"
+        assert websocket.receive_json()["event"] == "sandbox_id"
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        # 2. Execute a python command that reads from stdin
+        websocket.send_json({"language": "python", "code": "name = input(); print(f'Hello, {name}')"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+
+        # 3. Send stdin to the process
+        websocket.send_json({"event": "stdin", "data": "World\n"})
+
+        # 4. Verify the output
+        assert websocket.receive_json() == {"event": "stdout", "data": "Hello, World\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}

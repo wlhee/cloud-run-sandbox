@@ -37,3 +37,5 @@ class SandboxStateEvent(Enum):
     SANDBOX_EXECUTION_DONE = "SANDBOX_EXECUTION_DONE"
     # The sandbox is already in use by another client.
     SANDBOX_IN_USE = "SANDBOX_IN_USE"
+    # An error occurred while writing to stdin.
+    SANDBOX_STDIN_ERROR = "SANDBOX_STDIN_ERROR"
