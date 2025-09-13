@@ -235,4 +235,40 @@ describe('SandboxProcess', () => {
     await expect(streamPromise).resolves.toBe('some data');
     await expect(process.wait()).resolves.toBeUndefined();
   });
+
+  it('sends stdin to the server', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+
+    // Act
+    const execPromise = process.exec('test', 'bash');
+    server.sendRunning();
+    await execPromise;
+
+    process.writeToStdin('hello');
+
+    // Assert
+    expect(server.ws.send).toHaveBeenCalledWith(JSON.stringify({
+      event: 'stdin',
+      data: 'hello',
+    }));
+  });
+
+  it('terminates the process', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.ws as any);
+    server.connect(process);
+
+    // Act
+    const execPromise = process.exec('test', 'bash');
+    server.sendRunning();
+    await execPromise;
+
+    const waitPromise = process.wait();
+    process.terminate();
+
+    // Assert
+    await expect(waitPromise).resolves.toBeUndefined();
+  });
 });
