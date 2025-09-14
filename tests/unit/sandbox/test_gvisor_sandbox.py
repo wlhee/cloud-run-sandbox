@@ -542,6 +542,10 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
     finally:
         await sandbox1.delete()
 
+    # Clean up the root directory before restoring
+    if os.path.exists(sandbox1._root_dir):
+        shutil.rmtree(sandbox1._root_dir)
+
     # 3. Create a new sandbox instance and restore it
     sandbox2 = create_sandbox_instance(sandbox_id)
     sandbox2._config.network = "none"  # Checkpointing requires a non-host network.
