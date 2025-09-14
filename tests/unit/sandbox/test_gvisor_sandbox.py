@@ -490,9 +490,12 @@ async def test_gvisor_sandbox_checkpoint_and_restore_with_new_id():
     sandbox_id1 = "gvisor-test-checkpoint-1"
     sandbox_id2 = "gvisor-test-checkpoint-2"
     checkpoint_dir = f"/tmp/checkpoint_{sandbox_id1}"
+    log_dir = "/tmp/runsc_logs/"
     
     config = create_sandbox_config()
     config.network = "none"
+    config.debug = True
+    config.debug_log_dir = log_dir
 
     # 1. Create a sandbox and change its state
     sandbox1 = create_sandbox_instance(sandbox_id1, config=config)
@@ -509,10 +512,9 @@ async def test_gvisor_sandbox_checkpoint_and_restore_with_new_id():
         await sandbox1.delete()
 
     # 2. Create a new sandbox instance and restore it.
-    # CRITICAL: The bundle and root paths must be the same as the original sandbox.
+    # CRITICAL: The bundle path must be the same as the original sandbox.
     sandbox2 = create_sandbox_instance(sandbox_id2, config=config)
     sandbox2._bundle_dir = sandbox1._bundle_dir 
-    sandbox2._root_dir = sandbox1._root_dir
 
     try:
         await sandbox2.restore(checkpoint_dir)
@@ -528,9 +530,20 @@ async def test_gvisor_sandbox_checkpoint_and_restore_with_new_id():
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "hello" in stdout
     finally:
+        # Print logs on failure
+        if os.path.exists(log_dir):
+            for root, _, files in os.walk(log_dir):
+                for name in files:
+                    path = os.path.join(root, name)
+                    print(f"--- Log file: {path} ---")
+                    with open(path, "r") as f:
+                        print(f.read())
+
         await sandbox2.delete()
         if os.path.exists(checkpoint_dir):
             shutil.rmtree(checkpoint_dir)
+        if os.path.exists(log_dir):
+            shutil.rmtree(log_dir)
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
