@@ -232,7 +232,7 @@ async def test_stream_closes_after_execution():
     sandbox = create_sandbox_instance(sandbox_id)
 
     try:
-        await sandbox.create()
+        await sandbox.create() 
         
         code = "print('hello')"
         await sandbox.execute(CodeLanguage.PYTHON, code)
@@ -440,52 +440,86 @@ async def test_sandbox_write_to_stdin():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_gvisor_sandbox_checkpoint_and_restore():
+async def test_gvisor_sandbox_checkpoint_and_restore_fails_with_same_id():
     """
-    Tests the full checkpoint and restore lifecycle of a GVisorSandbox.
+    Tests that restoring a checkpoint to the SAME container ID fails.
+    This validates that 'runsc restore' is a creation operation.
     """
-    sandbox_id = "gvisor-test-checkpoint"
+    sandbox_id = "gvisor-test-checkpoint-fail"
     checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
     
-    # Checkpointing requires a non-host network.
     config = GVisorConfig(network="none")
-
-    # 1. Create a sandbox and change its state
     sandbox1 = create_sandbox_instance(sandbox_id, config=config)
     try:
         await sandbox1.create()
         await sandbox1.execute(CodeLanguage.BASH, "echo 'hello' > /test.txt")
-        # Wait for the execution to finish
         try:
-            async for _ in sandbox1.connect():
-                pass
-        except SandboxStreamClosed:
-            pass
+            async for _ in sandbox1.connect(): pass
+        except SandboxStreamClosed: pass
         
-        # 2. Checkpoint the sandbox
         os.makedirs(checkpoint_dir, exist_ok=True)
         await sandbox1.checkpoint(checkpoint_dir)
-
     finally:
         await sandbox1.delete()
 
-    # 3. Create a new sandbox instance and restore it
+    # Verify the container is gone from runsc's list
+    list_cmd = sandbox1._build_runsc_cmd("list")
+    stdout, _ = await sandbox1._run_sync_command(list_cmd)
+    assert sandbox_id not in stdout
+
+    # Attempt to restore using the same ID, which is expected to fail.
     sandbox2 = create_sandbox_instance(sandbox_id, config=config)
+    with pytest.raises(SandboxCreationError):
+        await sandbox2.restore(checkpoint_dir)
+    
+    # Cleanup
+    await sandbox2.delete()
+    if os.path.exists(checkpoint_dir):
+        shutil.rmtree(checkpoint_dir)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_checkpoint_and_restore_with_new_id():
+    """
+    Tests the full checkpoint and restore lifecycle using a NEW container ID,
+    which is the correct workflow.
+    """
+    sandbox_id1 = "gvisor-test-checkpoint-1"
+    sandbox_id2 = "gvisor-test-checkpoint-2"
+    checkpoint_dir = f"/tmp/checkpoint_{sandbox_id1}"
+    
+    config = GVisorConfig(network="none")
+
+    # 1. Create a sandbox and change its state
+    sandbox1 = create_sandbox_instance(sandbox_id1, config=config)
+    try:
+        await sandbox1.create()
+        await sandbox1.execute(CodeLanguage.BASH, "echo 'hello' > /test.txt")
+        try:
+            async for _ in sandbox1.connect(): pass
+        except SandboxStreamClosed: pass
+        
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        await sandbox1.checkpoint(checkpoint_dir)
+    finally:
+        await sandbox1.delete()
+
+    # 2. Create a new sandbox instance and restore it
+    sandbox2 = create_sandbox_instance(sandbox_id2, config=config)
     try:
         await sandbox2.restore(checkpoint_dir)
         
-        # 4. Verify the state was restored
+        # 3. Verify the state was restored
         await sandbox2.execute(CodeLanguage.BASH, "cat /test.txt")
         events = []
         try:
             async for event in sandbox2.connect():
                 events.append(event)
-        except SandboxStreamClosed:
-            pass
+        except SandboxStreamClosed: pass
             
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "hello" in stdout
-
     finally:
         await sandbox2.delete()
         if os.path.exists(checkpoint_dir):
