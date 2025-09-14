@@ -141,7 +141,7 @@ class Sandbox:
                 self._state = "closed"
 
             if self._active_process:
-                self._active_process.terminate()
+                await self._active_process.terminate()
                 self._active_process = None
 
             if self._listen_task and not self._listen_task.done():

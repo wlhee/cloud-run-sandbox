@@ -51,7 +51,7 @@ async def test_sandbox_execute_python_success():
     sandbox = create_sandbox_instance(sandbox_id)
 
     try:
-        await sandbox.create()
+        await sandbox.create() 
         
         code = "import sys; print('hello'); print('world', file=sys.stderr)"
         await sandbox.execute(CodeLanguage.PYTHON, code)
@@ -521,9 +521,10 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
     """
     sandbox_id = "gvisor-test-checkpoint"
     checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
+    config = GVisorConfig(network="none")
     
     # 1. Create a sandbox and change its state
-    sandbox1 = create_sandbox_instance(sandbox_id)
+    sandbox1 = create_sandbox_instance(sandbox_id, config=config)
     try:
         await sandbox1.create()
         await sandbox1.execute(CodeLanguage.BASH, "echo 'hello' > /test.txt")
@@ -542,7 +543,7 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
         await sandbox1.delete()
 
     # 3. Create a new sandbox instance and restore it
-    sandbox2 = create_sandbox_instance(sandbox_id)
+    sandbox2 = create_sandbox_instance(sandbox_id, config=config)
     try:
         await sandbox2.restore(checkpoint_dir)
         
