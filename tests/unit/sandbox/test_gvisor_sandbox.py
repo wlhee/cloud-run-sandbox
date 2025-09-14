@@ -509,9 +509,10 @@ async def test_gvisor_sandbox_checkpoint_and_restore_with_new_id():
         await sandbox1.delete()
 
     # 2. Create a new sandbox instance and restore it.
-    # CRITICAL: The bundle path must be the same as the original sandbox.
+    # CRITICAL: The bundle and root paths must be the same as the original sandbox.
     sandbox2 = create_sandbox_instance(sandbox_id2, config=config)
     sandbox2._bundle_dir = sandbox1._bundle_dir 
+    sandbox2._root_dir = sandbox1._root_dir
 
     try:
         await sandbox2.restore(checkpoint_dir)
