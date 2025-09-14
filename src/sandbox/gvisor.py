@@ -100,9 +100,12 @@ class GVisorSandbox(SandboxInterface):
         if self._config.platform:
             cmd.extend(["--platform", self._config.platform])
         
+        # Flags that only apply to commands that start or modify the container's network.
+        if "run" in args or "restore" in args:
+            cmd.extend(["--network", self._config.network])
+
         # Flags that only apply to the 'run' command.
         if "run" in args:
-            cmd.extend(["--network", self._config.network])
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
 
