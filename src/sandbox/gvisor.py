@@ -105,6 +105,8 @@ class GVisorSandbox(SandboxInterface):
             cmd.extend(["--network", self._config.network])
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
+            if "restore" in args:
+                cmd.append("--detach")
 
         cmd.extend(args)
         return cmd
