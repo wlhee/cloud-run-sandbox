@@ -4,7 +4,7 @@ This document outlines a step-by-step plan to refactor the `GVisorSandbox` imple
 
 ---
 
-### Phase 1: Introduce a Consistent `Process` Abstraction
+### Phase 1: Introduce a Consistent `Process` Abstraction [DONE]
 
 The goal is to replace the special-purpose `Execution` class with a general `Process` class that can be used for *any* process we manage, including the main sandbox process and subsequent `exec` commands.
 
