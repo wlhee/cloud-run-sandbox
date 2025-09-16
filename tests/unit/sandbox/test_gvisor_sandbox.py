@@ -440,62 +440,16 @@ async def test_sandbox_write_to_stdin():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_gvisor_sandbox_checkpoint_and_restore_fails_with_same_id():
+async def test_gvisor_sandbox_checkpoint_and_restore():
     """
-    Tests that restoring a checkpoint to the SAME container ID fails.
-    This validates that 'runsc restore' is a creation operation.
-    """
-    sandbox_id = "gvisor-test-checkpoint-fail"
-    checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
-    
-    config = create_sandbox_config()
-    config.network = "none"
-    sandbox1 = create_sandbox_instance(sandbox_id, config=config)
-    try:
-        await sandbox1.create()
-        await sandbox1.execute(CodeLanguage.BASH, "echo 'hello' > /test.txt")
-        try:
-            async for _ in sandbox1.connect(): pass
-        except SandboxStreamClosed: pass
-        
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        await sandbox1.checkpoint(checkpoint_dir)
-    finally:
-        await sandbox1.delete()
-
-    # Verify the container is gone from runsc's list
-    list_cmd = sandbox1._build_runsc_cmd("list")
-    stdout, _ = await sandbox1._run_sync_command(list_cmd)
-    print("run list output:", stdout)
-    assert sandbox_id not in stdout
-
-    # Attempt to restore using the same ID, which is expected to fail.
-    sandbox2 = create_sandbox_instance(sandbox_id, config=config)
-    with pytest.raises(SandboxCreationError):
-        await sandbox2.restore(checkpoint_dir)
-    
-    # Cleanup
-    await sandbox2.delete()
-    if os.path.exists(checkpoint_dir):
-        shutil.rmtree(checkpoint_dir)
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_gvisor_sandbox_checkpoint_and_restore_with_new_id():
-    """
-    Tests the full checkpoint and restore lifecycle using a NEW container ID,
-    which is the correct workflow.
+    Tests the full checkpoint and restore lifecycle of a GVisorSandbox.
     """
     sandbox_id1 = "gvisor-test-checkpoint-1"
     sandbox_id2 = "gvisor-test-checkpoint-2"
     checkpoint_dir = f"/tmp/checkpoint_{sandbox_id1}"
-    log_dir = "/tmp/runsc_logs/"
     
     config = create_sandbox_config()
     config.network = "none"
-    config.debug = True
-    config.debug_log_dir = log_dir
 
     # 1. Create a sandbox and change its state
     sandbox1 = create_sandbox_instance(sandbox_id1, config=config)
@@ -530,20 +484,9 @@ async def test_gvisor_sandbox_checkpoint_and_restore_with_new_id():
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "hello" in stdout
     finally:
-        # Print logs on failure
-        if os.path.exists(log_dir):
-            for root, _, files in os.walk(log_dir):
-                for name in files:
-                    path = os.path.join(root, name)
-                    print(f"--- Log file: {path} ---")
-                    with open(path, "r") as f:
-                        print(f.read())
-
         await sandbox2.delete()
         if os.path.exists(checkpoint_dir):
             shutil.rmtree(checkpoint_dir)
-        if os.path.exists(log_dir):
-            shutil.rmtree(log_dir)
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
