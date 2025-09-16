@@ -105,8 +105,6 @@ class GVisorSandbox(SandboxInterface):
             cmd.extend(["--network", self._config.network])
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
-            if "restore" in args:
-                cmd.append("--detach")
 
         cmd.extend(args)
         return cmd
@@ -339,6 +337,7 @@ class GVisorSandbox(SandboxInterface):
             self._prepare_bundle()
             cmd = self._build_runsc_cmd(
                 "restore",
+                "--detach",
                 f"--image-path={checkpoint_path}",
                 "--bundle", self._bundle_dir,
                 self.sandbox_id
