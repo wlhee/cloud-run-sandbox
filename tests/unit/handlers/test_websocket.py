@@ -31,6 +31,7 @@ async def test_create_interactive_session_success(mock_create_sandbox):
         )
     ])
     sandbox = FakeSandbox("interactive-sandbox", config=config)
+    await sandbox.create()
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -72,6 +73,7 @@ async def test_interactive_session_with_stdin(mock_create_sandbox):
         )
     ])
     sandbox = FakeSandbox("stdin-sandbox", config=config)
+    await sandbox.create()
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -156,8 +158,9 @@ def test_attach_to_in_use_sandbox(mock_get_sandbox):
             websocket.receive_json()
         assert e.value.code == 1011
 
+@pytest.mark.asyncio
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
-def test_sandbox_execution_error(mock_create_sandbox):
+async def test_sandbox_execution_error(mock_create_sandbox):
     """
     Tests that a sandbox operation error is handled gracefully.
     """
@@ -170,6 +173,7 @@ def test_sandbox_execution_error(mock_create_sandbox):
         )
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
+    await sandbox.create()
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -193,8 +197,9 @@ def test_sandbox_execution_error(mock_create_sandbox):
         # is configured for a single execution)
         # websocket.send_json({"language": "python", "code": "print('still open')"})
 
+@pytest.mark.asyncio
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
-def test_invalid_message_format(mock_create_sandbox):
+async def test_invalid_message_format(mock_create_sandbox):
     """
     Tests that the server handles an invalid message format gracefully.
     """
@@ -207,6 +212,7 @@ def test_invalid_message_format(mock_create_sandbox):
         )
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
+    await sandbox.create()
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -236,8 +242,9 @@ def test_invalid_message_format(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "stdout", "data": "still open\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
+@pytest.mark.asyncio
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
-def test_unsupported_language(mock_create_sandbox):
+async def test_unsupported_language(mock_create_sandbox):
     """
     Tests that the server handles an unsupported language gracefully.
     """
@@ -250,6 +257,7 @@ def test_unsupported_language(mock_create_sandbox):
         )
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
+    await sandbox.create()
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert

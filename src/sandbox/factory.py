@@ -1,7 +1,7 @@
 import os
 from .gvisor import GVisorSandbox, GVisorConfig
 
-def create_sandbox_config() -> GVisorConfig:
+def make_sandbox_config() -> GVisorConfig:
     """Creates a GVisorConfig from environment variables."""
     return GVisorConfig(
         use_sudo=os.environ.get('RUNSC_USE_SUDO', 'false').lower() in ['true', '1'],
@@ -23,5 +23,5 @@ def create_sandbox_instance(sandbox_id: str, config: GVisorConfig = None):
     If a config is not provided, it will be created from environment variables.
     """
     if config is None:
-        config = create_sandbox_config()
+        config = make_sandbox_config()
     return GVisorSandbox(sandbox_id, config=config)

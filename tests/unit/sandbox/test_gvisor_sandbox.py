@@ -3,9 +3,9 @@ import asyncio
 import shutil
 import os
 from src.sandbox.gvisor import GVisorConfig
-from src.sandbox.factory import create_sandbox_config, create_sandbox_instance
+from src.sandbox.factory import make_sandbox_config, create_sandbox_instance
 from src.sandbox.types import OutputType, CodeLanguage, SandboxStateEvent
-from src.sandbox.interface import SandboxCreationError,SandboxStreamClosed, SandboxError, SandboxOperationError
+from src.sandbox.interface import SandboxCreationError,SandboxStreamClosed, SandboxError, SandboxOperationError, SandboxState
 
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
@@ -206,7 +206,7 @@ async def test_stop_during_execution():
             async for event in sandbox.connect():
                 events.append(event)
                 if event.get("type") == OutputType.STDOUT and "start" in event["data"]:
-                    await sandbox.stop()
+                    await sandbox._stop()
         except SandboxStreamClosed:
             pass
 
@@ -444,15 +444,14 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
     """
     Tests the full checkpoint and restore lifecycle of a GVisorSandbox.
     """
-    sandbox_id1 = "gvisor-test-checkpoint-1"
-    sandbox_id2 = "gvisor-test-checkpoint-2"
-    checkpoint_dir = f"/tmp/checkpoint_{sandbox_id1}"
+    sandbox_id = "gvisor-test-checkpoint"
+    checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
     
-    config = create_sandbox_config()
+    config = make_sandbox_config()
     config.network = "none"
 
     # 1. Create a sandbox and change its state
-    sandbox1 = create_sandbox_instance(sandbox_id1, config=config)
+    sandbox1 = create_sandbox_instance(sandbox_id, config=config)
     try:
         await sandbox1.create()
         await sandbox1.execute(CodeLanguage.BASH, "echo 'hello' > /test.txt")
@@ -466,8 +465,8 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
         await sandbox1.delete()
 
     # 2. Create a new sandbox instance and restore it.
+    sandbox2 = create_sandbox_instance(sandbox_id, config=config)
     # CRITICAL: The bundle path must be the same as the original sandbox.
-    sandbox2 = create_sandbox_instance(sandbox_id2, config=config)
     sandbox2._bundle_dir = sandbox1._bundle_dir 
 
     try:
@@ -509,4 +508,60 @@ async def test_gvisor_sandbox_checkpoint_fails_if_running():
 
     finally:
         await sandbox.delete()
+
+# --- State Machine Behavioral Tests ---
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_behavior_create_and_restore_guards():
+    """
+    Tests the behavior of calling create() or restore() in the wrong state.
+    """
+    sandbox = create_sandbox_instance("test-behavior-create")
+    await sandbox.create()
+    
+    # Once running, create() and restore() should fail
+    with pytest.raises(SandboxOperationError):
+        await sandbox.create()
+    with pytest.raises(SandboxOperationError):
+        await sandbox.restore("dummy_path")
+    
+    await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_behavior_execute_and_checkpoint_guards():
+    """
+    Tests the behavior of calling execute() or checkpoint() in the wrong state.
+    """
+    sandbox = create_sandbox_instance("test-behavior-exec")
+    
+    # Before creating, execute() and checkpoint() should fail
+    with pytest.raises(SandboxOperationError):
+        await sandbox.execute(CodeLanguage.PYTHON, "print('hello')")
+    with pytest.raises(SandboxOperationError):
+        await sandbox.checkpoint("dummy_path")
+        
+    await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_behavior_delete_is_idempotent():
+    """
+    Tests that delete() can be called multiple times without error,
+    demonstrating its idempotency.
+    """
+    try:
+        # Test delete from INITIALIZED state
+        sandbox1 = create_sandbox_instance("test-behavior-delete-1")
+        await sandbox1.delete()
+        await sandbox1.delete() # Second call should not raise an error
+
+        # Test delete from RUNNING state
+        sandbox2 = create_sandbox_instance("test-behavior-delete-2")
+        await sandbox2.create()
+        await sandbox2.delete()
+        await sandbox2.delete() # Second call should not raise an error
+    except Exception as e:
+        pytest.fail(f"Calling delete() multiple times raised an unexpected exception: {e}")
 

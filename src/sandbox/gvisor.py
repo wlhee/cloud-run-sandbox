@@ -4,21 +4,14 @@ import json
 import shutil
 import tempfile
 import logging
+import uuid
 from dataclasses import dataclass
 from enum import Enum
-from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError
+from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError, SandboxState
 from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from .execution import Execution
 
 logger = logging.getLogger(__name__)
-
-class GVisorState(str, Enum):
-    """Represents the lifecycle state of the gVisor sandbox container."""
-    INITIALIZED = "INITIALIZED"
-    RUNNING = "RUNNING"
-    CHECKPOINTED = "CHECKPOINTED"
-    STOPPED = "STOPPED"
-    FAILED = "FAILED"
 
 @dataclass
 class GVisorConfig:
@@ -51,9 +44,33 @@ class GVisorConfig:
 class GVisorSandbox(SandboxInterface):
     """
     A sandbox implementation that uses gVisor ('runsc') to execute code.
+
+    This class enforces a strict lifecycle state machine:
+
+    INITIALIZED: The initial state after the object is created.
+        - `create()` -> RUNNING
+        - `restore()` -> RUNNING
+        - `delete()` -> STOPPED (no-op, cleans up dirs)
+
+    RUNNING: The sandbox container is running and ready to execute code.
+        - `execute()` -> RUNNING (spawns an exec process)
+        - `checkpoint()` -> CHECKPOINTED
+        - `delete()` -> STOPPED (deletes the container and dirs)
+
+    CHECKPOINTED: The sandbox state has been saved to disk, but the container
+                  is still running and can be used.
+        - `delete()` -> STOPPED
+
+    STOPPED: The container has been stopped and resources have been released.
+             This is a terminal state for the container instance. To continue,
+             a new sandbox must be created (e.g., by restoring).
+        - `delete()` -> STOPPED (no-op, cleans up dirs)
+
+    FAILED: A critical error occurred. This is a terminal state.
     """
     def __init__(self, sandbox_id: str, config: GVisorConfig):
         self._sandbox_id = sandbox_id
+        self._container_id = self._generate_container_id()
         self._config = config
         self._bundle_dir = os.path.join(config.bundle_dir_base, f"runsc_bundle_{sandbox_id}")
         # Each sandbox gets a unique, named root directory.
@@ -61,8 +78,12 @@ class GVisorSandbox(SandboxInterface):
         self._current_execution = None
         self._drain_tasks = []
         self._is_attached = False
-        self._state = GVisorState.INITIALIZED
+        self._state = SandboxState.INITIALIZED
         logger.info(f"GVISOR: Initialized for sandbox_id: {self.sandbox_id}")
+
+    def _generate_container_id(self) -> str:
+        """Generates a unique container ID."""
+        return f"runsc-cont-{self.sandbox_id}-{uuid.uuid4().hex[:8]}"
 
     @property
     def sandbox_id(self) -> str:
@@ -199,18 +220,21 @@ class GVisorSandbox(SandboxInterface):
         """
         Creates the OCI bundle and starts a long-running, detached container.
         """
-        logger.info(f"GVISOR: Creating container for sandbox_id: {self.sandbox_id}")
+        if self._state != SandboxState.INITIALIZED:
+            raise SandboxOperationError(f"Cannot create a sandbox that is not in the INITIALIZED state (current state: {self._state})")
+        
+        logger.info(f"GVISOR: Creating container '{self._container_id}' for sandbox_id: {self.sandbox_id}")
         try:
             self._prepare_bundle()
             # Start the container in detached mode.
-            run_cmd = self._build_runsc_cmd("run", "--detach", "--bundle", self._bundle_dir, self.sandbox_id)
+            run_cmd = self._build_runsc_cmd("run", "--detach", "--bundle", self._bundle_dir, self._container_id)
             await self._run_sync_command(run_cmd, wait_for_output=False)
-            self._state = GVisorState.RUNNING
+            self._state = SandboxState.RUNNING
             logger.info(f"GVISOR: Container created for sandbox_id: {self.sandbox_id}")
 
         except Exception as e:
             logger.info(f"GVISOR: Failed to create container for sandbox_id: {self.sandbox_id}: {e}")
-            self._state = GVisorState.FAILED
+            self._state = SandboxState.FAILED
             await self.delete()
             raise SandboxCreationError(f"Failed to create gVisor container: {e}")
 
@@ -218,8 +242,10 @@ class GVisorSandbox(SandboxInterface):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
+        if self._state != SandboxState.RUNNING:
+            raise SandboxOperationError(f"Cannot execute code in a sandbox that is not in the RUNNING state (current state: {self._state})")
+
         logger.info(f"GVISOR: Executing code in sandbox_id: {self.sandbox_id}")
-        # TODO: Refactor to support concurrent executions.
         if self._current_execution and self._current_execution.is_running:
             raise SandboxOperationError("An execution is already in progress.")
 
@@ -243,7 +269,7 @@ class GVisorSandbox(SandboxInterface):
 
         # Execute the code.
         exec_cmd = self._build_runsc_cmd(
-            "exec", "--cwd", "/", self.sandbox_id, *exec_args
+            "exec", "--cwd", "/", self._container_id, *exec_args
         )
         
         logger.info(f"GVISOR: Starting execution process for sandbox_id: {self.sandbox_id}")
@@ -280,23 +306,33 @@ class GVisorSandbox(SandboxInterface):
             raise SandboxOperationError("No process is running in the sandbox.")
         await self._current_execution.write_to_stdin(data)
 
-    async def stop(self):
-        """Stops the container and any running exec process."""
+    async def _stop(self):
+        """
+        Stops the container and any running exec process. This is a no-op if
+        the sandbox is already stopped.
+        """
+        if self._state in [SandboxState.STOPPED, SandboxState.INITIALIZED, SandboxState.FAILED]:
+            logger.info(f"GVISOR ({self.sandbox_id}): Stop called on an already stopped or uninitialized sandbox. No-op.")
+            return
+
         logger.info(f"GVISOR ({self.sandbox_id}): Stopping...")
         if self._current_execution:
             execution_to_stop = self._current_execution
             self._current_execution = None
             await execution_to_stop.stop()
 
-        kill_cmd = self._build_runsc_cmd("kill", self.sandbox_id, "SIGKILL")
+        kill_cmd = self._build_runsc_cmd("kill", self._container_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
-        self._state = GVisorState.STOPPED
+        self._state = SandboxState.STOPPED
         logger.info(f"GVISOR ({self.sandbox_id}): Stopped.")
 
     async def delete(self):
-        """Deletes the container and its bundle."""
+        """
+        Deletes the container and its bundle. This is a no-op if the sandbox
+        is already stopped.
+        """
         logger.info(f"GVISOR ({self.sandbox_id}): Deleting...")
-        await self.stop()
+        await self._stop()
 
         logger.debug(f"GVISOR ({self.sandbox_id}): Canceling drain tasks...")
         for task in self._drain_tasks:
@@ -304,7 +340,7 @@ class GVisorSandbox(SandboxInterface):
         self._drain_tasks.clear()
         logger.debug(f"GVISOR ({self.sandbox_id}): Drain tasks canceled.")
 
-        delete_cmd = self._build_runsc_cmd("delete", "--force", self.sandbox_id)
+        delete_cmd = self._build_runsc_cmd("delete", "--force", self._container_id)
         # Don't wait for output to avoid blocking for too long.
         await self._run_sync_command(delete_cmd, check=False)
 
@@ -319,20 +355,28 @@ class GVisorSandbox(SandboxInterface):
         """
         Creates a checkpoint of the sandbox's state using 'runsc checkpoint'.
         """
+        if self._state != SandboxState.RUNNING:
+            raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
+
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointing to {checkpoint_path}")
         if self._current_execution and self._current_execution.is_running:
             raise SandboxOperationError("Cannot checkpoint while an execution is in progress.")
 
-        cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self.sandbox_id)
+        cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self._container_id)
         await self._run_sync_command(cmd)
-        self._state = GVisorState.CHECKPOINTED
+        self._state = SandboxState.CHECKPOINTED
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointed successfully.")
 
     async def restore(self, checkpoint_path: str) -> None:
         """
         Restores the sandbox's state from a checkpoint using 'runsc restore'.
         """
-        logger.info(f"GVISOR ({self.sandbox_id}): Restoring from {checkpoint_path}")
+        if self._state != SandboxState.INITIALIZED:
+            raise SandboxOperationError(f"Cannot restore a sandbox that is not in the INITIALIZED state (current state: {self._state})")
+
+        # A restored container is a new instance with a new ID.
+        self._container_id = self._generate_container_id()
+        logger.info(f"GVISOR ({self.sandbox_id}): Restoring to new container '{self._container_id}' from {checkpoint_path}")
         try:
             self._prepare_bundle()
             cmd = self._build_runsc_cmd(
@@ -340,13 +384,13 @@ class GVisorSandbox(SandboxInterface):
                 "--detach",
                 f"--image-path={checkpoint_path}",
                 "--bundle", self._bundle_dir,
-                self.sandbox_id
+                self._container_id
             )
             await self._run_sync_command(cmd, wait_for_output=False)
-            self._state = GVisorState.RUNNING
+            self._state = SandboxState.RUNNING
             logger.info(f"GVISOR ({self.sandbox_id}): Restored successfully.")
         except Exception as e:
             logger.info(f"GVISOR ({self.sandbox_id}): Failed to restore: {e}")
-            self._state = GVisorState.FAILED
+            self._state = SandboxState.FAILED
             await self.delete()
             raise SandboxCreationError(f"Failed to restore gVisor container: {e}")

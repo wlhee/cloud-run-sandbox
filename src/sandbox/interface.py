@@ -1,5 +1,14 @@
 from abc import ABC, abstractmethod
+from enum import Enum
 from .types import SandboxOutputEvent, CodeLanguage
+
+class SandboxState(str, Enum):
+    """Represents the lifecycle state of a sandbox."""
+    INITIALIZED = "INITIALIZED"
+    RUNNING = "RUNNING"
+    CHECKPOINTED = "CHECKPOINTED"
+    STOPPED = "STOPPED"
+    FAILED = "FAILED"
 
 class SandboxError(Exception):
     """Base exception for sandbox-related errors."""
@@ -51,10 +60,6 @@ class SandboxInterface(ABC):
         Executes code in the sandbox.
         Raises SandboxOperationError on failure.
         """
-        pass
-
-    @abstractmethod
-    async def stop(self):
         pass
 
     @abstractmethod
