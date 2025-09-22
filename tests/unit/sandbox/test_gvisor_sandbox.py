@@ -279,7 +279,7 @@ async def test_sandbox_internet_access():
     """
     sandbox_id = "gvisor-test-internet"
     config = make_sandbox_config()
-    config.network = "host" 
+    config.network = "sandbox" 
     sandbox = create_sandbox_instance(sandbox_id, config=config)
 
     try:

@@ -17,6 +17,7 @@ class SandboxMetadata:
     last_activity: float = field(default_factory=time.time)
     cleanup_task: asyncio.Task = None
     delete_callback: Optional[Callable[[str], None]] = None
+    ip_address: Optional[str] = None
 
 class SandboxManager:
     """
@@ -24,6 +25,8 @@ class SandboxManager:
     """
     def __init__(self):
         self._sandboxes: dict[str, SandboxMetadata] = {}
+        self._ip_pool = {f"192.168.250.{i}" for i in range(2, 255)}
+        self._ip_allocations: dict[str, str] = {}
 
     async def create_sandbox(
         self,
@@ -40,7 +43,18 @@ class SandboxManager:
         if sandbox_id is None:
             sandbox_id = "sandbox-" + str(uuid.uuid4())[:4]
         
-        sandbox_instance = factory.create_sandbox_instance(sandbox_id)
+        config = factory.make_sandbox_config()
+        
+        # Allocate an IP address if networking is enabled.
+        ip_address = None
+        if config.network == "sandbox":
+            if not self._ip_pool:
+                raise Exception("No available IP addresses in the pool.")
+            ip_address = self._ip_pool.pop()
+            self._ip_allocations[sandbox_id] = ip_address
+            config.ip_address = ip_address
+
+        sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config)
         
         await sandbox_instance.create()
 
@@ -48,6 +62,7 @@ class SandboxManager:
             instance=sandbox_instance,
             idle_timeout=idle_timeout,
             delete_callback=delete_callback,
+            ip_address=ip_address,
         )
 
         if idle_timeout:
@@ -99,6 +114,11 @@ class SandboxManager:
                 metadata.cleanup_task.cancel()
             await metadata.instance.delete()
             
+            # Release the IP address back to the pool.
+            if metadata.ip_address:
+                self._ip_pool.add(metadata.ip_address)
+                del self._ip_allocations[sandbox_id]
+
             if metadata.delete_callback:
                 metadata.delete_callback(sandbox_id)
 

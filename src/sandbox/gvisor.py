@@ -7,6 +7,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError, SandboxState
 from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from .execution import Execution
@@ -41,6 +42,8 @@ class GVisorConfig:
     # The actual log path directory will be this plus the sandbox ID.
     # runsc will create different log files in this directory.
     debug_log_dir: str = "/tmp/runsc"
+    # The IP address to assign to the sandbox.
+    ip_address: Optional[str] = None
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -126,6 +129,11 @@ class GVisorSandbox(SandboxInterface):
         # Flags that only apply to commands that start or modify the container.
         if "run" in args or "restore" in args:
             cmd.extend(["--network", self._config.network])
+            if self._config.network == "sandbox" and self._config.ip_address:
+                cmd.extend([
+                    "--network-config",
+                    f"tap-name=tap0,address={self._config.ip_address}/24,gateway=192.168.250.1",
+                ])
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
 

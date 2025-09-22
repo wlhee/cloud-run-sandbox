@@ -2,7 +2,7 @@ import pytest
 from src.sandbox.manager import SandboxManager
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
 from src.sandbox.interface import SandboxCreationError
-from unittest.mock import patch
+from unittest.mock import patch, ANY
 import asyncio
 
 pytestmark = pytest.mark.asyncio
@@ -22,7 +22,7 @@ async def test_manager_create_and_get_sandbox(mock_create_instance):
     sandbox = await mgr.create_sandbox(sandbox_id="test-123")
     
     # Assert
-    mock_create_instance.assert_called_once_with("test-123")
+    mock_create_instance.assert_called_once_with("test-123", config=ANY)
     assert mgr.get_sandbox("test-123") is sandbox_to_return
 
 @patch('src.sandbox.factory.create_sandbox_instance')
