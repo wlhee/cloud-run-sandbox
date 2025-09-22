@@ -181,6 +181,7 @@ class GVisorSandbox(SandboxInterface):
         Raises:
             SandboxCreationError: If the process fails to start or the health check fails.
         """
+        print(f"Starting main process with command: {' '.join(cmd)}")
         process = Process(cmd)
         await process.start()
 
