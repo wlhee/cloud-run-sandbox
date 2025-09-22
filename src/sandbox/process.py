@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from typing import AsyncGenerator, List
+from .types import SandboxOutputEvent, OutputType
 
 logger = logging.getLogger(__name__)
 
@@ -10,14 +11,13 @@ class Process:
     for creating, streaming output from, and managing the process lifecycle.
 
     This implementation uses background tasks to continuously drain the stdout and
-    stderr pipes into internal queues, preventing deadlocks that can occur if
-    a consumer only reads from one stream while the other's buffer fills up.
+    stderr pipes into a single internal queue, preventing deadlocks and providing
+    a unified event stream.
     """
     def __init__(self, cmd: List[str]):
         self._cmd = cmd
         self._process: asyncio.subprocess.Process = None
-        self._stdout_queue = asyncio.Queue()
-        self._stderr_queue = asyncio.Queue()
+        self._output_queue = asyncio.Queue()
         self._stream_tasks = []
 
     @property
@@ -39,44 +39,37 @@ class Process:
         
         # Start background tasks to drain the pipes immediately.
         self._stream_tasks.append(
-            asyncio.create_task(self._drain_pipe(self._process.stdout, self._stdout_queue))
+            asyncio.create_task(self._drain_pipe(self._process.stdout, OutputType.STDOUT))
         )
         self._stream_tasks.append(
-            asyncio.create_task(self._drain_pipe(self._process.stderr, self._stderr_queue))
+            asyncio.create_task(self._drain_pipe(self._process.stderr, OutputType.STDERR))
         )
 
-    async def _drain_pipe(self, pipe, queue: asyncio.Queue):
-        """Reads from a pipe and pushes raw decoded strings to a queue."""
+    async def _drain_pipe(self, pipe, stream_type: OutputType):
+        """Reads from a pipe and pushes SandboxOutputEvents to the queue."""
         try:
             while not pipe.at_eof():
                 data = await pipe.read(1024)
                 if data:
-                    await queue.put(data.decode("utf-8"))
+                    event = SandboxOutputEvent(type=stream_type, data=data.decode("utf-8"))
+                    await self._output_queue.put(event)
         except Exception as e:
             logger.debug(f"Pipe draining ended: {e}")
         finally:
-            await queue.put(None) # Signal EOF for this stream
+            await self._output_queue.put(None) # Signal EOF for this stream
 
-    async def stream_stdout(self) -> AsyncGenerator[str, None]:
-        """Yields strings from the process's stdout stream."""
-        async for data in self._stream_from_queue(self._stdout_queue):
-            yield data
-
-    async def stream_stderr(self) -> AsyncGenerator[str, None]:
-        """Yields strings from the process's stderr stream."""
-        async for data in self._stream_from_queue(self._stderr_queue):
-            yield data
-
-    async def _stream_from_queue(self, queue: asyncio.Queue) -> AsyncGenerator[str, None]:
-        """A helper to yield strings from a queue until a None sentinel is received."""
+    async def stream_outputs(self) -> AsyncGenerator[SandboxOutputEvent, None]:
+        """Yields events from the combined stdout/stderr stream."""
         if not self._process:
             raise RuntimeError("Process has not been started yet.")
         
-        while True:
-            data = await queue.get()
-            if data is None:
-                break
-            yield data
+        finished_streams = 0
+        while finished_streams < 2:
+            event = await self._output_queue.get()
+            if event is None:
+                finished_streams += 1
+                continue
+            yield event
 
     async def write_to_stdin(self, data: str) -> None:
         """Writes data to the process's stdin."""

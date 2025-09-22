@@ -565,3 +565,33 @@ async def test_behavior_delete_is_idempotent():
     except Exception as e:
         pytest.fail(f"Calling delete() multiple times raised an unexpected exception: {e}")
 
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_create_failure_raises_error():
+    """
+    Tests that create() raises SandboxCreationError if the runsc command fails.
+    """
+    sandbox_id = "gvisor-test-create-fail"
+    # Use a config that is likely to fail, e.g., by specifying a non-existent platform
+    config = make_sandbox_config()
+    config.platform = "nonexistentplatform"
+    
+    sandbox = create_sandbox_instance(sandbox_id, config=config)
+    
+    with pytest.raises(SandboxCreationError, match="Failed to create gVisor container"):
+        await sandbox.create()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_restore_failure_raises_error():
+    """
+    Tests that restore() raises SandboxCreationError if the restore operation fails.
+    """
+    sandbox_id = "gvisor-test-restore-fail"
+    sandbox = create_sandbox_instance(sandbox_id)
+    
+    # Attempting to restore from a non-existent checkpoint should fail
+    with pytest.raises(SandboxCreationError, match="Failed to restore gVisor container"):
+        await sandbox.restore("/tmp/nonexistent_checkpoint")
+
+

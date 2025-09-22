@@ -23,7 +23,7 @@ The goal is to replace the special-purpose `Execution` class with a general `Pro
 
 This is the main phase where we will implement the new architecture based on the `Process` abstraction. This will be broken down into smaller, atomic commits.
 
-1.  **Differentiate Sandbox ID vs. Container ID**:
+1.  **Differentiate Sandbox ID vs. Container ID [DONE]**:
     *   **Change**: In `gvisor.py`, the internal `_sandbox_id` will be renamed to `_container_id`. The `__init__` method will take a persistent, client-facing `sandbox_id`.
     *   **Test**: Update `tests/unit/sandbox/test_gvisor_sandbox.py` to reflect this change in the constructor.
     *   **Commit**: Commit with message `refactor(gvisor): Differentiate between sandbox_id and container_id`.

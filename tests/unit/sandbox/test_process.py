@@ -1,39 +1,36 @@
 import pytest
 import asyncio
 from src.sandbox.process import Process
+from src.sandbox.types import OutputType
 
 @pytest.mark.asyncio
-async def test_process_lifecycle_and_streaming():
+async def test_stream_outputs_interleaved():
     """
-    Tests the basic lifecycle: start, stream output from both streams, and wait.
+    Tests that stream_outputs correctly yields interleaved stdout and stderr
+    events in the order they are produced.
     """
-    cmd = ["bash", "-c", "echo 'hello'; echo 'world' >&2"]
+    # This script prints "out1", then "err1", then "out2", then "err2"
+    script = "import sys, time; print('out1'); sys.stdout.flush(); time.sleep(0.01); print('err1', file=sys.stderr); sys.stderr.flush(); time.sleep(0.01); print('out2'); sys.stdout.flush(); time.sleep(0.01); print('err2', file=sys.stderr);"
+    cmd = ["python3", "-c", script]
     process = Process(cmd)
-
-    assert not process.is_running
     await process.start()
-    assert process.is_running
 
-    # Concurrently stream stdout and stderr
-    stdout_chunks = []
-    stderr_chunks = []
+    events = []
+    async for event in process.stream_outputs():
+        events.append(event)
     
-    async def consume_stdout():
-        async for data in process.stream_stdout():
-            stdout_chunks.append(data)
+    await process.wait()
 
-    async def consume_stderr():
-        async for data in process.stream_stderr():
-            stderr_chunks.append(data)
+    assert len(events) == 4
+    assert events[0]["type"] == OutputType.STDOUT
+    assert events[0]["data"].strip() == "out1"
+    assert events[1]["type"] == OutputType.STDERR
+    assert events[1]["data"].strip() == "err1"
+    assert events[2]["type"] == OutputType.STDOUT
+    assert events[2]["data"].strip() == "out2"
+    assert events[3]["type"] == OutputType.STDERR
+    assert events[3]["data"].strip() == "err2"
 
-    await asyncio.gather(consume_stdout(), consume_stderr())
-
-    exit_code = await process.wait()
-    assert not process.is_running
-    assert exit_code == 0
-
-    assert "".join(stdout_chunks).strip() == "hello"
-    assert "".join(stderr_chunks).strip() == "world"
 
 @pytest.mark.asyncio
 async def test_process_stop():
@@ -59,11 +56,11 @@ async def test_process_write_to_stdin():
 
     await process.write_to_stdin("hello\n")
 
-    stdout_chunks = []
-    async for data in process.stream_stdout():
-        stdout_chunks.append(data)
+    output_events = []
+    async for event in process.stream_outputs():
+        output_events.append(event)
 
-    stdout = "".join(stdout_chunks)
+    stdout = "".join(e["data"] for e in output_events if e["type"] == OutputType.STDOUT)
     assert "read: hello" in stdout
 
     await process.wait()
@@ -71,25 +68,29 @@ async def test_process_write_to_stdin():
 @pytest.mark.asyncio
 async def test_deadlock_prevention():
     """
-    Tests that the process doesn't hang if only one stream is consumed
-    while the other produces a large amount of output.
+    Tests that the process doesn't hang if the consumer is slow or only
+    processes events after the process has finished.
     """
     # This command writes 10KB to stderr, then a single line to stdout.
-    # If stderr is not drained, this will hang.
     script = "import sys; sys.stderr.write('e' * 10000); sys.stderr.flush(); print('hello')"
     cmd = ["python3", "-c", script]
     process = Process(cmd)
     await process.start()
 
-    # Only consume stdout
-    stdout_chunks = []
-    async for data in process.stream_stdout():
-        stdout_chunks.append(data)
-
-    stdout = "".join(stdout_chunks)
-    assert "hello" in stdout
-
+    # Wait for the process to finish before consuming output.
     await process.wait()
+
+    # Now consume the output. This should not hang.
+    output_events = []
+    async for event in process.stream_outputs():
+        output_events.append(event)
+
+    stdout = "".join(e["data"] for e in output_events if e["type"] == OutputType.STDOUT)
+    stderr = "".join(e["data"] for e in output_events if e["type"] == OutputType.STDERR)
+
+    assert "hello" in stdout
+    assert len(stderr) >= 10000
+    
     await process.stop() # Clean up just in case
 
 @pytest.mark.asyncio
@@ -100,7 +101,7 @@ async def test_runtime_errors():
     process = Process(["echo", "hello"])
 
     with pytest.raises(RuntimeError, match="Process has not been started yet."):
-        async for _ in process.stream_stdout():
+        async for _ in process.stream_outputs():
             pass
 
     with pytest.raises(RuntimeError, match="Process has not been started yet."):
@@ -115,41 +116,31 @@ async def test_runtime_errors():
 @pytest.mark.asyncio
 async def test_stop_unblocks_stream_readers():
     """
-    Tests that stop() unblocks consumers waiting on stream_stdout or stream_stderr.
+    Tests that stop() unblocks consumers waiting on stream_outputs.
     """
-    # This process prints to both streams and then sleeps forever.
+    # This process prints output and then sleeps forever.
     cmd = ["bash", "-c", "echo 'out'; echo 'err' >&2; sleep 30"]
     process = Process(cmd)
     await process.start()
     assert process.is_running
 
-    stdout_read_event = asyncio.Event()
-    stderr_read_event = asyncio.Event()
+    output_read_event = asyncio.Event()
 
-    async def consume_stdout():
-        async for _ in process.stream_stdout():
-            stdout_read_event.set() # Signal that we've read the first chunk
+    async def consume_outputs():
+        async for _ in process.stream_outputs():
+            output_read_event.set() # Signal that we've read some output
         # The loop should terminate cleanly when stop() is called.
 
-    async def consume_stderr():
-        async for _ in process.stream_stderr():
-            stderr_read_event.set() # Signal that we've read the first chunk
-        # The loop should terminate cleanly when stop() is called.
+    # Start the consumer and wait for it to read the initial output and block.
+    consumer_task = asyncio.create_task(consume_outputs())
+    await asyncio.wait_for(output_read_event.wait(), timeout=1)
 
-    # Start the consumers and wait for them to read the initial output and block.
-    consumer_tasks = [
-        asyncio.create_task(consume_stdout()),
-        asyncio.create_task(consume_stderr()),
-    ]
-    await asyncio.wait_for(stdout_read_event.wait(), timeout=1)
-    await asyncio.wait_for(stderr_read_event.wait(), timeout=1)
-
-    # Now that the consumers are blocked waiting for more data, stop the process.
+    # Now that the consumer is blocked waiting for more data, stop the process.
     await process.stop()
 
-    # The consumer tasks should now unblock and finish.
-    # We await them with a timeout to prove they don't hang.
-    await asyncio.wait_for(asyncio.gather(*consumer_tasks), timeout=1)
+    # The consumer task should now unblock and finish.
+    # We await it with a timeout to prove it doesn't hang.
+    await asyncio.wait_for(consumer_task, timeout=1)
 
     exit_code = await process.wait()
     assert exit_code != 0

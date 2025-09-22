@@ -10,6 +10,7 @@ from enum import Enum
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError, SandboxState
 from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from .execution import Execution
+from .process import Process
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class GVisorSandbox(SandboxInterface):
         self._bundle_dir = os.path.join(config.bundle_dir_base, f"runsc_bundle_{sandbox_id}")
         # Each sandbox gets a unique, named root directory.
         self._root_dir = os.path.join(config.root_dir_base, f"runsc_root_{sandbox_id}")
+        self._main_process: Process = None
         self._current_execution = None
         self._drain_tasks = []
         self._is_attached = False
@@ -130,16 +132,9 @@ class GVisorSandbox(SandboxInterface):
         cmd.extend(args)
         return cmd
 
-    async def _run_sync_command(self, cmd, check=True, wait_for_output=True):
+    async def _run_sync_command(self, cmd, check=True):
         """
-        Helper to run a synchronous command.
-
-        Args:
-            cmd: The command to execute as a list of strings.
-            check: If True, raises SandboxOperationError if the command returns a non-zero exit code.
-            wait_for_output: If True, waits for the process to terminate and reads stdout/stderr.
-                             If False, only waits for the process to exit (for detached processes)
-                             and does not read from the output pipes to avoid deadlocks.
+        Helper to run a synchronous command that is expected to terminate.
         """
         logger.info(f"GVISOR: Running command: {' '.join(cmd)})")
         proc = await asyncio.create_subprocess_exec(
@@ -147,41 +142,65 @@ class GVisorSandbox(SandboxInterface):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-
-        if not wait_for_output:
-            # For detached commands, we must still drain stdout/stderr to prevent
-            # the child process from blocking if the pipe buffer fills up.
-            # We do this concurrently while waiting for the process to exit.
-            async def drain_pipe(stream, name):
-                while not stream.at_eof():
-                    data = await stream.read(1024) # Read and discard
-                    logger.debug(f"GVISOR: DRAIN ({name}): {data}")
-
-            drain_stdout = asyncio.create_task(drain_pipe(proc.stdout, "stdout"))
-            drain_stderr = asyncio.create_task(drain_pipe(proc.stderr, "stderr"))
-            self._drain_tasks.extend([drain_stdout, drain_stderr])
-
-            try:
-                # `runsc run --detach` should exit quickly.
-                await asyncio.wait_for(proc.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                raise SandboxOperationError(f"Command {' '.join(cmd)} timed out.")
-
-            if check and proc.returncode != 0:
-                # We can't reliably get stderr here because we were just draining,
-                # but we can report the exit code.
-                raise SandboxOperationError(f"Command failed: {' '.join(cmd)} with exit code {proc.returncode}")
-            return "", ""
-
-        # For regular commands, wait for output.
         stdout, stderr = await proc.communicate()
         if check and proc.returncode != 0:
             cmd_str = " ".join(cmd)
             raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
         logger.info(f"GVISOR: Command finished: {' '.join(cmd)})")
         return stdout.decode(), stderr.decode()
+
+    async def _health_check(self) -> bool:
+        """
+        Checks if the container is in the 'running' state using 'runsc state'.
+        Retries a few times to give the container time to start.
+        """
+        for attempt in range(3):
+            try:
+                cmd = self._build_runsc_cmd("state", self._container_id)
+                stdout, _ = await self._run_sync_command(cmd)
+                state = json.loads(stdout)
+                if state.get("status") == "running":
+                    logger.info(f"GVISOR ({self.sandbox_id}): Health check passed.")
+                    return True
+            except (SandboxOperationError, json.JSONDecodeError) as e:
+                logger.warning(f"GVISOR ({self.sandbox_id}): Health check attempt {attempt + 1} failed: {e}")
+            await asyncio.sleep(0.1)
+        return False
+
+    async def _start_main_process(self, cmd: list[str], operation_name: str) -> Process:
+        """
+        Starts the main container process and performs a health check.
+        
+        Args:
+            cmd: The runsc command to execute.
+            operation_name: The name of the operation ('create' or 'restore') for logging.
+        
+        Returns:
+            The started Process instance.
+            
+        Raises:
+            SandboxCreationError: If the process fails to start or the health check fails.
+        """
+        process = Process(cmd)
+        await process.start()
+
+        if not await self._health_check():
+            # Best-effort attempt to get stderr from the crashed process
+            stderr_output = []
+            try:
+                async for event in process.stream_outputs():
+                    if event["type"] == OutputType.STDERR:
+                        stderr_output.append(event["data"])
+            except Exception:
+                pass # Ignore errors during this best-effort read
+            
+            await process.stop()
+            raise SandboxCreationError(
+                f"gVisor container failed to {operation_name}. "
+                f"Stderr: {''.join(stderr_output)}"
+            )
+        
+        return process
 
     def _prepare_bundle(self):
         """
@@ -218,7 +237,7 @@ class GVisorSandbox(SandboxInterface):
 
     async def create(self):
         """
-        Creates the OCI bundle and starts a long-running, detached container.
+        Creates the OCI bundle and starts a long-running container.
         """
         if self._state != SandboxState.INITIALIZED:
             raise SandboxOperationError(f"Cannot create a sandbox that is not in the INITIALIZED state (current state: {self._state})")
@@ -226,9 +245,8 @@ class GVisorSandbox(SandboxInterface):
         logger.info(f"GVISOR: Creating container '{self._container_id}' for sandbox_id: {self.sandbox_id}")
         try:
             self._prepare_bundle()
-            # Start the container in detached mode.
-            run_cmd = self._build_runsc_cmd("run", "--detach", "--bundle", self._bundle_dir, self._container_id)
-            await self._run_sync_command(run_cmd, wait_for_output=False)
+            run_cmd = self._build_runsc_cmd("run", "--bundle", self._bundle_dir, self._container_id)
+            self._main_process = await self._start_main_process(run_cmd, "create")
             self._state = SandboxState.RUNNING
             logger.info(f"GVISOR: Container created for sandbox_id: {self.sandbox_id}")
 
@@ -321,6 +339,11 @@ class GVisorSandbox(SandboxInterface):
             self._current_execution = None
             await execution_to_stop.stop()
 
+        # Stop the main container process
+        if self._main_process and self._main_process.is_running:
+            await self._main_process.stop()
+        self._main_process = None
+
         kill_cmd = self._build_runsc_cmd("kill", self._container_id, "SIGKILL")
         await self._run_sync_command(kill_cmd, check=False)
         self._state = SandboxState.STOPPED
@@ -341,7 +364,6 @@ class GVisorSandbox(SandboxInterface):
         logger.debug(f"GVISOR ({self.sandbox_id}): Drain tasks canceled.")
 
         delete_cmd = self._build_runsc_cmd("delete", "--force", self._container_id)
-        # Don't wait for output to avoid blocking for too long.
         await self._run_sync_command(delete_cmd, check=False)
 
         if os.path.exists(self._bundle_dir):
@@ -381,12 +403,11 @@ class GVisorSandbox(SandboxInterface):
             self._prepare_bundle()
             cmd = self._build_runsc_cmd(
                 "restore",
-                "--detach",
                 f"--image-path={checkpoint_path}",
                 "--bundle", self._bundle_dir,
                 self._container_id
             )
-            await self._run_sync_command(cmd, wait_for_output=False)
+            self._main_process = await self._start_main_process(cmd, "restore")
             self._state = SandboxState.RUNNING
             logger.info(f"GVISOR ({self.sandbox_id}): Restored successfully.")
         except Exception as e:
@@ -394,3 +415,4 @@ class GVisorSandbox(SandboxInterface):
             self._state = SandboxState.FAILED
             await self.delete()
             raise SandboxCreationError(f"Failed to restore gVisor container: {e}")
+
