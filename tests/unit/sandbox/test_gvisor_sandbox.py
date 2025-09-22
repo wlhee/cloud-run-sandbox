@@ -2,10 +2,19 @@ import pytest
 import asyncio
 import shutil
 import os
+import logging
 from src.sandbox.gvisor import GVisorConfig
 from src.sandbox.factory import make_sandbox_config, create_sandbox_instance
 from src.sandbox.types import OutputType, CodeLanguage, SandboxStateEvent
 from src.sandbox.interface import SandboxCreationError,SandboxStreamClosed, SandboxError, SandboxOperationError, SandboxState
+
+# Enable debug logging for the gvisor module to help debug CI failures.
+logger = logging.getLogger("src.sandbox.gvisor")
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
@@ -287,7 +296,10 @@ async def test_sandbox_internet_access():
             pass
 
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
-        assert "Example Domain" in stdout
+        expected_string = "Example Domain"
+        if expected_string not in stdout:
+            print(f"Expected to find '{expected_string}', but actual stdout was: '{stdout}'")
+        assert expected_string in stdout
 
     finally:
         await sandbox.delete()
