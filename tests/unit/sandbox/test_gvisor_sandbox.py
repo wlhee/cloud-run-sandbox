@@ -269,6 +269,8 @@ async def test_sandbox_internet_access():
     Tests that the sandbox can access the internet.
     """
     sandbox_id = "gvisor-test-internet"
+    config = make_sandbox_config()
+    config.network = "host" 
     sandbox = create_sandbox_instance(sandbox_id)
 
     try:
