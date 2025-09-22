@@ -448,7 +448,6 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
     checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
     
     config = make_sandbox_config()
-    config.network = "none"
 
     # 1. Create a sandbox and change its state
     sandbox1 = create_sandbox_instance(sandbox_id, config=config)

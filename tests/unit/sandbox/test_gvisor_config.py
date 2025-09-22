@@ -29,6 +29,7 @@ async def test_create_writable_filesystem(sandbox, mock_config):
         mock_proc = AsyncMock()
         mock_proc.wait.return_value = 0
         mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (b"", b"")
         
         mock_stdout = MagicMock()
         mock_stdout.at_eof.side_effect = [False, True]
