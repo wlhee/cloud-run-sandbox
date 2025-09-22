@@ -20,7 +20,7 @@ def test_create_sandbox_instance_defaults(mock_gvisor_sandbox):
         assert config.rootless is False
         assert config.ignore_cgroups is True
         assert config.platform == "systrap"
-        assert config.network == "host"
+        assert config.network == "sandbox"
         assert config.writable_filesystem is True
 
 def test_create_sandbox_instance_with_env_vars(mock_gvisor_sandbox):

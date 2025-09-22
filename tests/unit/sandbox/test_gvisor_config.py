@@ -24,7 +24,8 @@ async def test_create_writable_filesystem(sandbox, mock_config):
 
     with patch("os.makedirs"), \
          patch("builtins.open", mock_open()) as m, \
-         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+         patch.object(sandbox, "_health_check", return_value=True):
         
         mock_proc = AsyncMock()
         mock_proc.wait.return_value = 0
@@ -66,11 +67,13 @@ async def test_create_readonly_filesystem(sandbox, mock_config):
 
     with patch("os.makedirs"), \
          patch("builtins.open", mock_open()) as m, \
-         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+         patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+         patch.object(sandbox, "_health_check", return_value=True):
         
         mock_proc = AsyncMock()
         mock_proc.wait.return_value = 0
         mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (b"", b"")
         
         mock_stdout = MagicMock()
         mock_stdout.at_eof.side_effect = [False, True]
