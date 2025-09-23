@@ -42,6 +42,8 @@ class GVisorConfig:
     # The actual log path directory will be this plus the sandbox ID.
     # runsc will create different log files in this directory.
     debug_log_dir: str = "/tmp/runsc"
+    # Whether to enable packet logging in debug logs.
+    debug_log_packets: bool = False
     # The IP address to assign to the sandbox.
     ip_address: Optional[str] = None
 
@@ -115,6 +117,8 @@ class GVisorSandbox(SandboxInterface):
             os.makedirs(log_path, exist_ok=True)
             cmd.extend(["--debug-log", log_path])
             cmd.append("--debug")
+            if self._config.debug_log_packets:
+                cmd.append("--log-packets")
         if self._config.strace:
             cmd.append("--strace")
 
@@ -130,8 +134,6 @@ class GVisorSandbox(SandboxInterface):
         # Flags that only apply to commands that start or modify the container.
         if "run" in args or "restore" in args:
             cmd.extend(["--network", self._config.network])
-            if self._config.network == "sandbox":
-                cmd.append("--net-raw")
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
 
@@ -168,9 +170,9 @@ class GVisorSandbox(SandboxInterface):
         logger.info(f"GVISOR ({self.sandbox_id}): Setting up network...")
         # Use a short unique ID for network device names to stay within length limits.
         unique_id = self._sandbox_id.split('-')[-1]
-        veth = f"veth-{unique_id}"
-        peer = f"peer-{unique_id}"
-        namespace = self._sandbox_id
+veth = f"veth-{unique_id}"
+peer = f"peer-{unique_id}"
+namespace = self._sandbox_id
         
         # Calculate the gateway IP (peer IP) from the sandbox IP.
         ip_parts = self._config.ip_address.split('.')
@@ -216,7 +218,8 @@ class GVisorSandbox(SandboxInterface):
         logger.info(f"GVISOR ({self.sandbox_id}): Network setup complete.")
 
     async def _teardown_network(self):
-        """Tears down the network namespace and related resources."""
+        """
+        Tears down the network namespace and related resources."""
         if not self._network_cleanup_cmds:
             return
         
@@ -337,7 +340,19 @@ class GVisorSandbox(SandboxInterface):
                 "env": [
                     "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                     "PYTHONUNBUFFERED=1"
-                ]
+                ],
+                "capabilities": {
+                    "effective": [
+                        "CAP_NET_RAW"
+                    ],
+                    "inheritable": [
+                        "CAP_NET_RAW"
+                    ],
+                    "permitted": [
+                        "CAP_NET_RAW"
+                    ],
+                    "ambient": []
+                }
             },
             "root": root_config,
             "mounts": mounts,
@@ -551,4 +566,3 @@ class GVisorSandbox(SandboxInterface):
             self._state = SandboxState.FAILED
             await self.delete()
             raise SandboxCreationError(f"Failed to restore gVisor container: {e}")
-

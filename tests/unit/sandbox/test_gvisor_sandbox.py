@@ -281,6 +281,8 @@ async def test_sandbox_internet_access():
     config = make_sandbox_config()
     config.network = "sandbox"
     config.ip_address = "192.168.250.10"
+    config.debug = True
+    config.debug_log_packets = True
     sandbox = create_sandbox_instance(sandbox_id, config=config)
 
     try:
@@ -316,6 +318,16 @@ async def test_sandbox_internet_access():
             stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
             print(f"--- STDOUT ---\n{stdout}")
             print(f"--- STDERR ---\n{stderr}")
+            
+            # Print gVisor logs
+            log_dir = os.path.join(config.debug_log_dir, sandbox_id)
+            if os.path.exists(log_dir):
+                print(f"--- gVisor logs in {log_dir} ---")
+                for filename in os.listdir(log_dir):
+                    print(f"--- {filename} ---")
+                    with open(os.path.join(log_dir, filename), "r") as f:
+                        print(f.read())
+            
             pytest.fail(f"Expected to find '{expected_string}' in stdout, but it was not found.")
         
         assert expected_string in stdout
