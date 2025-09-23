@@ -283,6 +283,7 @@ async def test_sandbox_internet_access():
     config.ip_address = "192.168.250.10"
     config.debug = True
     config.debug_log_packets = True
+    config.strace = True
     sandbox = create_sandbox_instance(sandbox_id, config=config)
 
     try:
