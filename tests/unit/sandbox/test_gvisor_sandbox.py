@@ -286,9 +286,16 @@ async def test_sandbox_internet_access():
     try:
         await sandbox.create()
         
-        # Use a command that is likely to be installed in the base image.
-        # python -c "..." is more portable than curl.
-        code = 'python3 -c "import urllib.request; print(urllib.request.urlopen(\'https://example.com\').read().decode(\'utf-8\'))"'
+        code = """
+        echo "--- resolv.conf ---"
+        cat /etc/resolv.conf
+        echo "--- pinging gateway ---"
+        ping -c 1 192.168.250.11
+        echo "--- pinging dns ---"
+        ping -c 1 8.8.8.8
+        echo "--- final request ---"
+        python3 -c "import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))"
+        """
         await sandbox.execute(CodeLanguage.BASH, code)
 
         events = []
