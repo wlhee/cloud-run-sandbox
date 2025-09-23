@@ -136,9 +136,6 @@ class GVisorSandbox(SandboxInterface):
             cmd.extend(["--network", self._config.network])
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
-        
-        if "exec" in args and self._config.network == "sandbox":
-            cmd.append(["--cap", "CAP_NET_RAW"])
 
         cmd.extend(args)
         return cmd
@@ -436,9 +433,14 @@ class GVisorSandbox(SandboxInterface):
             f.write(code)
 
         # Execute the code.
-        exec_cmd = self._build_runsc_cmd(
-            "exec", "--cwd", "/", self._container_id, *exec_args
-        )
+        exec_cmd_list = ["exec"]
+        if self._config.network == "sandbox":
+            exec_cmd_list.extend(["--cap", "CAP_NET_RAW"])
+        
+        exec_cmd_list.extend(["--cwd", "/", self._container_id])
+        exec_cmd_list.extend(exec_args)
+
+        exec_cmd = self._build_runsc_cmd(*exec_cmd_list)
         
         logger.info(f"GVISOR: Starting execution process for sandbox_id: {self.sandbox_id}")
         process = await asyncio.create_subprocess_exec(
