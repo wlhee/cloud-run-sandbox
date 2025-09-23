@@ -172,14 +172,16 @@ class GVisorSandbox(SandboxInterface):
         
         # Calculate the gateway IP (peer IP) from the sandbox IP.
         ip_parts = self._config.ip_address.split('.')
-        peer_ip = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.{int(ip_parts[3]) - 1}"
+        peer_ip = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.{int(ip_parts[3]) + 1}"
 
-        # Get the host's default network interface.
+        # Get the host's default network interface and MTU.
         stdout, _ = await self._run_sync_command(["ip", "route", "show", "default"], sudo=True)
         host_if = stdout.split(' ')[4]
+        stdout, _ = await self._run_sync_command(["ip", "link", "show", host_if], sudo=True)
+        mtu = stdout.split('mtu ')[1].split(' ')[0]
 
         setup_cmds = [
-            f"ip link add {veth} type veth peer name {peer}",
+            f"ip link add {veth} mtu {mtu} type veth peer name {peer}",
             f"ip addr add {peer_ip}/24 dev {peer}",
             f"ip link set {peer} up",
             f"ip netns add {namespace}",
@@ -196,8 +198,8 @@ class GVisorSandbox(SandboxInterface):
 
         # Define cleanup commands in reverse order.
         self._network_cleanup_cmds = [
-            f"iptables -A FORWARD -o {host_if} -i {peer} -j ACCEPT",
-            f"iptables -A FORWARD -i {host_if} -o {peer} -j ACCEPT",
+            f"iptables -D FORWARD -o {host_if} -i {peer} -j ACCEPT",
+            f"iptables -D FORWARD -i {host_if} -o {peer} -j ACCEPT",
             f"iptables -t nat -D POSTROUTING -s {self._config.ip_address} -o {host_if} -j MASQUERADE",
             f"ip netns del {namespace}",
             f"ip link del {peer}",
