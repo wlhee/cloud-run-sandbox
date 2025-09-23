@@ -130,6 +130,8 @@ class GVisorSandbox(SandboxInterface):
         # Flags that only apply to commands that start or modify the container.
         if "run" in args or "restore" in args:
             cmd.extend(["--network", self._config.network])
+            if self._config.network == "sandbox":
+                cmd.append("--net-raw")
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
 
