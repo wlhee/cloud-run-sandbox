@@ -170,9 +170,9 @@ class GVisorSandbox(SandboxInterface):
         logger.info(f"GVISOR ({self.sandbox_id}): Setting up network...")
         # Use a short unique ID for network device names to stay within length limits.
         unique_id = self._sandbox_id.split('-')[-1]
-veth = f"veth-{unique_id}"
-peer = f"peer-{unique_id}"
-namespace = self._sandbox_id
+        veth = f"veth-{unique_id}"
+        peer = f"peer-{unique_id}"
+        namespace = self._sandbox_id
         
         # Calculate the gateway IP (peer IP) from the sandbox IP.
         ip_parts = self._config.ip_address.split('.')
