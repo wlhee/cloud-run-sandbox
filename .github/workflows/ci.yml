@@ -34,9 +34,6 @@ jobs:
         )
         runsc --version
 
-    - name: Set up Host Network
-      run: sudo ./setup_host_network.sh
-
     - name: Install dependencies
       run: |
         pip install -r requirements.txt

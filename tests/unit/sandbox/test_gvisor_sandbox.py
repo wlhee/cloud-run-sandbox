@@ -279,13 +279,16 @@ async def test_sandbox_internet_access():
     """
     sandbox_id = "gvisor-test-internet"
     config = make_sandbox_config()
-    config.network = "sandbox" 
+    config.network = "sandbox"
+    config.ip_address = "192.168.250.10"
     sandbox = create_sandbox_instance(sandbox_id, config=config)
 
     try:
         await sandbox.create()
         
-        code = "curl -s https://example.com"
+        # Use a command that is likely to be installed in the base image.
+        # python -c "..." is more portable than curl.
+        code = 'python3 -c "import urllib.request; print(urllib.request.urlopen(\'https://example.com\').read().decode(\'utf-8\'))"'
         await sandbox.execute(CodeLanguage.BASH, code)
 
         events = []
@@ -298,7 +301,12 @@ async def test_sandbox_internet_access():
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         expected_string = "Example Domain"
         if expected_string not in stdout:
-            print(f"Expected to find '{expected_string}', but actual stdout was: '{stdout}'")
+            # Provide more context on failure
+            stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
+            print(f"--- STDOUT ---\n{stdout}")
+            print(f"--- STDERR ---\n{stderr}")
+            pytest.fail(f"Expected to find '{expected_string}' in stdout, but it was not found.")
+        
         assert expected_string in stdout
 
     finally:

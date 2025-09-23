@@ -84,6 +84,7 @@ class GVisorSandbox(SandboxInterface):
         self._drain_tasks = []
         self._is_attached = False
         self._state = SandboxState.INITIALIZED
+        self._network_cleanup_cmds = []
         logger.info(f"GVISOR: Initialized for sandbox_id: {self.sandbox_id}")
 
     def _generate_container_id(self) -> str:
@@ -129,21 +130,18 @@ class GVisorSandbox(SandboxInterface):
         # Flags that only apply to commands that start or modify the container.
         if "run" in args or "restore" in args:
             cmd.extend(["--network", self._config.network])
-            if self._config.network == "sandbox" and self._config.ip_address:
-                cmd.extend([
-                    "--network-config",
-                    f"tap-name=tap0,address={self._config.ip_address}/24,gateway=192.168.250.1",
-                ])
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
 
         cmd.extend(args)
         return cmd
 
-    async def _run_sync_command(self, cmd, check=True):
+    async def _run_sync_command(self, cmd, check=True, sudo=False):
         """
         Helper to run a synchronous command that is expected to terminate.
         """
+        if sudo:
+            cmd.insert(0, "sudo")
         logger.info(f"GVISOR: Running command: {' '.join(cmd)})")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -156,6 +154,80 @@ class GVisorSandbox(SandboxInterface):
             raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
         logger.info(f"GVISOR: Command finished: {' '.join(cmd)})")
         return stdout.decode(), stderr.decode()
+
+    async def _setup_network(self):
+        """
+        Sets up a dedicated network namespace for the sandbox, including a veth pair
+        and iptables rules for internet access.
+        """
+        if not self._config.ip_address:
+            return
+
+        logger.info(f"GVISOR ({self.sandbox_id}): Setting up network...")
+        # Use a short unique ID for network device names to stay within length limits.
+        unique_id = self._sandbox_id.split('-')[-1]
+        veth = f"veth-{unique_id}"
+        peer = f"peer-{unique_id}"
+        namespace = self._sandbox_id
+        
+        # Calculate the gateway IP (peer IP) from the sandbox IP.
+        ip_parts = self._config.ip_address.split('.')
+        peer_ip = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.{int(ip_parts[3]) - 1}"
+
+        # Get the host's default network interface.
+        stdout, _ = await self._run_sync_command(["ip", "route", "show", "default"], sudo=True)
+        host_if = stdout.split(' ')[4]
+
+        setup_cmds = [
+            f"ip link add {veth} type veth peer name {peer}",
+            f"ip addr add {peer_ip}/24 dev {peer}",
+            f"ip link set {peer} up",
+            f"ip netns add {namespace}",
+            f"ip link set {veth} netns {namespace}",
+            f"ip netns exec {namespace} ip addr add {self._config.ip_address}/24 dev {veth}",
+            f"ip netns exec {namespace} ip link set {veth} up",
+            f"ip netns exec {namespace} ip link set lo up",
+            f"ip netns exec {namespace} ip route add default via {peer_ip}",
+            "sysctl -w net.ipv4.ip_forward=1",
+            f"iptables -t nat -A POSTROUTING -s {self._config.ip_address} -o {host_if} -j MASQUERADE",
+            f"iptables -A FORWARD -i {host_if} -o {peer} -j ACCEPT",
+            f"iptables -A FORWARD -o {host_if} -i {peer} -j ACCEPT",
+        ]
+
+        # Define cleanup commands in reverse order.
+        self._network_cleanup_cmds = [
+            f"iptables -A FORWARD -o {host_if} -i {peer} -j ACCEPT",
+            f"iptables -A FORWARD -i {host_if} -o {peer} -j ACCEPT",
+            f"iptables -t nat -D POSTROUTING -s {self._config.ip_address} -o {host_if} -j MASQUERADE",
+            f"ip netns del {namespace}",
+            f"ip link del {peer}",
+        ]
+
+        for cmd_str in setup_cmds:
+            stdout, stderr = await self._run_sync_command(cmd_str.split(), sudo=True)
+            if stdout:
+                logger.info(f"GVISOR ({self.sandbox_id}) setup stdout: {stdout}")
+            if stderr:
+                logger.warning(f"GVISOR ({self.sandbox_id}) setup stderr: {stderr}")
+        logger.info(f"GVISOR ({self.sandbox_id}): Network setup complete.")
+
+    async def _teardown_network(self):
+        """Tears down the network namespace and related resources."""
+        if not self._network_cleanup_cmds:
+            return
+        
+        logger.info(f"GVISOR ({self.sandbox_id}): Tearing down network...")
+        for cmd_str in self._network_cleanup_cmds:
+            try:
+                stdout, stderr = await self._run_sync_command(cmd_str.split(), sudo=True, check=False)
+                if stdout:
+                    logger.info(f"GVISOR ({self.sandbox_id}) teardown stdout: {stdout}")
+                if stderr:
+                    logger.warning(f"GVISOR ({self.sandbox_id}) teardown stderr: {stderr}")
+            except Exception as e:
+                logger.warning(f"GVISOR ({self.sandbox_id}): Failed to run network cleanup command '{cmd_str}': {e}")
+        self._network_cleanup_cmds = []
+        logger.info(f"GVISOR ({self.sandbox_id}): Network teardown complete.")
 
     async def _health_check(self) -> bool:
         """
@@ -216,14 +288,42 @@ class GVisorSandbox(SandboxInterface):
         Creates the OCI bundle directory and config.json.
         """
         os.makedirs(self._bundle_dir, exist_ok=True)
+        
+        # --- Create network config files ---
+        resolv_conf_path = os.path.join(self._bundle_dir, "resolv.conf")
+        with open(resolv_conf_path, "w") as f:
+            f.write("nameserver 8.8.8.8\n")
+
+        hostname_path = os.path.join(self._bundle_dir, "hostname")
+        with open(hostname_path, "w") as f:
+            f.write(f"{self._sandbox_id}\n")
+
+        hosts_path = os.path.join(self._bundle_dir, "hosts")
+        hosts_content = f"127.0.0.1\tlocalhost\n{self._config.ip_address or '127.0.0.1'}\t{self._sandbox_id}\n"
+        with open(hosts_path, "w") as f:
+            f.write(hosts_content)
+
         mounts = [
             {"destination": "/proc", "type": "proc", "source": "proc"},
             {
                 "destination": self._bundle_dir, "type": "bind",
                 "source": self._bundle_dir, "options": ["rbind", "rw"]
+            },
+            {
+                "destination": "/etc/resolv.conf", "type": "bind",
+                "source": resolv_conf_path, "options": ["rbind", "ro"]
+            },
+            {
+                "destination": "/etc/hostname", "type": "bind",
+                "source": hostname_path, "options": ["rbind", "ro"]
+            },
+            {
+                "destination": "/etc/hosts", "type": "bind",
+                "source": hosts_path, "options": ["rbind", "ro"]
             }
         ]
         root_config = {"path": "/", "readonly": not self._config.writable_filesystem}
+        
         config = {
             "ociVersion": "1.0.0",
             "process": {
@@ -236,8 +336,24 @@ class GVisorSandbox(SandboxInterface):
                 ]
             },
             "root": root_config,
-            "mounts": mounts
+            "mounts": mounts,
+            "linux": {
+                "namespaces": [
+                    {"type": "pid"},
+                    {"type": "ipc"},
+                    {"type": "uts"},
+                    {"type": "mount"}
+                ]
+            }
         }
+
+        # Add network namespace if configured
+        if self._config.network == "sandbox":
+            config["linux"]["namespaces"].append({
+                "type": "network",
+                "path": f"/var/run/netns/{self._sandbox_id}"
+            })
+
         config_path = os.path.join(self._bundle_dir, "config.json")
         logger.info(f"--- Writing config.json to {config_path} ---")
         logger.info(json.dumps(config, indent=4))
@@ -253,6 +369,9 @@ class GVisorSandbox(SandboxInterface):
         
         logger.info(f"GVISOR: Creating container '{self._container_id}' for sandbox_id: {self.sandbox_id}")
         try:
+            if self._config.network == "sandbox":
+                await self._setup_network()
+
             self._prepare_bundle()
             run_cmd = self._build_runsc_cmd("run", "--bundle", self._bundle_dir, self._container_id)
             self._main_process = await self._start_main_process(run_cmd, "create")
@@ -380,6 +499,7 @@ class GVisorSandbox(SandboxInterface):
         if os.path.exists(self._root_dir):
             shutil.rmtree(self._root_dir)
 
+        await self._teardown_network()
         logger.info(f"GVISOR ({self.sandbox_id}): Deleted.")
 
     async def checkpoint(self, checkpoint_path: str) -> None:
@@ -409,6 +529,9 @@ class GVisorSandbox(SandboxInterface):
         self._container_id = self._generate_container_id()
         logger.info(f"GVISOR ({self.sandbox_id}): Restoring to new container '{self._container_id}' from {checkpoint_path}")
         try:
+            if self._config.network == "sandbox":
+                await self._setup_network()
+                
             self._prepare_bundle()
             cmd = self._build_runsc_cmd(
                 "restore",
