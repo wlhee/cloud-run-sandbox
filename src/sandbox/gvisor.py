@@ -136,6 +136,9 @@ class GVisorSandbox(SandboxInterface):
             cmd.extend(["--network", self._config.network])
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
+        
+        if "exec" in args and self._config.network == "sandbox":
+            cmd.extend(["--cap", "CAP_NET_RAW"])
 
         cmd.extend(args)
         return cmd
