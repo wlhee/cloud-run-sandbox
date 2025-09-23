@@ -441,6 +441,7 @@ class GVisorSandbox(SandboxInterface):
         exec_cmd_list.extend(exec_args)
 
         exec_cmd = self._build_runsc_cmd(*exec_cmd_list)
+        logger.info(f"GVISOR: Exec command: {' '.join(exec_cmd)}")
         
         logger.info(f"GVISOR: Starting execution process for sandbox_id: {self.sandbox_id}")
         process = await asyncio.create_subprocess_exec(

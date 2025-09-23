@@ -316,7 +316,8 @@ async def test_sandbox_internet_access():
         print(f"--- STDOUT ---\n{stdout}")
         print(f"--- STDERR ---\n{stderr}")
         expected_string = "Example Domain"
-        if expected_string not in stdout:
+        #if expected_string not in stdout:
+        if True:
             # Provide more context on failure
             #stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
             #print(f"--- STDOUT ---\n{stdout}")
