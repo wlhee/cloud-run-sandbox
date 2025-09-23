@@ -287,6 +287,10 @@ async def test_sandbox_internet_access():
         await sandbox.create()
         
         code = """
+        echo "--- ip a ---"
+        ip a
+        echo "--- ip r ---"
+        ip r
         echo "--- resolv.conf ---"
         cat /etc/resolv.conf
         echo "--- pinging gateway ---"
