@@ -437,7 +437,7 @@ class GVisorSandbox(SandboxInterface):
         if self._config.network == "sandbox":
             exec_cmd_list.extend(["--cap", "CAP_NET_RAW"])
         
-        exec_cmd_list.extend(["--cwd", "/", self._container_id])
+        exec_cmd_list.extend(["--cwd", "/", "--net-raw", self._container_id])
         exec_cmd_list.extend(exec_args)
 
         exec_cmd = self._build_runsc_cmd(*exec_cmd_list)
