@@ -137,7 +137,7 @@ class GVisorSandbox(SandboxInterface):
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
         
-        # Supporting `ping``
+        # Supporting `ping`
         if "exec" in args:
             cmd.append("--net-raw")
 
@@ -166,10 +166,11 @@ class GVisorSandbox(SandboxInterface):
         Sets up a dedicated network namespace for the sandbox, including a veth pair
         and iptables rules for internet access.
         """
+                    
         if not self._config.ip_address:
             return
         
-        logger.info(f"GVISOR: Setting up network for sandbox_id: {self.sandbox_id}")
+        logger.info(f"GVISOR: Setting up network for sandbox_id {self.sandbox_id}, ip_address: {self._config.ip_address}")
 
         # Use a short unique ID for network device names to stay within length limits.
         unique_id = self._sandbox_id.split('-')[-1]
