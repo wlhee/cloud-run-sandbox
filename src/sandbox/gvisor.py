@@ -137,8 +137,8 @@ class GVisorSandbox(SandboxInterface):
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
         
-        if "exec" in args:
-            cmd.append("--net-raw")
+        #if "exec" in args:
+        #    cmd.append("--net-raw")
 
         cmd.extend(args)
         return cmd
