@@ -117,7 +117,7 @@ class GVisorSandbox(SandboxInterface):
             os.makedirs(log_path, exist_ok=True)
             cmd.extend(["--debug-log", log_path])
             cmd.append("--debug")
-            if self._config.debug_log_packets:
+            if self._config.log_packets:
                 cmd.append("--log-packets")
         if self._config.strace:
             cmd.append("--strace")
