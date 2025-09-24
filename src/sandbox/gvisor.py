@@ -427,18 +427,19 @@ class GVisorSandbox(SandboxInterface):
         """
         Connects a client to the sandbox's output stream.
         """
-        if not self._exec_process:
+        exec_process = self._exec_process
+        if not exec_process:
             raise SandboxError("No process is running in the sandbox.")
         
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_RUNNING.value}
         
         try:
-            async for event in self._exec_process.stream_outputs():
+            async for event in exec_process.stream_outputs():
                 yield event
         except SandboxStreamClosed:
             logger.info(f"GVISOR ({self.sandbox_id}): Exec process stream closed.")
         
-        await self._exec_process.wait()
+        await exec_process.wait()
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
 
     async def write_to_stdin(self, data: str):
