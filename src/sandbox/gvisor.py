@@ -339,19 +339,7 @@ class GVisorSandbox(SandboxInterface):
                 "env": [
                     "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                     "PYTHONUNBUFFERED=1"
-                ],
-                "capabilities": {
-                    "effective": [
-                        "CAP_NET_RAW"
-                    ],
-                    "inheritable": [
-                        "CAP_NET_RAW"
-                    ],
-                    "permitted": [
-                        "CAP_NET_RAW"
-                    ],
-                    "ambient": []
-                }
+                ]
             },
             "root": root_config,
             "mounts": mounts,
