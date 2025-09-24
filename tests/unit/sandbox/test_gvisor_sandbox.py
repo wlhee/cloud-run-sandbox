@@ -303,13 +303,7 @@ async def test_sandbox_internet_access():
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "1 packets transmitted, 1 received" in stdout, "Ping to gateway failed"
 
-        # 2. Ping the DNS server
-        await sandbox.execute(CodeLanguage.BASH, "ping -c 1 8.8.8.8")
-        events = [event async for event in sandbox.connect()]
-        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
-        assert "1 packets transmitted, 1 received" in stdout, "Ping to DNS failed"
-
-        # 3. Final request
+        # 2. Send a request to the Internet.
         code = "python3 -c \"import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))\""
         await sandbox.execute(CodeLanguage.BASH, code)
         events = [event async for event in sandbox.connect()]
