@@ -10,7 +10,7 @@ def make_sandbox_config() -> GVisorConfig:
         bundle_dir_base=os.environ.get('RUNSC_BUNDLE_DIR_BASE', '/tmp'),
         ignore_cgroups=os.environ.get('RUNSC_IGNORE_CGROUPS', 'true').lower() in ['true', '1'],
         platform=os.environ.get('RUNSC_PLATFORM', 'systrap'),
-        network='none' if os.environ.get('RUNSC_DISABLE_NETWORKING', 'false').lower() in ['true', '1'] else 'sandbox',
+        network='none' if os.environ.get('RUNSC_DISABLE_NETWORKING', 'false').lower() in ['true', '1'] else 'host',
         writable_filesystem=os.environ.get('RUNSC_READONLY_FILESYSTEM', 'false').lower() not in ['true', '1'],
         debug=os.environ.get('GVISOR_DEBUG', 'false').lower() in ['true', '1'],
         strace=os.environ.get('GVISOR_STRACE', 'false').lower() in ['true', '1'],

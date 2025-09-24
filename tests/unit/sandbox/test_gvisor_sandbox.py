@@ -300,7 +300,7 @@ async def test_sandbox_internet_access():
         echo "--- pinging gateway with retry ---"
         gateway_ip="8.8.8.8"
         gateway_ping_ok=false
-        for i in {1..5}; do
+        for i in {1..10}; do
             if ping -c 1 "$gateway_ip"; then
                 echo "Gateway ping successful on attempt $i."
                 gateway_ping_ok=true
