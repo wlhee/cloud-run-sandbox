@@ -19,6 +19,19 @@ logger.addHandler(handler)
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
 
+_used_ip_addresses = set()
+
+def _allocate_ip_address() -> str:
+    """
+    Allocates a unique IP address from the 192.168.250.0/24 subnet.
+    """
+    for i in range(10, 255, 2):
+        ip = f"192.168.200.{i}"
+        if ip not in _used_ip_addresses:
+            _used_ip_addresses.add(ip)
+            return ip
+    raise RuntimeError("No more available IP addresses for testing.")
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_sandbox_create_and_delete():
@@ -280,7 +293,7 @@ async def test_sandbox_internet_access():
     sandbox_id = "gvisor-test-internet"
     config = make_sandbox_config()
     config.network = "sandbox"
-    config.ip_address = "192.168.350.10"
+    config.ip_address = _allocate_ip_address()
     #config.debug = True
     #config.debug_log_packets = True
     #config.strace = True
@@ -512,7 +525,7 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
     
     config = make_sandbox_config()
     config.network = "sandbox"
-    config.ip_address = "192.168.450.10"
+    config.ip_address = _allocate_ip_address()
 
     # 1. Create a sandbox and change its state
     sandbox1 = create_sandbox_instance(sandbox_id, config=config)

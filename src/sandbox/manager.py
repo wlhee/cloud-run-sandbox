@@ -25,7 +25,7 @@ class SandboxManager:
     """
     def __init__(self):
         self._sandboxes: dict[str, SandboxMetadata] = {}
-        self._ip_pool = {f"192.168.250.{i}" for i in range(2, 255)}
+        self._ip_pool = {f"192.168.100.{i}" for i in range(2, 255)}
         self._ip_allocations: dict[str, str] = {}
 
     async def create_sandbox(
