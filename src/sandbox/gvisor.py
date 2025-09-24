@@ -10,7 +10,6 @@ from enum import Enum
 from typing import Optional
 from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError, SandboxState
 from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
-from .execution import Execution
 from .process import Process
 
 logger = logging.getLogger(__name__)
@@ -82,7 +81,7 @@ class GVisorSandbox(SandboxInterface):
         # Each sandbox gets a unique, named root directory.
         self._root_dir = os.path.join(config.root_dir_base, f"runsc_root_{sandbox_id}")
         self._main_process: Process = None
-        self._current_execution = None
+        self._exec_process: Process = None
         self._drain_tasks = []
         self._is_attached = False
         self._state = SandboxState.INITIALIZED
@@ -398,11 +397,10 @@ class GVisorSandbox(SandboxInterface):
             raise SandboxOperationError(f"Cannot execute code in a sandbox that is not in the RUNNING state (current state: {self._state})")
 
         logger.info(f"GVISOR: Executing code in sandbox_id: {self.sandbox_id}")
-        if self._current_execution and self._current_execution.is_running:
+        if self._exec_process and self._exec_process.is_running:
             raise SandboxOperationError("An execution is already in progress.")
 
-        # The previous execution is finished, so we can proceed.
-        self._current_execution = None
+        self._exec_process = None
 
         if language == CodeLanguage.PYTHON:
             code_filename = "main.py"
@@ -413,54 +411,41 @@ class GVisorSandbox(SandboxInterface):
         else:
             raise SandboxError(f"Unsupported language: {language}")
 
-        # Write the code to a file inside the bundle directory, which is mounted
-        # into the container.
         code_path_host = os.path.join(self._bundle_dir, code_filename)
         with open(code_path_host, "w") as f:
             f.write(code)
 
-        # Execute the code.
-        exec_cmd_list = ["exec"]
-        # Support `ping`
-        exec_cmd_list.extend(["--cap", "CAP_NET_RAW"])
-        
-        exec_cmd_list.extend(["--cwd", "/", self._container_id])
+        exec_cmd_list = ["exec", "--cap", "CAP_NET_RAW", "--cwd", "/", self._container_id]
         exec_cmd_list.extend(exec_args)
-
         exec_cmd = self._build_runsc_cmd(*exec_cmd_list)
         
         logger.info(f"GVISOR: Starting execution process for sandbox_id: {self.sandbox_id}")
-        process = await asyncio.create_subprocess_exec(
-            *exec_cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        self._current_execution = Execution(process)
-        await self._current_execution.start_streaming()
+        self._exec_process = Process(exec_cmd)
+        await self._exec_process.start()
 
     async def connect(self):
         """
         Connects a client to the sandbox's output stream.
         """
-        if not self._current_execution:
+        if not self._exec_process:
             raise SandboxError("No process is running in the sandbox.")
         
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_RUNNING.value}
         
-        async for event in self._current_execution.connect():
-            yield event
+        try:
+            async for event in self._exec_process.stream_outputs():
+                yield event
+        except SandboxStreamClosed:
+            logger.info(f"GVISOR ({self.sandbox_id}): Exec process stream closed.")
         
-        if self._current_execution:
-            await self._current_execution.wait()
-            
+        await self._exec_process.wait()
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
 
     async def write_to_stdin(self, data: str):
         """Writes data to the stdin of the running process."""
-        if not self._current_execution:
+        if not self._exec_process:
             raise SandboxOperationError("No process is running in the sandbox.")
-        await self._current_execution.write_to_stdin(data)
+        await self._exec_process.write_to_stdin(data)
 
     async def _stop(self):
         """
@@ -472,12 +457,10 @@ class GVisorSandbox(SandboxInterface):
             return
 
         logger.info(f"GVISOR ({self.sandbox_id}): Stopping...")
-        if self._current_execution:
-            execution_to_stop = self._current_execution
-            self._current_execution = None
-            await execution_to_stop.stop()
+        if self._exec_process and self._exec_process.is_running:
+            await self._exec_process.stop()
+        self._exec_process = None
 
-        # Stop the main container process
         if self._main_process and self._main_process.is_running:
             await self._main_process.stop()
         self._main_process = None
@@ -520,7 +503,7 @@ class GVisorSandbox(SandboxInterface):
             raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
 
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointing to {checkpoint_path}")
-        if self._current_execution and self._current_execution.is_running:
+        if self._exec_process and self._exec_process.is_running:
             raise SandboxOperationError("Cannot checkpoint while an execution is in progress.")
 
         cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self._container_id)
