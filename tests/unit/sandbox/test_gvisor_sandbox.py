@@ -296,8 +296,25 @@ async def test_sandbox_internet_access():
         ip r
         echo "--- resolv.conf ---"
         cat /etc/resolv.conf
-        echo "--- pinging gateway ---"
-        ping -c 1 192.168.250.11
+        
+        echo "--- pinging gateway with retry ---"
+        gateway_ip="192.168.250.11"
+        gateway_ping_ok=false
+        for i in {1..5}; do
+            if ping -c 1 "$gateway_ip"; then
+                echo "Gateway ping successful on attempt $i."
+                gateway_ping_ok=true
+                break
+            fi
+            echo "Gateway ping attempt $i failed, retrying in 1 second..."
+            sleep 1
+        done
+
+        if [ "$gateway_ping_ok" = false ]; then
+            echo "Failed to ping gateway after 5 attempts."
+            exit 1
+        fi
+
         echo "--- pinging dns ---"
         ping -c 1 8.8.8.8
         echo "--- final request ---"
