@@ -34,18 +34,18 @@ class GVisorConfig:
     network: str = "sandbox"
     # Whether to enable a writable filesystem.
     writable_filesystem: bool = True
+    # The IP address to assign to the sandbox.
+    ip_address: Optional[str] = None
     # Whether to enable gVisor's debug logging.
     debug: bool = False
     # Whether to enable strace for sandboxed processes.
     strace: bool = False
+    # Whether to enable packet logging in debug logs.
+    log_packets: bool = False
     # The base directory for gVisor's debug logs.
     # The actual log path directory will be this plus the sandbox ID.
     # runsc will create different log files in this directory.
     debug_log_dir: str = "/tmp/runsc"
-    # Whether to enable packet logging in debug logs.
-    debug_log_packets: bool = False
-    # The IP address to assign to the sandbox.
-    ip_address: Optional[str] = None
 
 class GVisorSandbox(SandboxInterface):
     """

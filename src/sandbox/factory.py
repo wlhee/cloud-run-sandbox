@@ -14,6 +14,7 @@ def make_sandbox_config() -> GVisorConfig:
         writable_filesystem=os.environ.get('RUNSC_READONLY_FILESYSTEM', 'false').lower() not in ['true', '1'],
         debug=os.environ.get('GVISOR_DEBUG', 'false').lower() in ['true', '1'],
         strace=os.environ.get('GVISOR_STRACE', 'false').lower() in ['true', '1'],
+        log_packets=os.environ.get('GVISOR_LOG_PACKETS', 'false').lower() in ['true', '1'],
         debug_log_dir=os.environ.get('GVISOR_DEBUG_LOG_DIR', '/tmp/runsc')
     )
 
