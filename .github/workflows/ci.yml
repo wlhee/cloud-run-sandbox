@@ -39,11 +39,6 @@ jobs:
         pip install -r requirements.txt
         pip install -e ./clients/python
 
-    - name: Verify Network Setup
-      run: |
-        chmod +x debug/verify_network.sh
-        sudo ./debug/verify_network.sh
-
     - name: Run Sandbox Tests
       env:
         RUNSC_IGNORE_CGROUPS: 'true'

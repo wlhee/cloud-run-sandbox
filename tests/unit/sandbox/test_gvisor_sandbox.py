@@ -281,9 +281,9 @@ async def test_sandbox_internet_access():
     config = make_sandbox_config()
     config.network = "sandbox"
     config.ip_address = "192.168.250.10"
-    config.debug = True
-    config.debug_log_packets = True
-    config.strace = True
+    #config.debug = True
+    #config.debug_log_packets = True
+    #config.strace = True
     sandbox = create_sandbox_instance(sandbox_id, config=config)
 
     try:
@@ -313,16 +313,13 @@ async def test_sandbox_internet_access():
             pass
 
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
-        stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
-        print(f"--- STDOUT ---\n{stdout}")
-        print(f"--- STDERR ---\n{stderr}")
+        
         expected_string = "Example Domain"
-        #if expected_string not in stdout:
-        if True:
+        if expected_string not in stdout:
             # Provide more context on failure
-            #stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
-            #print(f"--- STDOUT ---\n{stdout}")
-            #print(f"--- STDERR ---\n{stderr}")
+            stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
+            print(f"--- STDOUT ---\n{stdout}")
+            print(f"--- STDERR ---\n{stderr}")
             
             # Print gVisor logs
             log_dir = os.path.join(config.debug_log_dir, sandbox_id)

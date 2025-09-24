@@ -97,7 +97,7 @@ def test_build_runsc_cmd_defaults(sandbox):
     """Tests the default runsc command."""
     cmd = sandbox._build_runsc_cmd("run", "my-sandbox")
     assert "--network" in cmd
-    assert "host" in cmd
+    assert "sandbox" in cmd
     assert "sudo" not in cmd
     assert "--rootless" not in cmd
     assert "--ignore-cgroups" not in cmd

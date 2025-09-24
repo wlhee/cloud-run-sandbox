@@ -31,7 +31,7 @@ class GVisorConfig:
     # The gVisor platform to use (e.g., systrap, ptrace, kvm).
     platform: str = "systrap"
     # The network mode to use (e.g., host, none).
-    network: str = "host"
+    network: str = "sandbox"
     # Whether to enable a writable filesystem.
     writable_filesystem: bool = True
     # Whether to enable gVisor's debug logging.
@@ -137,8 +137,9 @@ class GVisorSandbox(SandboxInterface):
             if self._config.writable_filesystem:
                 cmd.append("--overlay2=root:memory")
         
-        #if "exec" in args:
-        #    cmd.append("--net-raw")
+        # Supporting `ping``
+        if "exec" in args:
+            cmd.append("--net-raw")
 
         cmd.extend(args)
         return cmd
@@ -149,7 +150,6 @@ class GVisorSandbox(SandboxInterface):
         """
         if sudo:
             cmd.insert(0, "sudo")
-        logger.info(f"GVISOR: Running command: {' '.join(cmd)})")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -159,7 +159,6 @@ class GVisorSandbox(SandboxInterface):
         if check and proc.returncode != 0:
             cmd_str = " ".join(cmd)
             raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
-        logger.info(f"GVISOR: Command finished: {' '.join(cmd)})")
         return stdout.decode(), stderr.decode()
 
     async def _setup_network(self):
@@ -169,8 +168,9 @@ class GVisorSandbox(SandboxInterface):
         """
         if not self._config.ip_address:
             return
+        
+        logger.info(f"GVISOR: Setting up network for sandbox_id: {self.sandbox_id}")
 
-        logger.info(f"GVISOR ({self.sandbox_id}): Setting up network...")
         # Use a short unique ID for network device names to stay within length limits.
         unique_id = self._sandbox_id.split('-')[-1]
         veth = f"veth-{unique_id}"
@@ -214,11 +214,9 @@ class GVisorSandbox(SandboxInterface):
 
         for cmd_str in setup_cmds:
             stdout, stderr = await self._run_sync_command(cmd_str.split(), sudo=True)
-            if stdout:
-                logger.info(f"GVISOR ({self.sandbox_id}) setup stdout: {stdout}")
             if stderr:
                 logger.warning(f"GVISOR ({self.sandbox_id}) setup stderr: {stderr}")
-        logger.info(f"GVISOR ({self.sandbox_id}): Network setup complete.")
+        logger.info(f"GVISOR: Finished setting up network for sandbox_id: {self.sandbox_id}")
 
     async def _teardown_network(self):
         """
@@ -230,21 +228,18 @@ class GVisorSandbox(SandboxInterface):
         for cmd_str in self._network_cleanup_cmds:
             try:
                 stdout, stderr = await self._run_sync_command(cmd_str.split(), sudo=True, check=False)
-                if stdout:
-                    logger.info(f"GVISOR ({self.sandbox_id}) teardown stdout: {stdout}")
                 if stderr:
                     logger.warning(f"GVISOR ({self.sandbox_id}) teardown stderr: {stderr}")
             except Exception as e:
                 logger.warning(f"GVISOR ({self.sandbox_id}): Failed to run network cleanup command '{cmd_str}': {e}")
         self._network_cleanup_cmds = []
-        logger.info(f"GVISOR ({self.sandbox_id}): Network teardown complete.")
 
     async def _health_check(self) -> bool:
         """
         Checks if the container is in the 'running' state using 'runsc state'.
         Retries a few times to give the container time to start.
         """
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 cmd = self._build_runsc_cmd("state", self._container_id)
                 stdout, _ = await self._run_sync_command(cmd)
@@ -369,8 +364,8 @@ class GVisorSandbox(SandboxInterface):
             }
         }
 
-        # Add network namespace if configured
-        if self._config.network == "sandbox":
+        # Add network namespace if IP is configured
+        if self._config.ip_address:
             config["linux"]["namespaces"].append({
                 "type": "network",
                 "path": f"/var/run/netns/{self._sandbox_id}"
@@ -437,14 +432,13 @@ class GVisorSandbox(SandboxInterface):
 
         # Execute the code.
         exec_cmd_list = ["exec"]
-        #if self._config.network == "sandbox":
-        #    exec_cmd_list.extend(["--cap", "CAP_NET_RAW"])
+        # Support `ping`
+        exec_cmd_list.extend(["--cap", "CAP_NET_RAW"])
         
         exec_cmd_list.extend(["--cwd", "/", self._container_id])
         exec_cmd_list.extend(exec_args)
 
         exec_cmd = self._build_runsc_cmd(*exec_cmd_list)
-        logger.info(f"GVISOR: Exec command: {' '.join(exec_cmd)}")
         
         logger.info(f"GVISOR: Starting execution process for sandbox_id: {self.sandbox_id}")
         process = await asyncio.create_subprocess_exec(
@@ -455,7 +449,6 @@ class GVisorSandbox(SandboxInterface):
         )
         self._current_execution = Execution(process)
         await self._current_execution.start_streaming()
-        logger.info(f"GVISOR: Execution started for sandbox_id: {self.sandbox_id}")
 
     async def connect(self):
         """
