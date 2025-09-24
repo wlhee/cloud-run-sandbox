@@ -59,7 +59,7 @@ async def test_sandbox_create_and_delete():
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_sandbox_execute_python_success():
     """
-    Tests that the execute() and connect() methods work correctly for a successful Python run.
+    Tests that the execute() and stream_outputs() methods work correctly for a successful Python run.
     """
     sandbox_id = "gvisor-test-exec"
     sandbox = create_sandbox_instance(sandbox_id)
@@ -72,7 +72,7 @@ async def test_sandbox_execute_python_success():
 
         events = []
         try:
-            async for event in sandbox.connect():
+            async for event in sandbox.stream_outputs():
                 events.append(event)
         except SandboxStreamClosed:
             pass
@@ -94,7 +94,7 @@ async def test_sandbox_execute_python_success():
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_sandbox_execute_bash_success():
     """
-    Tests that the execute() and connect() methods work correctly for bash code.
+    Tests that the execute() and stream_outputs() methods work correctly for bash code.
     """
     sandbox_id = "gvisor-test-bash"
     sandbox = create_sandbox_instance(sandbox_id)
@@ -107,7 +107,7 @@ async def test_sandbox_execute_bash_success():
 
         events = []
         try:
-            async for event in sandbox.connect():
+            async for event in sandbox.stream_outputs():
                 events.append(event)
         except SandboxStreamClosed:
             pass
@@ -142,7 +142,7 @@ async def test_sandbox_execute_python_syntax_error():
 
         events = []
         try:
-            async for event in sandbox.connect():
+            async for event in sandbox.stream_outputs():
                 events.append(event)
         except SandboxStreamClosed:
             pass
@@ -171,7 +171,7 @@ async def test_sandbox_execute_bash_error():
 
         events = []
         try:
-            async for event in sandbox.connect():
+            async for event in sandbox.stream_outputs():
                 events.append(event)
         except SandboxStreamClosed:
             pass
@@ -185,17 +185,17 @@ async def test_sandbox_execute_bash_error():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_connect_before_execute_raises_error():
+async def test_stream_outputs_before_execute_raises_error():
     """
-    Tests that calling connect() before execute() raises a SandboxError.
+    Tests that calling stream_outputs() before execute() raises a SandboxError.
     """
-    sandbox_id = "gvisor-test-connect-fail"
+    sandbox_id = "gvisor-test-stream_outputs-fail"
     sandbox = create_sandbox_instance(sandbox_id)
 
     try:
         await sandbox.create()
         with pytest.raises(SandboxError, match="No process is running"):
-            async for _ in sandbox.connect():
+            async for _ in sandbox.stream_outputs():
                 pass
     finally:
         await sandbox.delete()
@@ -217,7 +217,7 @@ async def test_stop_during_execution():
 
         events = []
         try:
-            async for event in sandbox.connect():
+            async for event in sandbox.stream_outputs():
                 events.append(event)
                 if event.get("type") == OutputType.STDOUT and "start" in event["data"]:
                     await sandbox._stop()
@@ -255,7 +255,7 @@ async def test_stream_closes_after_execution():
         
         async def consume_stream():
             try:
-                async for event in sandbox.connect():
+                async for event in sandbox.stream_outputs():
                     all_events.append(event)
             except SandboxStreamClosed:
                 pass
@@ -293,7 +293,7 @@ async def test_sandbox_internet_access_host_network():
         # 1. Send a request to the Internet.
         code = "python3 -c \"import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))\""
         await sandbox.execute(CodeLanguage.BASH, code)
-        events = [event async for event in sandbox.connect()]
+        events = [event async for event in sandbox.stream_outputs()]
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "Example Domain" in stdout, "Final request to example.com failed"
 
@@ -320,14 +320,14 @@ async def test_sandbox_internet_access_sandbox_network():
 
         # 1. Ping the gateway
         await sandbox.execute(CodeLanguage.BASH, f"ping -c 1 {gateway_ip}")
-        events = [event async for event in sandbox.connect()]
+        events = [event async for event in sandbox.stream_outputs()]
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "1 packets transmitted, 1 received" in stdout, "Ping to gateway failed"
 
         # 2. Send a request to the Internet.
         code = "python3 -c \"import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))\""
         await sandbox.execute(CodeLanguage.BASH, code)
-        events = [event async for event in sandbox.connect()]
+        events = [event async for event in sandbox.stream_outputs()]
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "Example Domain" in stdout, "Final request to example.com failed"
 
@@ -355,7 +355,7 @@ async def test_sandbox_writable_filesystem():
 
         events = []
         try:
-            async for event in sandbox.connect():
+            async for event in sandbox.stream_outputs():
                 events.append(event)
         except SandboxStreamClosed:
             pass
@@ -386,7 +386,7 @@ async def test_gvisor_sandbox_checkpoint_restore_with_network():
         # Verify internet access before checkpoint
         code = "python3 -c \"import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))\""
         await sandbox1.execute(CodeLanguage.BASH, code)
-        events = [event async for event in sandbox1.connect()]
+        events = [event async for event in sandbox1.stream_outputs()]
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "Example Domain" in stdout, "Internet access failed before checkpoint"
 
@@ -408,7 +408,7 @@ async def test_gvisor_sandbox_checkpoint_restore_with_network():
         
         # Verify internet access after restore
         await sandbox2.execute(CodeLanguage.BASH, code)
-        events = [event async for event in sandbox2.connect()]
+        events = [event async for event in sandbox2.stream_outputs()]
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "Example Domain" in stdout, "Internet access failed after restore"
     finally:
@@ -432,7 +432,7 @@ async def test_multiple_executions():
         await sandbox.execute(CodeLanguage.PYTHON, "print('first')")
         events = []
         try:
-            async for event in sandbox.connect():
+            async for event in sandbox.stream_outputs():
                 events.append(event)
         except SandboxStreamClosed:
             pass
@@ -444,7 +444,7 @@ async def test_multiple_executions():
         await sandbox.execute(CodeLanguage.BASH, "echo 'second'")
         events = []
         try:
-            async for event in sandbox.connect():
+            async for event in sandbox.stream_outputs():
                 events.append(event)
         except SandboxStreamClosed:
             pass
@@ -496,9 +496,9 @@ async def test_gvisor_sandbox_is_attached():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_sandbox_write_to_stdin():
+async def test_sandbox_write_stdin():
     """
-    Tests that the write_to_stdin method correctly writes to the process's stdin.
+    Tests that the write_stdin method correctly writes to the process's stdin.
     """
     sandbox_id = "gvisor-test-stdin"
     sandbox = create_sandbox_instance(sandbox_id)
@@ -509,22 +509,22 @@ async def test_sandbox_write_to_stdin():
         code = "line = input(); print(f'read: {line}')"
         await sandbox.execute(CodeLanguage.PYTHON, code)
 
-        # This needs to be in a separate task because connect() will block
+        # This needs to be in a separate task because stream_outputs() will block
         # until the process is done, but the process won't be done until it
         # receives stdin.
-        async def write_and_connect():
+        async def write_and_stream_outputs():
             await asyncio.sleep(0.1) # Give the process time to start
-            await sandbox.write_to_stdin("hello\n")
+            await sandbox.write_stdin("hello\n")
 
             events = []
             try:
-                async for event in sandbox.connect():
+                async for event in sandbox.stream_outputs():
                     events.append(event)
             except SandboxStreamClosed:
                 pass
             return events
 
-        events = await asyncio.wait_for(write_and_connect(), timeout=5)
+        events = await asyncio.wait_for(write_and_stream_outputs(), timeout=5)
 
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
         assert "read: hello" in stdout
@@ -551,7 +551,7 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
         await sandbox1.create()
         await sandbox1.execute(CodeLanguage.BASH, "echo 'hello' > /test.txt")
         try:
-            async for _ in sandbox1.connect(): pass
+            async for _ in sandbox1.stream_outputs(): pass
         except SandboxStreamClosed: pass
         
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -571,7 +571,7 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
         await sandbox2.execute(CodeLanguage.BASH, "cat /test.txt")
         events = []
         try:
-            async for event in sandbox2.connect():
+            async for event in sandbox2.stream_outputs():
                 events.append(event)
         except SandboxStreamClosed: pass
             

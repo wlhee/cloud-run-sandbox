@@ -423,7 +423,7 @@ class GVisorSandbox(SandboxInterface):
         self._exec_process = Process(exec_cmd)
         await self._exec_process.start()
 
-    async def connect(self):
+    async def stream_outputs(self):
         """
         Connects a client to the sandbox's output stream.
         """
@@ -442,11 +442,11 @@ class GVisorSandbox(SandboxInterface):
         await exec_process.wait()
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
 
-    async def write_to_stdin(self, data: str):
+    async def write_stdin(self, data: str):
         """Writes data to the stdin of the running process."""
         if not self._exec_process:
             raise SandboxOperationError("No process is running in the sandbox.")
-        await self._exec_process.write_to_stdin(data)
+        await self._exec_process.write_stdin(data)
 
     async def _stop(self):
         """

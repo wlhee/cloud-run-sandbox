@@ -28,7 +28,7 @@ This is the main phase where we will implement the new architecture based on the
     *   **Test**: Update `tests/unit/sandbox/test_gvisor_sandbox.py` to reflect this change in the constructor.
     *   **Commit**: Commit with message `refactor(gvisor): Differentiate between sandbox_id and container_id`.
 
-2.  **Implement the `Process` Model for `create` and `restore`**:
+2.  **Implement the `Process` Model for `create` and `restore` [DONE]**:
     *   **Change**: Modify `gvisor.py`:
         *   Add a `self._main_process: Process = None` attribute.
         *   Remove the `--detach` flag from all `runsc` commands.
@@ -38,7 +38,7 @@ This is the main phase where we will implement the new architecture based on the
     *   **Test**: Update `tests/unit/sandbox/test_gvisor_sandbox.py` to adjust the tests for `create`, `restore`, and `delete` to account for the new process management.
     *   **Commit**: Commit with message `refactor(gvisor): Adopt Process model for main sandbox lifecycle`.
 
-3.  **Replace `Execution` with `Process`**:
+3.  **Replace `Execution` with `Process` [DONE]**:
     *   **Change**: Modify `gvisor.py`:
         *   Replace `self._current_execution` with `self._exec_process: Process = None`.
         *   Update the `execute()` method to use the `Process` class instead of the `Execution` class.

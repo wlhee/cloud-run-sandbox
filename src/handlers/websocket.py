@@ -107,7 +107,7 @@ class WebsocketHandler:
         """Handles a stdin message from the client."""
         try:
             data = message['data']
-            await self.sandbox.write_to_stdin(data)
+            await self.sandbox.write_stdin(data)
         except (KeyError, ValueError) as e:
             await self.handle_error(e, close_connection=False, message=message)
         except Exception as e:
@@ -124,7 +124,7 @@ class WebsocketHandler:
 
             await self.sandbox.execute(language, code=code)
             
-            async for event in self.sandbox.connect():
+            async for event in self.sandbox.stream_outputs():
                 if event["type"] == "status_update":
                     await self.send_status(SandboxStateEvent(event["status"]))
                 else:

@@ -27,7 +27,7 @@ class SandboxExecutionError(SandboxOperationError):
     pass
 
 class SandboxStreamClosed(SandboxError):
-    """Raised by the connect() generator when the output stream is closed."""
+    """Raised by the stream_outputs() generator when the output stream is closed."""
     pass
 
 class SandboxInterface(ABC):
@@ -67,7 +67,7 @@ class SandboxInterface(ABC):
         pass
 
     @abstractmethod
-    async def connect(self):
+    async def stream_outputs(self):
         """
         Yields a stream of SandboxOutputEvent objects one at a time.
         
@@ -79,9 +79,9 @@ class SandboxInterface(ABC):
         pass
 
     @abstractmethod
-    async def write_to_stdin(self, data: str):
+    async def write_stdin(self, data: str):
         """
-        Writes data to the stdin of the running process.
+        Writes data to stdin of the running process.
         """
         pass
 

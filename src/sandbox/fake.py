@@ -82,10 +82,10 @@ class FakeSandbox(SandboxInterface):
 
     def _is_running_exec(self) -> bool:
         # In the fake sandbox, an execution is "running" if it has been started
-        # but the connect() stream has not yet been fully consumed.
+        # but the stream_outputs() stream has not yet been fully consumed.
         return self._get_current_exec() is not None
 
-    async def connect(self):
+    async def stream_outputs(self):
         """
         Yields the configured output messages for the current execution.
         """
@@ -117,12 +117,12 @@ class FakeSandbox(SandboxInterface):
         self._state = SandboxState.STOPPED
         logger.info(f"Fake sandbox {self.sandbox_id}: DELETED.")
 
-    async def write_to_stdin(self, data: str):
+    async def write_stdin(self, data: str):
         """Writes data to the stdin of the process."""
         logger.info(f"Fake sandbox {self.sandbox_id}: writing to stdin: {data}")
         current_exec_config = self._get_current_exec()
         if not current_exec_config:
-            raise AssertionError("Unexpected call to write_to_stdin().")
+            raise AssertionError("Unexpected call to write_stdin().")
 
         if not current_exec_config.expected_stdin:
             raise AssertionError(f"Received unexpected stdin: {data}")

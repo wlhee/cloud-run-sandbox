@@ -46,15 +46,15 @@ async def test_process_stop():
     assert not process.is_running
 
 @pytest.mark.asyncio
-async def test_process_write_to_stdin():
+async def test_process_write_stdin():
     """
-    Tests that write_to_stdin correctly sends data to the process.
+    Tests that write_stdin correctly sends data to the process.
     """
     cmd = ["python3", "-c", "import sys; line = sys.stdin.readline(); print(f'read: {line.strip()}')"]
     process = Process(cmd)
     await process.start()
 
-    await process.write_to_stdin("hello\n")
+    await process.write_stdin("hello\n")
 
     output_events = []
     async for event in process.stream_outputs():

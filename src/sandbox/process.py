@@ -71,7 +71,7 @@ class Process:
                 continue
             yield event
 
-    async def write_to_stdin(self, data: str) -> None:
+    async def write_stdin(self, data: str) -> None:
         """Writes data to the process's stdin."""
         if self.is_running and self._process.stdin:
             self._process.stdin.write(data.encode("utf-8"))

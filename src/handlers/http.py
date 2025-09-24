@@ -72,7 +72,7 @@ async def execute_code_streaming(language: CodeLanguage, code: str, background_t
         sandbox = await sandbox_manager.create_sandbox()
         await sandbox.execute(language, code)
         
-        async for event in sandbox.connect():
+        async for event in sandbox.stream_outputs():
             if event.get("type") in [OutputType.STDOUT, OutputType.STDERR]:
                 yield event["data"].encode('utf-8')
 

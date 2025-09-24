@@ -26,10 +26,10 @@ async def test_fake_sandbox_lifecycle_and_output():
     await sandbox.create()
     await sandbox.execute(CodeLanguage.PYTHON, "some code")
 
-    # 2. Connect and verify the output stream
+    # 2. Verify the output stream
     messages = []
     try:
-        async for msg in sandbox.connect():
+        async for msg in sandbox.stream_outputs():
             messages.append(msg)
     except SandboxStreamClosed:
         pass  # Expected at the end of the stream
@@ -75,9 +75,9 @@ async def test_fake_sandbox_delete():
     await sandbox.create()
     await sandbox.delete()
 
-async def test_fake_sandbox_write_to_stdin():
+async def test_fake_sandbox_write_stdin():
     """
-    Tests that the write_to_stdin method correctly validates the input.
+    Tests that the write_stdin method correctly validates the input.
     """
     config = FakeSandboxConfig(executions=[ExecConfig(expected_stdin=["hello\n"])])
     sandbox = FakeSandbox("fake-123", config=config)
@@ -85,10 +85,10 @@ async def test_fake_sandbox_write_to_stdin():
     await sandbox.create()
     await sandbox.execute(CodeLanguage.PYTHON, "some code")
 
-    await sandbox.write_to_stdin("hello\n")
+    await sandbox.write_stdin("hello\n")
 
     with pytest.raises(AssertionError):
-        await sandbox.write_to_stdin("world\n")
+        await sandbox.write_stdin("world\n")
 
 async def test_fake_sandbox_checkpoint_and_restore():
     """

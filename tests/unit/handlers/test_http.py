@@ -61,11 +61,11 @@ async def test_execute_code_streaming_handles_stream_closed(mock_manager):
     sandbox = FakeSandbox("fake-sandbox-stream-closed")
     sandbox.execute = AsyncMock()
     
-    async def mock_connect():
+    async def mock_stream_outputs():
         yield SandboxOutputEvent(type=OutputType.STDOUT, data="line 1\n")
         raise SandboxStreamClosed()
 
-    sandbox.connect = mock_connect
+    sandbox.stream_outputs = mock_stream_outputs
     
     mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
     mock_manager.delete_sandbox = AsyncMock()
