@@ -206,11 +206,11 @@ class GVisorSandbox(SandboxInterface):
 
         # Define cleanup commands in reverse order.
         self._network_cleanup_cmds = [
-            f"iptables -D FORWARD -o {host_if} -i {peer} -j ACCEPT",
-            f"iptables -D FORWARD -i {host_if} -o {peer} -j ACCEPT",
-            f"iptables -t nat -D POSTROUTING -s {self._config.ip_address} -o {host_if} -j MASQUERADE",
-            f"ip netns del {namespace}",
             f"ip link del {peer}",
+            f"ip netns del {namespace}",
+            f"iptables -t nat -D POSTROUTING -s {self._config.ip_address} -o {host_if} -j MASQUERADE",
+            f"iptables -D FORWARD -i {host_if} -o {peer} -j ACCEPT",
+            f"iptables -D FORWARD -o {host_if} -i {peer} -j ACCEPT",
         ]
 
         for cmd_str in setup_cmds:
