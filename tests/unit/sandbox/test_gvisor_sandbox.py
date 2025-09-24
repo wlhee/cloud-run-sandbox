@@ -8,14 +8,6 @@ from src.sandbox.factory import make_sandbox_config, create_sandbox_instance
 from src.sandbox.types import OutputType, CodeLanguage, SandboxStateEvent
 from src.sandbox.interface import SandboxCreationError,SandboxStreamClosed, SandboxError, SandboxOperationError, SandboxState
 
-# Enable debug logging for the gvisor module to help debug CI failures.
-logger = logging.getLogger("src.sandbox.gvisor")
-logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
 
@@ -302,66 +294,27 @@ async def test_sandbox_internet_access():
     try:
         await sandbox.create()
         
-        code = """
-        echo "--- ip a ---"
-        ip a
-        echo "--- ip r ---"
-        ip r
-        echo "--- resolv.conf ---"
-        cat /etc/resolv.conf
-        
-        echo "--- pinging gateway with retry ---"
-        gateway_ip="8.8.8.8"
-        gateway_ping_ok=false
-        for i in {1..10}; do
-            if ping -c 1 "$gateway_ip"; then
-                echo "Gateway ping successful on attempt $i."
-                gateway_ping_ok=true
-                break
-            fi
-            echo "Gateway ping attempt $i failed, retrying in 1 second..."
-            sleep 1
-        done
+        ip_parts = config.ip_address.split('.')
+        gateway_ip = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.{int(ip_parts[3]) + 1}"
 
-        if [ "$gateway_ping_ok" = false ]; then
-            echo "Failed to ping gateway after 5 attempts."
-        fi
-
-        echo "--- pinging dns ---"
-        ping -c 1 8.8.8.8
-        echo "--- final request ---"
-        python3 -c "import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))"
-        """
-        await sandbox.execute(CodeLanguage.BASH, code)
-
-        events = []
-        try:
-            async for event in sandbox.connect():
-                events.append(event)
-        except SandboxStreamClosed:
-            pass
-
+        # 1. Ping the gateway
+        await sandbox.execute(CodeLanguage.BASH, f"ping -c 1 {gateway_ip}")
+        events = [event async for event in sandbox.connect()]
         stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
-        
-        expected_string = "Example Domain"
-        if expected_string not in stdout:
-            # Provide more context on failure
-            stderr = "".join([e["data"] for e in events if e.get("type") == OutputType.STDERR])
-            print(f"--- STDOUT ---\n{stdout}")
-            print(f"--- STDERR ---\n{stderr}")
-            
-            # Print gVisor logs
-            log_dir = os.path.join(config.debug_log_dir, sandbox_id)
-            if os.path.exists(log_dir):
-                print(f"--- gVisor logs in {log_dir} ---")
-                for filename in os.listdir(log_dir):
-                    print(f"--- {filename} ---")
-                    with open(os.path.join(log_dir, filename), "r") as f:
-                        print(f.read())
-            
-            pytest.fail(f"Expected to find '{expected_string}' in stdout, but it was not found.")
-        
-        assert expected_string in stdout
+        assert "1 packets transmitted, 1 received" in stdout, "Ping to gateway failed"
+
+        # 2. Ping the DNS server
+        await sandbox.execute(CodeLanguage.BASH, "ping -c 1 8.8.8.8")
+        events = [event async for event in sandbox.connect()]
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "1 packets transmitted, 1 received" in stdout, "Ping to DNS failed"
+
+        # 3. Final request
+        code = "python3 -c \"import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))\""
+        await sandbox.execute(CodeLanguage.BASH, code)
+        events = [event async for event in sandbox.connect()]
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "Example Domain" in stdout, "Final request to example.com failed"
 
     finally:
         await sandbox.delete()
