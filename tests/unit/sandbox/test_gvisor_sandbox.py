@@ -278,7 +278,31 @@ async def test_stream_closes_after_execution():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_sandbox_internet_access():
+async def test_sandbox_internet_access_host_network():
+    """
+    Tests that the sandbox can access the internet.
+    """
+    sandbox_id = "gvisor-test-internet"
+    config = make_sandbox_config()
+    config.network = "host"
+    sandbox = create_sandbox_instance(sandbox_id, config=config)
+
+    try:
+        await sandbox.create()
+
+        # 1. Send a request to the Internet.
+        code = "python3 -c \"import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))\""
+        await sandbox.execute(CodeLanguage.BASH, code)
+        events = [event async for event in sandbox.connect()]
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "Example Domain" in stdout, "Final request to example.com failed"
+
+    finally:
+        await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_sandbox_internet_access_sandbox_network():
     """
     Tests that the sandbox can access the internet.
     """
@@ -286,9 +310,6 @@ async def test_sandbox_internet_access():
     config = make_sandbox_config()
     config.network = "sandbox"
     config.ip_address = _allocate_ip_address()
-    #config.debug = True
-    #config.debug_log_packets = True
-    #config.strace = True
     sandbox = create_sandbox_instance(sandbox_id, config=config)
 
     try:
@@ -344,6 +365,56 @@ async def test_sandbox_writable_filesystem():
 
     finally:
         await sandbox.delete()
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_checkpoint_restore_with_network():
+    """
+    Tests that networking is functional after a checkpoint and restore.
+    """
+    sandbox_id = "gvisor-test-checkpoint-net"
+    checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
+    
+    # 1. Create a sandbox and verify internet access.
+    config1 = make_sandbox_config()
+    config1.network = "sandbox"
+    config1.ip_address = _allocate_ip_address()
+    sandbox1 = create_sandbox_instance(sandbox_id, config=config1)
+    try:
+        await sandbox1.create()
+        
+        # Verify internet access before checkpoint
+        code = "python3 -c \"import urllib.request; print(urllib.request.urlopen('https://example.com').read().decode('utf-8'))\""
+        await sandbox1.execute(CodeLanguage.BASH, code)
+        events = [event async for event in sandbox1.connect()]
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "Example Domain" in stdout, "Internet access failed before checkpoint"
+
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        await sandbox1.checkpoint(checkpoint_dir)
+    finally:
+        await sandbox1.delete()
+
+    # 2. Restore the sandbox with a new IP and verify again.
+    sandbox_id_restored = f"{sandbox_id}-restored"
+    config2 = make_sandbox_config()
+    config2.network = "sandbox"
+    config2.ip_address = _allocate_ip_address() # Allocate a new IP
+    sandbox2 = create_sandbox_instance(sandbox_id_restored, config=config2)
+    sandbox2._bundle_dir = sandbox1._bundle_dir 
+
+    try:
+        await sandbox2.restore(checkpoint_dir)
+        
+        # Verify internet access after restore
+        await sandbox2.execute(CodeLanguage.BASH, code)
+        events = [event async for event in sandbox2.connect()]
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "Example Domain" in stdout, "Internet access failed after restore"
+    finally:
+        await sandbox2.delete()
+        if os.path.exists(checkpoint_dir):
+            shutil.rmtree(checkpoint_dir)
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
