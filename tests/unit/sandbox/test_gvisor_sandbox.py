@@ -298,7 +298,7 @@ async def test_sandbox_internet_access():
         cat /etc/resolv.conf
         
         echo "--- pinging gateway with retry ---"
-        gateway_ip="192.168.250.11"
+        gateway_ip="8.8.8.8"
         gateway_ping_ok=false
         for i in {1..5}; do
             if ping -c 1 "$gateway_ip"; then
