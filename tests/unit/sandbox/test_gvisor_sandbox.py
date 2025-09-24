@@ -280,7 +280,7 @@ async def test_sandbox_internet_access():
     sandbox_id = "gvisor-test-internet"
     config = make_sandbox_config()
     config.network = "sandbox"
-    config.ip_address = "192.168.250.10"
+    config.ip_address = "192.168.350.10"
     #config.debug = True
     #config.debug_log_packets = True
     #config.strace = True
@@ -511,6 +511,8 @@ async def test_gvisor_sandbox_checkpoint_and_restore():
     checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
     
     config = make_sandbox_config()
+    config.network = "sandbox"
+    config.ip_address = "192.168.450.10"
 
     # 1. Create a sandbox and change its state
     sandbox1 = create_sandbox_instance(sandbox_id, config=config)
