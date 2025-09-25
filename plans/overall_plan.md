@@ -8,7 +8,7 @@ The core idea is to treat GCS as the source of truth for a sandbox's state. A ru
 
 ---
 
-#### **Phase 1: Core Sandbox Checkpoint/Restore API**
+#### **Phase 1: Core Sandbox Checkpoint/Restore API [DONE]**
 
 This phase focuses on establishing the `checkpoint` and `restore` contract and implementing it at the lowest level of the sandbox abstraction.
 
@@ -43,54 +43,30 @@ This phase focuses on establishing the `checkpoint` and `restore` contract and i
 
 ---
 
-#### **Phase 2: Manager-Level Orchestration**
+#### **Phase 2: Manager Orchestration with GCS Volume Mount**
 
-The `SandboxManager` will be the central orchestrator for all persistence operations, interacting with both the sandbox instances and GCS.
+1.  **Explicitly Configure the `SandboxManager`**:
+    *   Modify the `SandboxManager` in `src/sandbox/manager.py` to accept an optional `checkpoint_and_restore_path: str` during initialization.
+    *   If this path is not provided, checkpointing and restore functionality will be disabled.
 
-1.  **GCS Directory Structure (`src/sandbox/manager.py`)**
-    *   The manager will be configured with a GCS root path, e.g., `/gcs/sandboxes/`.
-    *   When a new sandbox is created via `create_sandbox()`, the manager will:
-        1.  Generate a **globally unique ID** using `uuid.uuid4()`.
-        2.  Create a dedicated directory: `/gcs/sandboxes/<sandbox_id>/`.
-        3.  Inside this directory, create a `metadata.json` file containing initial info like `{"status": "created", "createdAt": "<timestamp>"}`.
+2.  **Update Sandbox Creation Logic**:
+    *   **`websocket.py`**: The `_setup_create` method will be updated to look for a new boolean field, `enable_checkpoint`, in the initial "create" message from the client.
+    *   **`manager.py`**: The `create_sandbox` method will be modified to accept the `enable_checkpoint` flag.
+        *   It will check if the manager is configured with a `checkpoint_and_restore_path` and if the client sent `enable_checkpoint: true`.
+        *   **Requirement**: If `enable_checkpoint` is `true`, the manager will **enforce** that the sandbox configuration uses `network="sandbox"` and will allocate a unique IP address for it.
+        *   If both conditions are met, the manager will create the sandbox directory (`<checkpoint_and_restore_path>/<sandbox_id>/`) and the initial `metadata.json` directly on the mounted GCS volume.
 
-2.  **Implement `checkpoint_sandbox()` (`src/sandbox/manager.py`)**
-    *   A new public method, `checkpoint_sandbox(sandbox_id: str)`, will be added.
-    *   It will retrieve the sandbox instance, determine the GCS path for the checkpoint (e.g., `/gcs/sandboxes/<sandbox_id>/checkpoint`), and call the sandbox's `checkpoint()` method.
-    *   Upon success, it will update the `metadata.json` to `{"status": "checkpointed", "lastCheckpointedAt": "<timestamp>"}`.
+3.  **Implement `checkpoint_sandbox` Method**:
+    *   **`manager.py`**: The new `checkpoint_sandbox(sandbox_id)` method will:
+        1.  Construct the full checkpoint path directly on the mounted volume: `{self.checkpoint_and_restore_path}/{sandbox_id}/checkpoint`.
+        2.  Call the sandbox instance's `checkpoint()` method, passing this direct path.
+        3.  Update the `metadata.json` on the mounted volume.
+    *   **`websocket.py`**: The handler will be updated to recognize the `{"action": "checkpoint"}` message and call the manager's new method.
 
-3.  **Implicit Restore on "Attach" (`src/sandbox/manager.py`)**
-    *   The `get_sandbox(sandbox_id: str)` method will be updated to handle the handoff scenario:
-        1.  It will first check its in-memory cache (`self._sandboxes`).
-        2.  **If not found (cache miss)**, it will check for the existence of `/gcs/sandboxes/<sandbox_id>/`.
-        3.  If the GCS directory and a checkpoint exist, it will:
-            a. Create a new `GVisorSandbox` instance using the factory.
-            b. Call the new instance's `restore()` method with the path to the checkpoint.
-            c. Add the now-hydrated sandbox to the in-memory cache.
-            d. Return the restored sandbox.
-        4.  If no GCS state is found, it will correctly return `None` to signal a `SANDBOX_NOT_FOUND` condition.
-
----
-
-#### **Phase 3: Exposing via WebSocket API**
-
-Finally, we will expose this new capability to the client through the WebSocket connection.
-
-1.  **Handle "checkpoint" Action (`src/handlers/websocket.py`)**
-    *   The WebSocket message handling loop will be updated to recognize a new client message:
-        ```json
-        {
-          "action": "checkpoint"
-        }
-        ```
-    *   Upon receiving this, the handler will call `await self.manager.checkpoint_sandbox(self.sandbox.id)`.
-    *   It will then send a confirmation status update to the client.
-
-2.  **Add New `SandboxEvent` Type (`src/sandbox/types.py`)**
-    *   To inform the client about the successful checkpoint, a new event status will be added to the `SandboxEvent` enum:
-        ```python
-        SANDBOX_CHECKPOINTED = "SANDBOX_CHECKPOINTED"
-        ```
+4.  **Implement Implicit Restore on "Attach"**:
+    *   **`manager.py`**: The `get_sandbox(sandbox_id)` method will be updated:
+        1.  On a cache miss, it will check for the existence of the directory `{self.checkpoint_and_restore_path}/{sandbox_id}/`.
+        2.  If it exists, it will create a new sandbox instance and call its `restore()` method, passing the direct path to the checkpoint on the mounted volume.
 
 ---
 

@@ -1,4 +1,4 @@
-# GVisorSandbox Refactoring Plan
+# GVisorSandbox Refactoring Plan [DONE]
 
 This document outlines a step-by-step plan to refactor the `GVisorSandbox` implementation for clarity, robustness, and correctness. The core goals are to address confusion between different types of IDs, implement a strict state machine, and standardize process management.
 
@@ -48,7 +48,7 @@ This is the main phase where we will implement the new architecture based on the
     *   **Test**: Delete the now-obsolete test file `tests/unit/sandbox/test_execution.py`.
     *   **Commit**: Commit with message `refactor(gvisor): Replace Execution with Process abstraction`.
 
-4.  **Enforce State Machine**:
+4.  **Enforce State Machine [DONE]**:
     *   **Change**: In `gvisor.py`, add explicit state checks at the beginning of public methods (`execute`, `checkpoint`, `restore`, `delete`) to enforce a valid lifecycle.
     *   **Test**: Add new tests to `tests/unit/sandbox/test_gvisor_sandbox.py` that specifically verify these state transitions (e.g., asserting that `checkpoint()` raises an error if the sandbox is not in the `RUNNING` state).
     *   **Commit**: Commit with message `feat(gvisor): Enforce strict state machine`.
