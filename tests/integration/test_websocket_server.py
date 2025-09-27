@@ -226,8 +226,9 @@ async def test_websocket_restore_failure(monkeypatch):
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
 
         # 2. Corrupt the checkpoint file
-        checkpoint_path = os.path.join(temp_dir, sandbox_id, "checkpoint")
-        with open(checkpoint_path, "w") as f:
+        checkpoint_file = os.path.join(temp_dir, sandbox_id, "checkpoint", "checkpoint.img")
+        os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
+        with open(checkpoint_file, "w") as f:
             f.write("invalid data")
 
         # 3. Attempt to attach to the sandbox
@@ -262,10 +263,11 @@ async def test_websocket_checkpoint_during_execution(monkeypatch):
             websocket.send_json({"action": "checkpoint"})
 
             # 4. Assert that the server sends an error message
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINT_ERROR"}
             error_message = websocket.receive_json()
             assert error_message["event"] == "error"
-            assert "An execution is already in progress" in error_message["message"]
+            assert "Cannot checkpoint while an execution is in progress" in error_message["message"]
             
             # 5. Wait for the first command to finish and receive its output
             assert websocket.receive_json() == {"event": "stdout", "data": "done\n"}

@@ -126,7 +126,7 @@ class SandboxManager:
             self._ip_allocations[sandbox_id] = ip_address
             config.ip_address = ip_address
 
-        sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config)
+        sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config, checkpoint_path=self.checkpoint_and_restore_path)
         
         await sandbox_instance.create()
 
