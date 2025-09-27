@@ -7,6 +7,8 @@ import time
 from typing import Callable, Optional
 import os
 from pathlib import Path
+import json
+from .interface import SandboxCreationError, SandboxOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +25,69 @@ class SandboxManager:
     """
     Manages the lifecycle of stateful sandbox instances.
     """
-    def __init__(self):
+    def __init__(self, checkpoint_and_restore_path: str = None):
         self._sandboxes: dict[str, SandboxMetadata] = {}
         self._ip_pool = {f"192.168.100.{i}" for i in range(2, 255)}
         self._ip_allocations: dict[str, str] = {}
+        self.checkpoint_and_restore_path = checkpoint_and_restore_path
+
+    @property
+    def is_checkpointing_enabled(self) -> bool:
+        return self.checkpoint_and_restore_path is not None
+
+    def _read_persistent_metadata(self, sandbox_id: str) -> Optional[dict]:
+        """Reads and parses the metadata JSON file for a sandbox."""
+        if not self.is_checkpointing_enabled:
+            return None
+
+        metadata_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "metadata.json")
+        if not os.path.exists(metadata_path):
+            return None
+
+        with open(metadata_path, "r") as f:
+            return json.load(f)
+
+    def _read_persistent_metadata(self, sandbox_id: str) -> Optional[dict]:
+        """Reads and parses the metadata JSON file for a sandbox."""
+        if not self.is_checkpointing_enabled:
+            return None
+
+        metadata_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "metadata.json")
+        if not os.path.exists(metadata_path):
+            return None
+
+        with open(metadata_path, "r") as f:
+            return json.load(f)
+
+    def _write_persistent_metadata(self, sandbox_id: str, status: str, idle_timeout: int = None):
+        """Writes metadata to a JSON file in the sandbox's persistence directory."""
+        if not self.is_checkpointing_enabled:
+            return
+
+        metadata_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "metadata.json")
+        
+        # When updating, preserve the original idle_timeout if not provided.
+        if status != "created" and os.path.exists(metadata_path):
+            with open(metadata_path, "r") as f:
+                existing_metadata = json.load(f)
+            if idle_timeout is None:
+                idle_timeout = existing_metadata.get("idle_timeout")
+
+        metadata = {
+            "status": status,
+            "timestamp": time.time(),
+            "idle_timeout": idle_timeout,
+        }
+        
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f)
 
     async def create_sandbox(
         self,
         sandbox_id: str = None,
         idle_timeout: int = None,
-        delete_callback: Optional[Callable[[str], None]] = None
+        delete_callback: Optional[Callable[[str], None]] = None,
+        enable_checkpoint: bool = False,
     ):
         """
         Creates and initializes a new sandbox instance using the factory.
@@ -44,12 +99,29 @@ class SandboxManager:
             sandbox_id = "sandbox-" + str(uuid.uuid4())[:4]
         
         config = factory.make_sandbox_config()
-        
-        # Allocate an IP address if networking is enabled.
         ip_address = None
+
+        if enable_checkpoint:
+            if not self.is_checkpointing_enabled:
+                raise SandboxCreationError("Checkpointing is not enabled on the server.")
+            
+            # Enforce network="sandbox" for checkpointing.  
+            config.network = "sandbox"
+            
+            # Create persistence directory.
+            try:
+                sandbox_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id)
+                os.makedirs(sandbox_dir, exist_ok=False)
+                self._write_persistent_metadata(sandbox_id, "created", idle_timeout=idle_timeout)
+            except FileExistsError:
+                raise SandboxCreationError(f"Sandbox directory already exists: {sandbox_dir}")
+            except Exception as e:
+                raise SandboxCreationError(f"Failed to create sandbox directory: {e}")
+
+        # Allocate an IP address if networking is enabled.
         if config.network == "sandbox":
             if not self._ip_pool:
-                raise Exception("No available IP addresses in the pool.")
+                raise SandboxCreationError("No available IP addresses in the pool.")
             ip_address = self._ip_pool.pop()
             self._ip_allocations[sandbox_id] = ip_address
             config.ip_address = ip_address
@@ -73,14 +145,67 @@ class SandboxManager:
         return sandbox_instance
 
     def get_sandbox(self, sandbox_id):
-        """Retrieves a sandbox by its ID and updates its activity."""
+        """Retrieves a sandbox by its ID from the in-memory cache."""
         metadata = self._sandboxes.get(sandbox_id)
         if metadata:
-            self.update_sandbox_activity(sandbox_id)
+            self.reset_idle_timer(sandbox_id)
             return metadata.instance
         return None
 
-    def update_sandbox_activity(self, sandbox_id: str):
+    async def restore_sandbox(self, sandbox_id: str, delete_callback: Optional[Callable[[str], None]] = None):
+        """
+        Restores a sandbox from its checkpoint on the persistence volume.
+        """
+        if self.get_sandbox(sandbox_id):
+            raise SandboxOperationError(f"Sandbox {sandbox_id} is already in memory.")
+
+        if not self.is_checkpointing_enabled:
+            return None
+
+        sandbox_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id)
+        checkpoint_path = os.path.join(sandbox_dir, "checkpoint")
+        metadata_path = os.path.join(sandbox_dir, "metadata.json")
+
+        if not os.path.exists(checkpoint_path):
+            return None
+
+        logger.info(f"Restoring sandbox {sandbox_id} from {checkpoint_path}")
+        
+        config = factory.make_sandbox_config()
+        config.network = "sandbox"
+        
+        if not self._ip_pool:
+            raise SandboxCreationError("No available IP addresses in the pool.")
+        ip_address = self._ip_pool.pop()
+        self._ip_allocations[sandbox_id] = ip_address
+        config.ip_address = ip_address
+
+        sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config)
+        try:
+            await sandbox_instance.restore(checkpoint_path)
+        except SandboxOperationError as e:
+            logger.error(f"Failed to restore sandbox {sandbox_id}: {e}")
+            return None
+
+        idle_timeout = None
+        if os.path.exists(metadata_path):
+            with open(metadata_path, "r") as f:
+                metadata = json.load(f)
+                idle_timeout = metadata.get("idle_timeout")
+
+        metadata = SandboxMetadata(
+            instance=sandbox_instance,
+            idle_timeout=idle_timeout,
+            ip_address=ip_address,
+            delete_callback=delete_callback,
+        )
+        if idle_timeout:
+            metadata.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, idle_timeout))
+
+        self._sandboxes[sandbox_id] = metadata
+        return sandbox_instance
+
+    def reset_idle_timer(self, sandbox_id: str):
         """
         Updates the last activity time for a sandbox, resetting its idle timer.
         Returns the cancelled cleanup task.
@@ -95,6 +220,26 @@ class SandboxManager:
                 cancelled_task = metadata.cleanup_task
             metadata.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, metadata.idle_timeout))
         return cancelled_task
+
+    async def checkpoint_sandbox(self, sandbox_id: str):
+        """
+        Checkpoints a sandbox and then removes it from the local manager.
+        """
+        if not self.is_checkpointing_enabled:
+            raise SandboxOperationError("Checkpointing is not enabled on the server.")
+
+        sandbox = self.get_sandbox(sandbox_id)
+        if not sandbox:
+            raise SandboxOperationError(f"Sandbox not found: {sandbox_id}")
+
+        checkpoint_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "checkpoint")
+        await sandbox.checkpoint(checkpoint_path)
+        
+        self._write_persistent_metadata(sandbox_id, "checkpointed", idle_timeout=self._sandboxes[sandbox_id].idle_timeout)
+        logger.info(f"Sandbox {sandbox_id} checkpointed to {checkpoint_path}")
+
+        # After checkpointing, the local instance is no longer valid.
+        await self.delete_sandbox(sandbox_id)
 
     async def _idle_cleanup(self, sandbox_id: str, timeout: int):
         """A background task that waits for a timeout and then deletes the sandbox."""

@@ -10,6 +10,7 @@ The following environment variables can be used to configure the gVisor sandbox:
 | Variable | Description | Default |
 |---|---|---|
 | `LOG_LEVEL` | The log level for the application. Can be `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. | `INFO` |
+| `CHECKPOINT_AND_RESTORE_PATH` | The path to a directory where sandboxes can be checkpointed and restored from (e.g., a mounted GCS volume). If not set, this functionality is disabled. | (not set) |
 | `RUNSC_USE_SUDO` | Set to `true` to run `runsc` commands with `sudo`. | `false` |
 | `RUNSC_ROOTLESS` | Set to `true` to run `runsc` in rootless mode. | `false` |
 | `RUNSC_ROOT_DIR_BASE` | The base directory for sandbox root directories. | `/tmp` |

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException
 from src.sandbox.manager import manager as sandbox_manager
-from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxStreamClosed, SandboxOperationError
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError
 from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 import logging
@@ -45,10 +45,18 @@ class WebsocketHandler:
             # 1. Wait for the initial configuration message
             init_message = await self.websocket.receive_json()
             idle_timeout = init_message.get("idle_timeout", 300)
+            enable_checkpoint = init_message.get("enable_checkpoint", False)
+
+            await self.send_status(SandboxStateEvent.SANDBOX_CREATING)
+
+            if enable_checkpoint and not sandbox_manager.is_checkpointing_enabled:
+                raise SandboxCreationError("Checkpointing is not enabled on the server.")
 
             # 2. Create the sandbox
-            await self.send_status(SandboxStateEvent.SANDBOX_CREATING)
-            self.sandbox = await sandbox_manager.create_sandbox(idle_timeout=idle_timeout)
+            self.sandbox = await sandbox_manager.create_sandbox(
+                idle_timeout=idle_timeout,
+                enable_checkpoint=enable_checkpoint
+            )
             self.sandbox.is_attached = True
             await self.websocket.send_json({"event": "sandbox_id", "sandbox_id": self.sandbox.sandbox_id})
             
@@ -62,20 +70,30 @@ class WebsocketHandler:
 
     async def _setup_attach(self, sandbox_id: str):
         """Sets up the handler for an existing sandbox."""
-        self.sandbox = sandbox_manager.get_sandbox(sandbox_id)
-        if not self.sandbox:
-            await self.send_status(SandboxStateEvent.SANDBOX_NOT_FOUND)
-            await self.websocket.close(code=1011)
-            return False  # Indicates failure
-        
-        if self.sandbox.is_attached:
-            await self.send_status(SandboxStateEvent.SANDBOX_IN_USE)
-            await self.websocket.close(code=1011)
-            return False
+        try:
+            sandbox = sandbox_manager.get_sandbox(sandbox_id)
+            if not sandbox and sandbox_manager.is_checkpointing_enabled:
+                await self.send_status(SandboxStateEvent.SANDBOX_RESTORING)
+                sandbox = await sandbox_manager.restore_sandbox(sandbox_id)
 
-        self.sandbox.is_attached = True
-        await self.send_status(SandboxStateEvent.SANDBOX_RUNNING)
-        return True  # Indicates success
+            if not sandbox:
+                await self.send_status(SandboxStateEvent.SANDBOX_NOT_FOUND)
+                await self.websocket.close(code=1011)
+                return False  # Indicates failure
+            
+            if sandbox.is_attached:
+                await self.send_status(SandboxStateEvent.SANDBOX_IN_USE)
+                await self.websocket.close(code=1011)
+                return False
+
+            self.sandbox = sandbox
+            self.sandbox.is_attached = True
+            await self.send_status(SandboxStateEvent.SANDBOX_RUNNING)
+            return True  # Indicates success
+        except Exception as e:
+            e = SandboxRestoreError(f"Failed to restore sandbox {sandbox_id}: {e}")
+            await self.handle_error(e, close_connection=True)
+            return False
 
     async def handle_create(self):
         """Public entrypoint to handle a 'create' websocket connection."""
@@ -94,14 +112,29 @@ class WebsocketHandler:
         try:
             while True:
                 message = await self.websocket.receive_json()
-                if message.get("event") == "stdin":
-                    await self.handle_stdin(message)
+                task = None
+                if message.get("action") == "checkpoint":
+                    task = asyncio.create_task(self.handle_checkpoint())
+                elif message.get("event") == "stdin":
+                    task = asyncio.create_task(self.handle_stdin(message))
                 else:
                     task = asyncio.create_task(self.run_and_stream(message))
+                
+                if task:
                     self.active_tasks.add(task)
                     task.add_done_callback(self.active_tasks.discard)
         except (WebSocketDisconnect, WebSocketException):
             logger.info(f"Client disconnected from sandbox {self.sandbox.sandbox_id if self.sandbox else 'unknown'}")
+
+    async def handle_checkpoint(self):
+        """Handles a checkpoint request from the client."""
+        try:
+            await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTING)
+            await sandbox_manager.checkpoint_sandbox(self.sandbox.sandbox_id)
+            await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
+            await self.websocket.close(code=1000)
+        except SandboxOperationError as e:
+            await self.handle_error(e, close_connection=True, error_status=SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR)
 
     async def handle_stdin(self, message: dict):
         """Handles a stdin message from the client."""
@@ -145,24 +178,29 @@ class WebsocketHandler:
     async def send_status(self, status: SandboxStateEvent):
         await self.websocket.send_json({"event": "status_update", "status": status.value})
 
-    async def handle_error(self, e: Exception, close_connection: bool, message: dict = None):
-        if isinstance(e, SandboxOperationError):
-            error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
-        elif isinstance(e, (KeyError, ValueError)):
-            if message.get("event") == "stdin":
-                e = SandboxExecutionError("Invalid stdin message format. 'data' field is required.")
-                error_status = SandboxStateEvent.SANDBOX_STDIN_ERROR
-            else:
-                supported_languages = ", ".join([lang.value for lang in CodeLanguage])
-                e = SandboxExecutionError(
-                    "Invalid message format. 'language' and 'code' fields are required. "
-                    f"Supported languages are: {supported_languages}"
-                )
+    async def handle_error(self, e: Exception, close_connection: bool, message: dict = None, error_status: SandboxStateEvent = None):
+        if error_status is None:
+            if isinstance(e, SandboxRestoreError):
+                error_status = SandboxStateEvent.SANDBOX_RESTORE_ERROR
+            elif isinstance(e, SandboxCheckpointError):
+                error_status = SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR
+            elif isinstance(e, SandboxOperationError):
                 error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
-        elif isinstance(e, SandboxCreationError):
-            error_status = SandboxStateEvent.SANDBOX_CREATION_ERROR
-        else:
-            error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
+            elif isinstance(e, (KeyError, ValueError)):
+                if message and message.get("event") == "stdin":
+                    e = SandboxExecutionError("Invalid stdin message format. 'data' field is required.")
+                    error_status = SandboxStateEvent.SANDBOX_STDIN_ERROR
+                else:
+                    supported_languages = ", ".join([lang.value for lang in CodeLanguage])
+                    e = SandboxExecutionError(
+                        "Invalid message format. 'language' and 'code' fields are required. "
+                        f"Supported languages are: {supported_languages}"
+                    )
+                    error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
+            elif isinstance(e, SandboxCreationError):
+                error_status = SandboxStateEvent.SANDBOX_CREATION_ERROR
+            else:
+                error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
 
         await self.send_status(error_status)
         await self.websocket.send_json({"event": "error", "message": str(e)})

@@ -39,3 +39,13 @@ class SandboxStateEvent(Enum):
     SANDBOX_IN_USE = "SANDBOX_IN_USE"
     # An error occurred while writing to stdin.
     SANDBOX_STDIN_ERROR = "SANDBOX_STDIN_ERROR"
+    # The sandbox is being checkpointed.
+    SANDBOX_CHECKPOINTING = "SANDBOX_CHECKPOINTING"
+    # The sandbox has been successfully checkpointed.
+    SANDBOX_CHECKPOINTED = "SANDBOX_CHECKPOINTED"
+    # An error occurred during the checkpointing of the sandbox.
+    SANDBOX_CHECKPOINT_ERROR = "SANDBOX_CHECKPOINT_ERROR"
+    # The sandbox is being restored from a checkpoint.
+    SANDBOX_RESTORING = "SANDBOX_RESTORING"
+    # An error occurred during the restoration of the sandbox.
+    SANDBOX_RESTORE_ERROR = "SANDBOX_RESTORE_ERROR"

@@ -4,6 +4,8 @@ from src.server import app
 import shutil
 import asyncio
 from starlette.websockets import WebSocketDisconnect
+import os
+import tempfile
 
 client = TestClient(app)
 runsc_path = shutil.which("runsc")
@@ -166,4 +168,100 @@ async def test_gvisor_sandbox_stdin():
 
         # 4. Verify the output
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello, World\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_websocket_checkpoint_and_restore_success():
+    """
+    Tests the full checkpoint and restore lifecycle via WebSocket.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # 1. Create a sandbox with checkpointing enabled
+        with client.websocket_connect("/create") as websocket:
+            websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
+            assert websocket.receive_json()["event"] == "status_update"
+            sandbox_id = websocket.receive_json()["sandbox_id"]
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+            # 2. Execute a command to create a file
+            websocket.send_json({"language": "bash", "code": "echo 'hello' > /test.txt"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+            # 3. Checkpoint the sandbox
+            websocket.send_json({"action": "checkpoint"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+
+    # 4. Attach to the sandbox, which should trigger a restore
+    with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        # 5. Verify the file exists
+        websocket.send_json({"language": "bash", "code": "cat /test.txt"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+        assert websocket.receive_json() == {"event": "stdout", "data": "hello\n"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_websocket_restore_failure():
+    """
+    Tests that a failure during restore is handled gracefully.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # 1. Create and checkpoint a sandbox
+        with client.websocket_connect("/create") as websocket:
+            websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
+            assert websocket.receive_json()["event"] == "status_update"
+            sandbox_id = websocket.receive_json()["sandbox_id"]
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+            websocket.send_json({"action": "checkpoint"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+
+        # 2. Corrupt the checkpoint file
+        checkpoint_path = os.path.join(temp_dir, sandbox_id, "checkpoint")
+        with open(checkpoint_path, "w") as f:
+            f.write("invalid data")
+
+        # 3. Attempt to attach to the sandbox
+        with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORE_ERROR"}
+            assert websocket.receive_json()["event"] == "error"
+            with pytest.raises(WebSocketDisconnect) as e:
+                websocket.receive_json()
+            assert e.value.code == 4000
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_websocket_checkpoint_during_execution():
+    """
+    Tests that checkpointing during an execution fails gracefully.
+    """
+    with client.websocket_connect("/create") as websocket:
+        # 1. Send initial config and receive confirmation
+        websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
+        assert websocket.receive_json()["event"] == "status_update"
+        sandbox_id = websocket.receive_json()["sandbox_id"]
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        # 2. Start a long-running command
+        websocket.send_json({"language": "bash", "code": "sleep 0.2; echo 'done'"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+
+        # 3. Try to checkpoint while the first is running
+        websocket.send_json({"action": "checkpoint"})
+
+        # 4. Assert that the server sends an error message
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINT_ERROR"}
+        error_message = websocket.receive_json()
+        assert error_message["event"] == "error"
+        assert "An execution is already in progress" in error_message["message"]
+        
+        # 5. Wait for the first command to finish and receive its output
+        assert websocket.receive_json() == {"event": "stdout", "data": "done\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}

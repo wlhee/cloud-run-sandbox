@@ -22,6 +22,14 @@ class SandboxOperationError(SandboxError):
     """Raised when an operation on a sandbox fails."""
     pass
 
+class SandboxCheckpointError(SandboxOperationError):
+    """Raised when a sandbox checkpoint operation fails."""
+    pass
+
+class SandboxRestoreError(SandboxOperationError):
+    """Raised when a sandbox restore operation fails."""
+    pass
+
 class SandboxExecutionError(SandboxOperationError):
     """Raised when code execution within a sandbox fails."""
     pass

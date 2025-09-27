@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from src.server import app
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
-from src.sandbox.interface import SandboxCreationError, SandboxExecutionError
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from unittest.mock import patch
 from starlette.websockets import WebSocketDisconnect
@@ -55,7 +55,7 @@ async def test_create_interactive_session_success(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
     # Assert that the sandbox was created with the correct idle timeout
-    mock_create_sandbox.assert_called_once_with(idle_timeout=120)
+    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False)
 
 @pytest.mark.asyncio
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
@@ -190,7 +190,7 @@ async def test_sandbox_execution_error(mock_create_sandbox):
 
         # Check for the error message
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_ERROR"}
-        assert websocket.receive_json() == {"event": "error", "message": "Fake sandbox failed to execute as configured."} 
+        assert websocket.receive_json() == {"event": "error", "message": "Fake sandbox failed to execute as configured."}
         
         # The connection should remain open for subsequent commands
         # (This part of the test is not fully implemented as the FakeSandbox
@@ -286,3 +286,125 @@ async def test_unsupported_language(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
         assert websocket.receive_json() == {"event": "stdout", "data": "still open\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@patch('src.handlers.websocket.sandbox_manager.checkpoint_and_restore_path', new='/tmp')
+@patch('src.handlers.websocket.sandbox_manager.restore_sandbox')
+@patch('src.handlers.websocket.sandbox_manager.get_sandbox')
+def test_attach_restore_sandbox(mock_get_sandbox, mock_restore_sandbox):
+    """
+    Tests that a client can attach to a sandbox that has been checkpointed,
+    triggering a restore.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_get_sandbox.return_value = None # Simulate cache miss
+    mock_restore_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/attach/test-sandbox") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+@patch('src.handlers.websocket.sandbox_manager.checkpoint_and_restore_path', new=None)
+def test_create_with_checkpoint_fails_if_not_configured():
+    """
+    Tests that creating a sandbox with checkpointing enabled fails if the
+    manager is not configured with a persistence path.
+    """
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"enable_checkpoint": True})
+        
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATION_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": "Checkpointing is not enabled on the server."}
+        
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 4000
+
+@pytest.mark.asyncio
+@patch('src.handlers.websocket.sandbox_manager.checkpoint_and_restore_path', new='/tmp')
+@patch('src.handlers.websocket.sandbox_manager.checkpoint_sandbox')
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+async def test_sandbox_checkpoint(mock_create_sandbox, mock_checkpoint_sandbox):
+    """
+    Tests that the 'checkpoint' action is correctly handled.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+        websocket.send_json({"action": "checkpoint"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 1000
+
+@pytest.mark.asyncio
+@patch('src.handlers.websocket.sandbox_manager.checkpoint_and_restore_path', new='/tmp')
+@patch('src.handlers.websocket.sandbox_manager.checkpoint_sandbox')
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+async def test_sandbox_checkpoint_failure(mock_create_sandbox, mock_checkpoint_sandbox):
+    """
+    Tests that a failure during checkpointing is handled gracefully.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_sandbox.return_value = sandbox
+    mock_checkpoint_sandbox.side_effect = SandboxCheckpointError("Checkpoint failed")
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+        websocket.send_json({"action": "checkpoint"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINT_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": "Checkpoint failed"}
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 4000
+
+@patch('src.handlers.websocket.sandbox_manager.checkpoint_and_restore_path', new='/tmp')
+@patch('src.handlers.websocket.sandbox_manager.restore_sandbox')
+def test_attach_restore_sandbox_not_found(mock_restore_sandbox):
+    """
+    Tests that a failure to find a sandbox to restore is handled gracefully.
+    """
+    # Arrange
+    mock_restore_sandbox.return_value = None
+
+    # Act & Assert
+    with client.websocket_connect("/attach/test-sandbox") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_NOT_FOUND"}
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 1011
+
+@patch('src.handlers.websocket.sandbox_manager.checkpoint_and_restore_path', new='/tmp')
+@patch('src.handlers.websocket.sandbox_manager.restore_sandbox')
+def test_attach_restore_sandbox_failure(mock_restore_sandbox):
+    """
+    Tests that a failure during restore is handled gracefully.
+    """
+    # Arrange
+    mock_restore_sandbox.side_effect = SandboxRestoreError("Restore failed")
+
+    # Act & Assert
+    with client.websocket_connect("/attach/test-sandbox") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORE_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": "Failed to restore sandbox test-sandbox: Restore failed"}
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 4000

@@ -22,6 +22,8 @@ class ExecConfig:
 class FakeSandboxConfig:
     """Configuration for the FakeSandbox."""
     create_should_fail: bool = False
+    checkpoint_should_fail: bool = False
+    restore_should_fail: bool = False
     executions: List[ExecConfig] = field(default_factory=list)
 
 class FakeSandbox(SandboxInterface):
@@ -138,6 +140,8 @@ class FakeSandbox(SandboxInterface):
             raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
         if self._is_running_exec():
             raise SandboxOperationError("Cannot checkpoint while an execution is in progress.")
+        if self._config.checkpoint_should_fail:
+            raise SandboxOperationError("Fake sandbox failed to checkpoint as configured.")
         
         logger.info(f"Fake sandbox {self.sandbox_id}: CHECKPOINTING to {checkpoint_path}.")
         with open(checkpoint_path, "w") as f:
@@ -152,6 +156,8 @@ class FakeSandbox(SandboxInterface):
         """
         if self._state != SandboxState.INITIALIZED:
             raise SandboxOperationError(f"Cannot restore a sandbox that is not in the INITIALIZED state (current state: {self._state})")
+        if self._config.restore_should_fail:
+            raise SandboxOperationError("Fake sandbox failed to restore as configured.")
 
         logger.info(f"Fake sandbox {self.sandbox_id}: RESTORING from {checkpoint_path}.")
         if not os.path.exists(checkpoint_path):
