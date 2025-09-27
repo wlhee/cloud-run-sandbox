@@ -8,7 +8,7 @@ from typing import Callable, Optional
 import os
 from pathlib import Path
 import json
-from .interface import SandboxCreationError, SandboxOperationError
+from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +185,7 @@ class SandboxManager:
             await sandbox_instance.restore(checkpoint_path)
         except SandboxOperationError as e:
             logger.error(f"Failed to restore sandbox {sandbox_id}: {e}")
-            return None
+            raise SandboxRestoreError(f"Failed to restore sandbox {sandbox_id}") from e
 
         idle_timeout = None
         if os.path.exists(metadata_path):

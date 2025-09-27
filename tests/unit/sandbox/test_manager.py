@@ -25,7 +25,7 @@ async def test_manager_create_and_get_sandbox(mock_create_instance):
     sandbox = await mgr.create_sandbox(sandbox_id="test-123")
     
     # Assert
-    mock_create_instance.assert_called_once_with("test-123", config=ANY)
+    mock_create_instance.assert_called_once_with("test-123", config=ANY, checkpoint_path=None)
     assert mgr.get_sandbox("test-123") is sandbox_to_return
 
 @patch('src.sandbox.factory.create_sandbox_instance')
@@ -277,10 +277,10 @@ async def test_restore_sandbox_fails(mock_create_instance, tmp_path):
     mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
     
     # Act
-    sandbox = await mgr.restore_sandbox(sandbox_id)
+    with pytest.raises(SandboxOperationError, match="Failed to restore sandbox fail-restore"):
+        await mgr.restore_sandbox(sandbox_id)
     
     # Assert
-    assert sandbox is None
     assert mgr.get_sandbox(sandbox_id) is None # Should not be in memory
 
 @patch('src.sandbox.factory.create_sandbox_instance')
@@ -312,3 +312,24 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     # Assert
     await asyncio.wait_for(delete_event.wait(), timeout=1)
     assert mgr.get_sandbox(sandbox_id) is None
+
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_create_sandbox_with_checkpoint_passes_path(mock_create_instance, tmp_path):
+    """
+    Tests that the checkpoint_and_restore_path is correctly passed to the
+    sandbox instance.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_instance.return_value = sandbox
+    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
+
+    # Act
+    await mgr.create_sandbox(sandbox_id="test-sandbox", enable_checkpoint=True)
+
+    # Assert
+    mock_create_instance.assert_called_once_with(
+        "test-sandbox",
+        config=ANY,
+        checkpoint_path=str(tmp_path)
+    )
