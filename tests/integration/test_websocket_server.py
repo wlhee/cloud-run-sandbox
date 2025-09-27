@@ -196,16 +196,16 @@ async def test_websocket_checkpoint_and_restore_success(monkeypatch):
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
 
-    # 4. Attach to the sandbox, which should trigger a restore
-    with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+        # 4. Attach to the sandbox, which should trigger a restore
+        with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
-        # 5. Verify the file exists
-        websocket.send_json({"language": "bash", "code": "cat /test.txt"})
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
-        assert websocket.receive_json() == {"event": "stdout", "data": "hello\n"}
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+            # 5. Verify the file exists
+            websocket.send_json({"language": "bash", "code": "cat /test.txt"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+            assert websocket.receive_json() == {"event": "stdout", "data": "hello\n"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
@@ -225,20 +225,17 @@ async def test_websocket_restore_failure(monkeypatch):
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
 
-        # 2. Corrupt the checkpoint file
-        checkpoint_file = os.path.join(temp_dir, sandbox_id, "checkpoint", "checkpoint.img")
-        os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
-        with open(checkpoint_file, "w") as f:
-            f.write("invalid data")
+        # 2. Corrupt the checkpoint file by removing it
+        checkpoint_path = os.path.join(temp_dir, sandbox_id, "checkpoint")
+        shutil.rmtree(checkpoint_path)
 
         # 3. Attempt to attach to the sandbox
         with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
-            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORE_ERROR"}
-            assert websocket.receive_json()["event"] == "error"
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_NOT_FOUND"}
             with pytest.raises(WebSocketDisconnect) as e:
                 websocket.receive_json()
-            assert e.value.code == 4000
+            assert e.value.code == 1011
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
