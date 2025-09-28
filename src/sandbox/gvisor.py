@@ -10,7 +10,8 @@ from enum import Enum
 from typing import Optional
 from .interface import (
     SandboxInterface, SandboxState, SandboxCreationError, SandboxOperationError,
-    SandboxStreamClosed, SandboxExecutionInProgressError
+    SandboxExecutionError, SandboxStreamClosed, SandboxCheckpointError, SandboxRestoreError,
+    SandboxExecutionInProgressError, SandboxError
 )
 from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from .process import Process

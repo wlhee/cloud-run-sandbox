@@ -185,10 +185,10 @@ class WebsocketHandler:
 
         if isinstance(e, SandboxRestoreError):
             error_status = SandboxStateEvent.SANDBOX_RESTORE_ERROR
+        elif isinstance(e, SandboxExecutionInProgressError):
+            error_status = SandboxStateEvent.SANDBOX_EXECUTION_IN_PROGRESS
         elif isinstance(e, SandboxCheckpointError):
             error_status = SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR
-        elif isinstance(e, SandboxExecutionInProgressError):
-            error_status = SandboxStateEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR
         elif isinstance(e, SandboxOperationError):
             error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
         elif isinstance(e, (KeyError, ValueError)):
