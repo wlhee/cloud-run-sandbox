@@ -45,28 +45,34 @@ This phase focuses on establishing the `checkpoint` and `restore` contract and i
 
 #### **Phase 2: Manager Orchestration with GCS Volume Mount**
 
-1.  **Explicitly Configure the `SandboxManager`**:
+1.  **[DONE] Explicitly Configure the `SandboxManager`**:
     *   Modify the `SandboxManager` in `src/sandbox/manager.py` to accept an optional `checkpoint_and_restore_path: str` during initialization.
     *   If this path is not provided, checkpointing and restore functionality will be disabled.
 
-2.  **Update Sandbox Creation Logic**:
+2.  **[DONE] Update Sandbox Creation Logic**:
     *   **`websocket.py`**: The `_setup_create` method will be updated to look for a new boolean field, `enable_checkpoint`, in the initial "create" message from the client.
     *   **`manager.py`**: The `create_sandbox` method will be modified to accept the `enable_checkpoint` flag.
         *   It will check if the manager is configured with a `checkpoint_and_restore_path` and if the client sent `enable_checkpoint: true`.
         *   **Requirement**: If `enable_checkpoint` is `true`, the manager will **enforce** that the sandbox configuration uses `network="sandbox"` and will allocate a unique IP address for it.
         *   If both conditions are met, the manager will create the sandbox directory (`<checkpoint_and_restore_path>/<sandbox_id>/`) and the initial `metadata.json` directly on the mounted GCS volume.
 
-3.  **Implement `checkpoint_sandbox` Method**:
+3.  **[DONE] Implement `checkpoint_sandbox` Method**:
     *   **`manager.py`**: The new `checkpoint_sandbox(sandbox_id)` method will:
         1.  Construct the full checkpoint path directly on the mounted volume: `{self.checkpoint_and_restore_path}/{sandbox_id}/checkpoint`.
         2.  Call the sandbox instance's `checkpoint()` method, passing this direct path.
         3.  Update the `metadata.json` on the mounted volume.
     *   **`websocket.py`**: The handler will be updated to recognize the `{"action": "checkpoint"}` message and call the manager's new method.
 
-4.  **Implement Implicit Restore on "Attach"**:
+4.  **[DONE] Implement Implicit Restore on "Attach"**:
     *   **`manager.py`**: The `get_sandbox(sandbox_id)` method will be updated:
         1.  On a cache miss, it will check for the existence of the directory `{self.checkpoint_and_restore_path}/{sandbox_id}/`.
         2.  If it exists, it will create a new sandbox instance and call its `restore()` method, passing the direct path to the checkpoint on the mounted volume.
+
+5.  **Support for Multiple Checkpoints**:
+    *   The current implementation only supports a single checkpoint per sandbox, overwriting it each time.
+    *   The system needs to be enhanced to manage multiple, named checkpoints (e.g., using tags or timestamps).
+    *   The `checkpoint` action in the WebSocket protocol will need to be updated to accept a name or tag for the checkpoint.
+    *   The `restore` mechanism will need to be updated to allow a client to specify which checkpoint to restore from.
 
 ---
 
