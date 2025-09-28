@@ -369,7 +369,7 @@ async def test_sandbox_checkpoint_failure(mock_create_sandbox, mock_checkpoint_s
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINT_ERROR"}
-        assert websocket.receive_json() == {"event": "error", "message": "Checkpoint failed"}
+        assert websocket.receive_json() == {"event": "error", "message": "Failed to checkpoint sandbox test-sandbox: Checkpoint failed"}
         with pytest.raises(WebSocketDisconnect) as e:
             websocket.receive_json()
         assert e.value.code == 4000

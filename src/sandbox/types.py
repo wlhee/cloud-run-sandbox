@@ -49,3 +49,5 @@ class SandboxStateEvent(Enum):
     SANDBOX_RESTORING = "SANDBOX_RESTORING"
     # An error occurred during the restoration of the sandbox.
     SANDBOX_RESTORE_ERROR = "SANDBOX_RESTORE_ERROR"
+    # A checkpoint was attempted while an execution was in progress.
+    SANDBOX_EXECUTION_IN_PROGRESS_ERROR = "SANDBOX_EXECUTION_IN_PROGRESS_ERROR"

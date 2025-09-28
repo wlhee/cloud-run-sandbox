@@ -8,7 +8,10 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
-from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxError, SandboxState
+from .interface import (
+    SandboxInterface, SandboxState, SandboxCreationError, SandboxOperationError,
+    SandboxStreamClosed, SandboxExecutionInProgressError
+)
 from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from .process import Process
 
@@ -505,7 +508,7 @@ class GVisorSandbox(SandboxInterface):
 
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointing to {checkpoint_path}")
         if self._exec_process and self._exec_process.is_running:
-            raise SandboxOperationError("Cannot checkpoint while an execution is in progress.")
+            raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
 
         cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self._container_id)
         await self._run_sync_command(cmd)

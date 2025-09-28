@@ -3,7 +3,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
-from .interface import SandboxInterface, SandboxCreationError, SandboxOperationError, SandboxStreamClosed, SandboxState
+from .interface import SandboxInterface, SandboxCreationError, SandboxExecutionInProgressError, SandboxOperationError, SandboxStreamClosed, SandboxState
 from .types import SandboxOutputEvent, CodeLanguage, SandboxStateEvent
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ class FakeSandbox(SandboxInterface):
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
         if self._is_running_exec():
-            raise SandboxOperationError("Cannot checkpoint while an execution is in progress.")
+            raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
         if self._config.checkpoint_should_fail:
             raise SandboxOperationError("Fake sandbox failed to checkpoint as configured.")
         

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException
 from src.sandbox.manager import manager as sandbox_manager
-from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError
 from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 import logging
@@ -133,9 +133,11 @@ class WebsocketHandler:
             await sandbox_manager.checkpoint_sandbox(self.sandbox.sandbox_id)
             await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
             await self.websocket.close(code=1000)
-        except SandboxOperationError as e:
-            await self.handle_error(e, close_connection=True, error_status=SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR)
-
+        except SandboxExecutionInProgressError as e:
+            await self.handle_error(e, close_connection=False)
+        except Exception as e:
+            e = SandboxCheckpointError(f"Failed to checkpoint sandbox {self.sandbox.sandbox_id}: {e}")
+            await self.handle_error(e, close_connection=True)
     async def handle_stdin(self, message: dict):
         """Handles a stdin message from the client."""
         try:
@@ -178,29 +180,32 @@ class WebsocketHandler:
     async def send_status(self, status: SandboxStateEvent):
         await self.websocket.send_json({"event": "status_update", "status": status.value})
 
-    async def handle_error(self, e: Exception, close_connection: bool, message: dict = None, error_status: SandboxStateEvent = None):
-        if error_status is None:
-            if isinstance(e, SandboxRestoreError):
-                error_status = SandboxStateEvent.SANDBOX_RESTORE_ERROR
-            elif isinstance(e, SandboxCheckpointError):
-                error_status = SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR
-            elif isinstance(e, SandboxOperationError):
-                error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
-            elif isinstance(e, (KeyError, ValueError)):
-                if message and message.get("event") == "stdin":
-                    e = SandboxExecutionError("Invalid stdin message format. 'data' field is required.")
-                    error_status = SandboxStateEvent.SANDBOX_STDIN_ERROR
-                else:
-                    supported_languages = ", ".join([lang.value for lang in CodeLanguage])
-                    e = SandboxExecutionError(
-                        "Invalid message format. 'language' and 'code' fields are required. "
-                        f"Supported languages are: {supported_languages}"
-                    )
-                    error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
-            elif isinstance(e, SandboxCreationError):
-                error_status = SandboxStateEvent.SANDBOX_CREATION_ERROR
+    async def handle_error(self, e: Exception, close_connection: bool, message: dict = None):
+        error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
+
+        if isinstance(e, SandboxRestoreError):
+            error_status = SandboxStateEvent.SANDBOX_RESTORE_ERROR
+        elif isinstance(e, SandboxCheckpointError):
+            error_status = SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR
+        elif isinstance(e, SandboxExecutionInProgressError):
+            error_status = SandboxStateEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR
+        elif isinstance(e, SandboxOperationError):
+            error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
+        elif isinstance(e, (KeyError, ValueError)):
+            if message and message.get("event") == "stdin":
+                e = SandboxExecutionError("Invalid stdin message format. 'data' field is required.")
+                error_status = SandboxStateEvent.SANDBOX_STDIN_ERROR
             else:
+                supported_languages = ", ".join([lang.value for lang in CodeLanguage])
+                e = SandboxExecutionError(
+                    "Invalid message format. 'language' and 'code' fields are required. "
+                    f"Supported languages are: {supported_languages}"
+                )
                 error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
+        elif isinstance(e, SandboxCreationError):
+            error_status = SandboxStateEvent.SANDBOX_CREATION_ERROR
+        else:
+            error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
 
         await self.send_status(error_status)
         await self.websocket.send_json({"event": "error", "message": str(e)})

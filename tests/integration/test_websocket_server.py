@@ -261,7 +261,7 @@ async def test_websocket_checkpoint_during_execution(monkeypatch):
 
             # 4. Assert that the server sends an error message
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
-            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINT_ERROR"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_IN_PROGRESS_ERROR"}
             error_message = websocket.receive_json()
             assert error_message["event"] == "error"
             assert "Cannot checkpoint while an execution is in progress" in error_message["message"]

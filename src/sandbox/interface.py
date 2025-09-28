@@ -26,6 +26,10 @@ class SandboxCheckpointError(SandboxOperationError):
     """Raised when a sandbox checkpoint operation fails."""
     pass
 
+class SandboxExecutionInProgressError(SandboxCheckpointError):
+    """Raised when a checkpoint is attempted during an active execution."""
+    pass
+
 class SandboxRestoreError(SandboxOperationError):
     """Raised when a sandbox restore operation fails."""
     pass

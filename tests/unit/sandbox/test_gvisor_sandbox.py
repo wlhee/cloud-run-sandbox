@@ -6,7 +6,7 @@ import logging
 from src.sandbox.gvisor import GVisorConfig
 from src.sandbox.factory import make_sandbox_config, create_sandbox_instance
 from src.sandbox.types import OutputType, CodeLanguage, SandboxStateEvent
-from src.sandbox.interface import SandboxCreationError,SandboxStreamClosed, SandboxError, SandboxOperationError, SandboxState
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxError, SandboxOperationError, SandboxState
 
 # Check if 'runsc' is in the PATH
 runsc_path = shutil.which("runsc")
@@ -598,7 +598,7 @@ async def test_gvisor_sandbox_checkpoint_fails_if_running():
         await sandbox.execute(CodeLanguage.PYTHON, long_running_code)
 
         # Try to checkpoint while the first is running
-        with pytest.raises(SandboxOperationError, match="Cannot checkpoint while an execution is in progress"):
+        with pytest.raises(SandboxExecutionInProgressError, match="Cannot checkpoint while an execution is in progress"):
             await sandbox.checkpoint("/tmp/dummy_path")
 
     finally:
