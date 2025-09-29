@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { MessageKey, EventType, SandboxEvent, WebSocketMessage } from './types';
 import { SandboxProcess } from './process';
 
-type SandboxState = 'creating' | 'running' | 'closed' | 'failed';
+type SandboxState = 'creating' | 'running' | 'closed' | 'failed' | 'checkpointing' | 'checkpointed' | 'restoring';
 
 export class Sandbox {
   private ws: WebSocket;
@@ -33,7 +33,8 @@ export class Sandbox {
       message.event === EventType.STDERR ||
       (message.event === EventType.STATUS_UPDATE &&
         message.status &&
-        message.status.startsWith('SANDBOX_EXECUTION_'))
+        message.status.startsWith('SANDBOX_EXECUTION_') &&
+        message.status !== SandboxEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR)
     ) {
       if (this.activeProcess) {
         this.activeProcess.handleMessage(message);
@@ -60,15 +61,43 @@ export class Sandbox {
             this.eventEmitter.emit('failed', this._creationError);
           }
           break;
+        case SandboxEvent.SANDBOX_CHECKPOINTING:
+          this.state = 'checkpointing';
+          break;
+        case SandboxEvent.SANDBOX_CHECKPOINTED:
+          this.state = 'checkpointed';
+          this.eventEmitter.emit('checkpointed');
+          break;
+        case SandboxEvent.SANDBOX_CHECKPOINT_ERROR:
+          this.state = 'failed'; // This is a fatal error for the session.
+          this.eventEmitter.emit('checkpoint_error', new Error(message.message || message.status));
+          break;
+        case SandboxEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR:
+          this.state = 'running'; // Checkpoint failed, back to running
+          this.eventEmitter.emit('checkpoint_error', new Error(message.message || message.status));
+          break;
+        case SandboxEvent.SANDBOX_RESTORING:
+          this.state = 'restoring';
+          break;
+        case SandboxEvent.SANDBOX_RESTORE_ERROR:
+          this.state = 'failed';
+          this._creationError = new Error(message.message || message.status);
+          this.eventEmitter.emit('failed', this._creationError);
+          break;
+        case SandboxEvent.SANDBOX_NOT_FOUND:
+          this.state = 'failed';
+          this._creationError = new Error(message.message || message.status);
+          this.eventEmitter.emit('failed', this._creationError);
+          break;
       }
       return;
     }
   }
 
   private handleClose(code: number, reason: Buffer) {
-    if (this.state === 'creating') {
+    if (this.state === 'creating' || this.state === 'restoring') {
       this.state = 'failed';
-      const err = new Error(`Connection closed during creation: code=${code}`);
+      const err = new Error(`Connection closed during creation/restoration: code=${code}`);
       this.eventEmitter.emit('failed', err);
     } else {
       this.state = 'closed';
@@ -81,7 +110,7 @@ export class Sandbox {
   }
 
   private handleError(err: Error) {
-    if (this.state === 'creating') {
+    if (this.state === 'creating' || this.state === 'restoring') {
       this.state = 'failed';
       this.eventEmitter.emit('failed', err);
     }
@@ -94,15 +123,18 @@ export class Sandbox {
     // for the user to handle, e.g., this.eventEmitter.emit('error', err);
   }
 
-  static create(url: string, options: { idleTimeout?: number, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
-    const { idleTimeout = 60, wsOptions } = options;
+  static create(url: string, options: { idleTimeout?: number, enableCheckpoint?: boolean, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
+    const { idleTimeout = 60, enableCheckpoint = false, wsOptions } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     const ws = new WebSocket(`${sanitizedUrl}/create`, wsOptions);
     const sandbox = new Sandbox(ws);
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({ idle_timeout: idleTimeout }));
+      ws.send(JSON.stringify({
+        idle_timeout: idleTimeout,
+        enable_checkpoint: enableCheckpoint,
+      }));
     });
     
     return new Promise((resolve, reject) => {
@@ -115,6 +147,46 @@ export class Sandbox {
         if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
           ws.terminate();
         }
+        reject(err);
+      });
+    });
+  }
+
+  static attach(url: string, sandboxId: string, options: { wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
+    const { wsOptions } = options;
+    
+    const sanitizedUrl = url.replace(/\/$/, '');
+    const ws = new WebSocket(`${sanitizedUrl}/attach/${sandboxId}`, wsOptions);
+    const sandbox = new Sandbox(ws);
+    sandbox._sandboxId = sandboxId;
+
+    return new Promise((resolve, reject) => {
+      sandbox.eventEmitter.once('created', (createdSandbox) => {
+        resolve(createdSandbox);
+      });
+      
+      sandbox.eventEmitter.once('failed', (err) => {
+        // On failure, ensure the socket is completely destroyed.
+        if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+          ws.terminate();
+        }
+        reject(err);
+      });
+    });
+  }
+
+  public checkpoint(): Promise<void> {
+    if (this.state !== 'running') {
+      return Promise.reject(new Error(`Sandbox is not in a running state. Current state: ${this.state}`));
+    }
+
+    this.ws.send(JSON.stringify({ action: 'checkpoint' }));
+
+    return new Promise((resolve, reject) => {
+      this.eventEmitter.once('checkpointed', () => {
+        resolve();
+      });
+      this.eventEmitter.once('checkpoint_error', (err) => {
         reject(err);
       });
     });

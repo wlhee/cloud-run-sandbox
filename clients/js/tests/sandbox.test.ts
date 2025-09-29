@@ -42,10 +42,59 @@ describe('Sandbox', () => {
 
     expect(sandbox).toBeInstanceOf(Sandbox);
     expect(sandbox.sandboxId).toBe('test-id');
-    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({ idle_timeout: 60 }));
+    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+      idle_timeout: 60,
+      enable_checkpoint: false,
+    }));
 
     sandbox.terminate();
     expect(mockWsInstance.close).toHaveBeenCalled();
+  });
+
+  it('should create a sandbox with checkpointing enabled', async () => {
+    const createPromise = Sandbox.create('ws://test-url', { enableCheckpoint: true });
+    
+    mockWsInstance.emit('open');
+
+    mockWsInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.SANDBOX_ID,
+      [MessageKey.SANDBOX_ID]: 'test-id',
+    }));
+    mockWsInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+    }));
+
+    const sandbox = await createPromise;
+
+    expect(sandbox).toBeInstanceOf(Sandbox);
+    expect(sandbox.sandboxId).toBe('test-id');
+    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+      idle_timeout: 60,
+      enable_checkpoint: true,
+    }));
+
+    sandbox.terminate();
+    expect(mockWsInstance.close).toHaveBeenCalled();
+  });
+
+  it('should successfully checkpoint a sandbox and prevent further execution', async () => {
+    const createPromise = Sandbox.create('ws://test-url', { enableCheckpoint: true });
+    mockWsInstance.emit('open');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    const sandbox = await createPromise;
+
+    const checkpointPromise = sandbox.checkpoint();
+
+    // Simulate server responses
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTED' }));
+
+    await expect(checkpointPromise).resolves.toBeUndefined();
+
+    // Verify that exec fails after checkpointing
+    await expect(sandbox.exec('echo "hello"', 'bash')).rejects.toThrow('Sandbox is not in a running state. Current state: checkpointed');
   });
 
   it('should reject creation on server error and terminate the socket', async () => {
@@ -181,5 +230,86 @@ describe('Sandbox', () => {
     // The streams should end, and the promises should resolve with empty strings.
     await expect(stdoutPromise).resolves.toBe('');
     await expect(stderrPromise).resolves.toBe('');
+  });
+  it('should successfully attach to a checkpointed sandbox and execute code', async () => {
+    const attachPromise = Sandbox.attach('ws://test-url', 'test-id');
+
+    // Simulate server responses for restoring
+    mockWsInstance.emit('open');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RESTORING' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+
+    const sandbox = await attachPromise;
+    expect(sandbox).toBeInstanceOf(Sandbox);
+    expect(sandbox.sandboxId).toBe('test-id');
+
+    // Verify that exec works after attaching
+    const execPromise = sandbox.exec('echo "hello"', 'bash');
+    mockWsInstance.emit('message', JSON.stringify({
+      "event": "status_update",
+      "status": "SANDBOX_EXECUTION_RUNNING"
+    }));
+    await expect(execPromise).resolves.toBeInstanceOf(Object); // SandboxProcess
+  });
+
+  it('should handle a fatal checkpoint error', async () => {
+    const createPromise = Sandbox.create('ws://test-url', { enableCheckpoint: true });
+    mockWsInstance.emit('open');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    const sandbox = await createPromise;
+
+    const checkpointPromise = sandbox.checkpoint();
+
+    // Simulate server responses for a failed checkpoint
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
+    mockWsInstance.emit('message', JSON.stringify({
+      event: 'status_update',
+      status: 'SANDBOX_CHECKPOINT_ERROR',
+      message: 'Fatal checkpoint failure',
+    }));
+
+    await expect(checkpointPromise).rejects.toThrow('Fatal checkpoint failure');
+
+    // Verify that exec fails after a fatal checkpoint error
+    await expect(sandbox.exec('echo "hello"', 'bash')).rejects.toThrow('Sandbox is not in a running state. Current state: failed');
+  });
+
+  it('should handle a recoverable checkpoint error', async () => {
+    const createPromise = Sandbox.create('ws://test-url', { enableCheckpoint: true });
+    mockWsInstance.emit('open');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    const sandbox = await createPromise;
+
+    const checkpointPromise = sandbox.checkpoint();
+
+    // Simulate server responses for a recoverable error
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
+    mockWsInstance.emit('message', JSON.stringify({
+      event: 'status_update',
+      status: 'SANDBOX_EXECUTION_IN_PROGRESS_ERROR',
+      message: 'Execution in progress',
+    }));
+
+    await expect(checkpointPromise).rejects.toThrow('Execution in progress');
+
+    // Verify that the sandbox state has returned to running
+    expect((sandbox as any).state).toBe('running');
+  });
+  it('should correctly set the sandboxId when attaching', async () => {
+    const testId = 'my-attach-test-id';
+    const attachPromise = Sandbox.attach('ws://test-url', testId);
+
+    // Simulate the server connection and successful restoration
+    mockWsInstance.emit('open');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RESTORING' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+
+    const sandbox = await attachPromise;
+    
+    // Assert that the sandboxId was set correctly on the client-side object
+    expect(sandbox.sandboxId).toBe(testId);
   });
 });

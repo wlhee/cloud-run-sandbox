@@ -66,7 +66,7 @@ This is a recoverable error. The checkpoint will fail, but the original code exe
 - **Flow**:
     1. Client sends `{"action": "checkpoint"}` while a command is running.
     2. Server sends `{"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}`.
-    3. Server detects the conflict and sends `{"event": "status_update", "status": "SANDBOX_EXECUTION_IN_PROGRESS"}`.
+    3. Server detects the conflict and sends `{"event": "status_update", "status": "SANDBOX_EXECUTION_IN_PROGRESS_ERROR"}`.
     4. Server sends an error message: `{"event": "error", "message": "Cannot checkpoint while an execution is in progress."}`.
 - **Result**: The connection remains open. The client can continue to interact with the sandbox and will receive the output from the original command once it completes.
 

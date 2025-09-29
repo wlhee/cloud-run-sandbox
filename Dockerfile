@@ -2,7 +2,7 @@
 FROM python:3.9-slim
 
 # Install gVisor dependencies
-RUN apt-get update && apt-get install -y curl wget
+RUN apt-get update && apt-get install -y curl wget sudo iproute2 iptables procps
 
 # Install gVisor
 RUN ( \

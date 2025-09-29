@@ -64,7 +64,52 @@ sandbox.terminate();
 
 For a more detailed example, please see `example/client_example.ts`.
 
-## 3. Executing Python or Bash Code via HTTP (One-off testing)
+## 3. Checkpoint and Restore
+
+The sandbox supports stateful sessions through a checkpoint and restore mechanism. This allows a client to save the complete state of a sandbox (including its filesystem and running processes) to a persistent volume, disconnect, and later reconnect to a new server instance, restoring the sandbox to its exact previous state.
+
+### Server Configuration
+
+To enable this feature, the Cloud Run service must be deployed with a persistent volume and a specific environment variable.
+
+1.  **Create a GCS Bucket**: First, ensure you have a Google Cloud Storage bucket to store the checkpoints.
+2.  **Deploy with Volume Mount**: Deploy the service with the GCS bucket mounted as a volume.
+
+Here is an example `gcloud` command:
+
+```bash
+gcloud run deploy sandbox --source . \
+  --project=<YOUR_PROJECT_ID> \
+  --region=us-central1 \
+  --allow-unauthenticated \
+  --execution-environment=gen2 \
+  --concurrency=1 \
+  --add-volume=name=gcs-volume,type=cloud-storage,bucket=<YOUR_BUCKET_NAME> \
+  --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs \
+  --set-env-vars='CHECKPOINT_AND_RESTORE_PATH=/mnt/gcs'
+```
+
+Replace `<YOUR_PROJECT_ID>` and `<YOUR_BUCKET_NAME>` accordingly. If these are not configured, the server will reject any client requests to use the checkpointing feature.
+
+### Example Usage
+
+Here is a simplified example of the checkpoint/restore flow:
+
+```typescript
+// 1. Create a sandbox with checkpointing enabled
+const sandbox1 = await Sandbox.create(url, { enableCheckpoint: true });
+const sandboxId = sandbox1.sandboxId;
+
+// 2. Checkpoint the sandbox
+await sandbox1.checkpoint();
+
+// 4. At a later time, attach to the sandbox to restore its state
+const sandbox2 = await Sandbox.attach(url, sandboxId);
+```
+
+For a complete, runnable demonstration, please see the example file: `example/checkpoint.ts`.
+
+## 4. Executing Python or Bash Code via HTTP (One-off testing)
 
 To execute a Python or Bash script with HTTP, you can send a POST request to the `/execute`
 endpoint with the content of the script as the request body, and `language=[python|bash]` as a

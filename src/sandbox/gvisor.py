@@ -153,12 +153,16 @@ class GVisorSandbox(SandboxInterface):
         """
         if sudo:
             cmd.insert(0, "sudo")
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+        except FileNotFoundError:
+            raise SandboxOperationError(f"Command '{cmd[0]}' not found.")
+
         if check and proc.returncode != 0:
             cmd_str = " ".join(cmd)
             raise SandboxOperationError(f"Command failed: {cmd_str}\n{stderr.decode()}")
