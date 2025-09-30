@@ -34,6 +34,10 @@ class SandboxRestoreError(SandboxOperationError):
     """Raised when a sandbox restore operation fails."""
     pass
 
+class SandboxSnapshotFilesystemError(SandboxOperationError):
+    """Raised when a sandbox filesystem snapshot operation fails."""
+    pass
+
 class SandboxExecutionError(SandboxOperationError):
     """Raised when code execution within a sandbox fails."""
     pass
@@ -108,5 +112,12 @@ class SandboxInterface(ABC):
     async def restore(self, checkpoint_path: str) -> None:
         """
         Restores the sandbox's state from a checkpoint.
+        """
+        pass
+
+    @abstractmethod
+    async def snapshot_filesystem(self, snapshot_path: str) -> None:
+        """
+        Creates a snapshot of the sandbox's filesystem.
         """
         pass

@@ -21,6 +21,8 @@ class SandboxOutputEvent(TypedDict):
 
 class SandboxStateEvent(Enum):
     """Enumeration for the lifecycle state events of a sandbox."""
+    # A general error occurred within the sandbox.
+    SANDBOX_ERROR = "SANDBOX_ERROR"
     # The sandbox is being created and initialized.
     SANDBOX_CREATING = "SANDBOX_CREATING"
     # The sandbox is running and ready to process code.
@@ -51,3 +53,9 @@ class SandboxStateEvent(Enum):
     SANDBOX_RESTORE_ERROR = "SANDBOX_RESTORE_ERROR"
     # A checkpoint was attempted while an execution was in progress.
     SANDBOX_EXECUTION_IN_PROGRESS_ERROR = "SANDBOX_EXECUTION_IN_PROGRESS_ERROR"
+    # The sandbox filesystem is being snapshotted.
+    SANDBOX_FILESYSTEM_SNAPSHOT_CREATING = "SANDBOX_FILESYSTEM_SNAPSHOT_CREATING"
+    # The sandbox filesystem has been successfully snapshotted.
+    SANDBOX_FILESYSTEM_SNAPSHOT_CREATED = "SANDBOX_FILESYSTEM_SNAPSHOT_CREATED"
+    # An error occurred during the snapshotting of the sandbox filesystem.
+    SANDBOX_FILESYSTEM_SNAPSHOT_ERROR = "SANDBOX_FILESYSTEM_SNAPSHOT_ERROR"

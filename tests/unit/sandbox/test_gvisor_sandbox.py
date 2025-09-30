@@ -690,3 +690,49 @@ async def test_restore_failure_raises_error():
         await sandbox.restore("/tmp/nonexistent_checkpoint")
 
 
+@pytest.mark.asyncio
+@pytest.mark.skip(reason="runsc does not yet support creating from a tarball.")
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_create_with_non_existing_snapshot():
+    """
+    Tests that creating a sandbox with a non-existing snapshot fails.
+    """
+    sandbox_id = "gvisor-test-create-with-non-existing-snapshot"
+    config = make_sandbox_config()
+    config.filesystem_snapshot_path = "/tmp/non_existing_snapshot.tar"
+    sandbox = create_sandbox_instance(sandbox_id, config=config)
+
+    with pytest.raises(SandboxCreationError):
+        await sandbox.create()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip(reason="runsc does not yet support snapshot and create from snapshot.")
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_snapshot_and_create():
+    """
+    Tests creating a sandbox, snapshotting it, and creating a new sandbox from the snapshot.
+    """
+    sandbox_id_1 = "gvisor-test-snapshot-create-1"
+    snapshot_path = f"/tmp/snapshot_{sandbox_id_1}.tar"
+    sandbox1 = create_sandbox_instance(sandbox_id_1)
+
+    try:
+        await sandbox1.create()
+        await sandbox1.snapshot_filesystem(snapshot_path)
+    finally:
+        await sandbox1.delete()
+
+    sandbox_id_2 = "gvisor-test-snapshot-create-2"
+    config = make_sandbox_config()
+    config.filesystem_snapshot_path = snapshot_path
+    sandbox2 = create_sandbox_instance(sandbox_id_2, config=config)
+
+    try:
+        await sandbox2.create()
+    finally:
+        await sandbox2.delete()
+        if os.path.exists(snapshot_path):
+            os.remove(snapshot_path)
+
+

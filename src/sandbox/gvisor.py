@@ -11,7 +11,7 @@ from typing import Optional
 from .interface import (
     SandboxInterface, SandboxState, SandboxCreationError, SandboxOperationError,
     SandboxExecutionError, SandboxStreamClosed, SandboxCheckpointError, SandboxRestoreError,
-    SandboxExecutionInProgressError, SandboxError
+    SandboxExecutionInProgressError, SandboxError, SandboxSnapshotFilesystemError
 )
 from .types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from .process import Process
@@ -49,6 +49,8 @@ class GVisorConfig:
     # The actual log path directory will be this plus the sandbox ID.
     # runsc will create different log files in this directory.
     debug_log_dir: str = "/tmp/runsc"
+    # The path to the filesystem snapshot to create the sandbox from.
+    filesystem_snapshot_path: Optional[str] = None
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -386,7 +388,13 @@ class GVisorSandbox(SandboxInterface):
                 await self._setup_network()
 
             self._prepare_bundle()
-            run_cmd = self._build_runsc_cmd("run", "--bundle", self._bundle_dir, self._container_id)
+            
+            run_cmd_list = ["run", "--bundle", self._bundle_dir]
+            if self._config.filesystem_snapshot_path:
+                run_cmd_list.extend(["--tar_path", self._config.filesystem_snapshot_path])
+            run_cmd_list.append(self._container_id)
+            run_cmd = self._build_runsc_cmd(*run_cmd_list)
+
             self._main_process = await self._start_main_process(run_cmd, "create")
             self._state = SandboxState.RUNNING
             logger.info(f"GVISOR: Container created for sandbox_id: {self.sandbox_id}")
@@ -549,3 +557,18 @@ class GVisorSandbox(SandboxInterface):
             self._state = SandboxState.FAILED
             await self.delete()
             raise SandboxCreationError(f"Failed to restore gVisor container: {e}")
+    
+    async def snapshot_filesystem(self, snapshot_path: str) -> None:
+        """
+        Creates a snapshot of the sandbox's filesystem using 'runsc tar'.
+        """
+        if self._state != SandboxState.RUNNING:
+            raise SandboxOperationError(f"Cannot snapshot a sandbox that is not in the RUNNING state (current state: {self._state})")
+
+        logger.info(f"GVISOR ({self.sandbox_id}): Snapshotting filesystem to {snapshot_path}")
+        try:
+            cmd = self._build_runsc_cmd("tar", "rootfs-upper", f"--file={snapshot_path}", self._container_id)
+            await self._run_sync_command(cmd)
+            logger.info(f"GVISOR ({self.sandbox_id}): Filesystem snapshot successful.")
+        except SandboxOperationError as e:
+            raise SandboxSnapshotFilesystemError(f"Failed to snapshot filesystem: {e}") from e

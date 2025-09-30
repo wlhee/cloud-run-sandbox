@@ -1,6 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException
 from src.sandbox.manager import manager as sandbox_manager
-from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxError
 from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 import logging
@@ -46,6 +46,7 @@ class WebsocketHandler:
             init_message = await self.websocket.receive_json()
             idle_timeout = init_message.get("idle_timeout", 300)
             enable_checkpoint = init_message.get("enable_checkpoint", False)
+            filesystem_snapshot_name = init_message.get("filesystem_snapshot_name")
 
             await self.send_status(SandboxStateEvent.SANDBOX_CREATING)
 
@@ -55,7 +56,8 @@ class WebsocketHandler:
             # 2. Create the sandbox
             self.sandbox = await sandbox_manager.create_sandbox(
                 idle_timeout=idle_timeout,
-                enable_checkpoint=enable_checkpoint
+                enable_checkpoint=enable_checkpoint,
+                filesystem_snapshot_name=filesystem_snapshot_name,
             )
             self.sandbox.is_attached = True
             await self.websocket.send_json({"event": "sandbox_id", "sandbox_id": self.sandbox.sandbox_id})
@@ -115,6 +117,8 @@ class WebsocketHandler:
                 task = None
                 if message.get("action") == "checkpoint":
                     task = asyncio.create_task(self.handle_checkpoint())
+                elif message.get("action") == "snapshot_filesystem":
+                    task = asyncio.create_task(self.handle_snapshot_filesystem(message))
                 elif message.get("event") == "stdin":
                     task = asyncio.create_task(self.handle_stdin(message))
                 else:
@@ -138,6 +142,21 @@ class WebsocketHandler:
         except Exception as e:
             e = SandboxCheckpointError(f"Failed to checkpoint sandbox {self.sandbox.sandbox_id}: {e}")
             await self.handle_error(e, close_connection=True)
+
+    async def handle_snapshot_filesystem(self, message: dict):
+        """Handles a snapshot filesystem request from the client."""
+        try:
+            snapshot_name = message['name']
+            await self.send_status(SandboxStateEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATING)
+            await sandbox_manager.snapshot_filesystem(self.sandbox.sandbox_id, snapshot_name)
+            await self.send_status(SandboxStateEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATED)
+        except (SandboxOperationError, SandboxSnapshotFilesystemError) as e:
+            e = SandboxSnapshotFilesystemError(f"Failed to snapshot filesystem for sandbox {self.sandbox.sandbox_id}: {e}")
+            await self.handle_error(e, close_connection=False)
+        except Exception as e:
+            e = SandboxError(f"Failed to snapshot filesystem for sandbox {self.sandbox.sandbox_id}: {e}")
+            await self.handle_error(e, close_connection=True)
+
     async def handle_stdin(self, message: dict):
         """Handles a stdin message from the client."""
         try:
@@ -181,7 +200,8 @@ class WebsocketHandler:
         await self.websocket.send_json({"event": "status_update", "status": status.value})
 
     async def handle_error(self, e: Exception, close_connection: bool, message: dict = None):
-        error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
+        error_status = SandboxStateEvent.SANDBOX_ERROR
+        error_message = str(e)
 
         if isinstance(e, SandboxRestoreError):
             error_status = SandboxStateEvent.SANDBOX_RESTORE_ERROR
@@ -189,6 +209,8 @@ class WebsocketHandler:
             error_status = SandboxStateEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR
         elif isinstance(e, SandboxCheckpointError):
             error_status = SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR
+        elif isinstance(e, SandboxSnapshotFilesystemError):
+            error_status = SandboxStateEvent.SANDBOX_FILESYSTEM_SNAPSHOT_ERROR
         elif isinstance(e, SandboxOperationError):
             error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
         elif isinstance(e, (KeyError, ValueError)):
@@ -205,10 +227,10 @@ class WebsocketHandler:
         elif isinstance(e, SandboxCreationError):
             error_status = SandboxStateEvent.SANDBOX_CREATION_ERROR
         else:
-            error_status = SandboxStateEvent.SANDBOX_EXECUTION_ERROR
+            error_status = SandboxStateEvent.SANDBOX_ERROR
 
         await self.send_status(error_status)
-        await self.websocket.send_json({"event": "error", "message": str(e)})
+        await self.websocket.send_json({"event": "error", "message": error_message})
 
         if close_connection:
             await self.websocket.close(code=4000)

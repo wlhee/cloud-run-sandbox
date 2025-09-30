@@ -26,6 +26,17 @@ if checkpoint_path:
     logging.info(f"Checkpointing enabled. Path: {checkpoint_path}")
     sandbox_manager.checkpoint_and_restore_path = checkpoint_path
 
+# ==============================================================================
+# Filesystem Snapshot Configuration
+# ------------------------------------------------------------------------------
+# If a path is provided, the manager will be initialized with filesystem
+# snapshotting.
+# ==============================================================================
+filesystem_snapshot_path = os.environ.get("FILESYSTEM_SNAPSHOT_PATH")
+if filesystem_snapshot_path:
+    logging.info(f"Filesystem snapshot enabled. Path: {filesystem_snapshot_path}")
+    sandbox_manager.filesystem_snapshot_path = filesystem_snapshot_path
+
 PORT = int(os.environ.get("PORT", 8080))
 
 if __name__ == "__main__":

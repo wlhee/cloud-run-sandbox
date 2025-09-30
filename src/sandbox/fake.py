@@ -3,7 +3,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
-from .interface import SandboxInterface, SandboxCreationError, SandboxExecutionInProgressError, SandboxOperationError, SandboxStreamClosed, SandboxState
+from .interface import SandboxInterface, SandboxCreationError, SandboxExecutionInProgressError, SandboxOperationError, SandboxSnapshotFilesystemError, SandboxStreamClosed, SandboxState
 from .types import SandboxOutputEvent, CodeLanguage, SandboxStateEvent
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ class FakeSandboxConfig:
     create_should_fail: bool = False
     checkpoint_should_fail: bool = False
     restore_should_fail: bool = False
+    snapshot_filesystem_should_fail: bool = False
     executions: List[ExecConfig] = field(default_factory=list)
 
 class FakeSandbox(SandboxInterface):
@@ -165,3 +166,10 @@ class FakeSandbox(SandboxInterface):
         
         self._state = SandboxState.RUNNING
         logger.info(f"Fake sandbox {self.sandbox_id}: RESTORED.")
+
+    async def snapshot_filesystem(self, snapshot_path: str) -> None:
+        if self._config.snapshot_filesystem_should_fail:
+            raise SandboxSnapshotFilesystemError("Fake sandbox failed to snapshot filesystem as configured.")
+        logger.info(f"Fake sandbox {self.sandbox_id}: SNAPSHOTTING to {snapshot_path}.")
+        with open(snapshot_path, "w") as f:
+            f.write("snapshot_data")

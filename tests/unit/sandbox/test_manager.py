@@ -1,7 +1,7 @@
 import pytest
 from src.sandbox.manager import SandboxManager
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
-from src.sandbox.interface import SandboxCreationError, SandboxOperationError
+from src.sandbox.interface import SandboxCreationError, SandboxOperationError, SandboxSnapshotFilesystemError
 from unittest.mock import patch, ANY
 import asyncio
 import os
@@ -312,3 +312,67 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     # Assert
     await asyncio.wait_for(delete_event.wait(), timeout=1)
     assert mgr.get_sandbox(sandbox_id) is None
+
+# --- Filesystem Snapshot Tests ---
+
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_create_with_filesystem_snapshot(mock_create_instance, tmp_path):
+    """
+    Tests that creating a sandbox with a filesystem snapshot sets the correct config.
+    """
+    # Arrange
+    sandbox = FakeSandbox("snapshot-sandbox")
+    mock_create_instance.return_value = sandbox
+    mgr = SandboxManager(filesystem_snapshot_path=str(tmp_path))
+    
+    # Act
+    await mgr.create_sandbox(sandbox_id="snapshot-sandbox", filesystem_snapshot_name="my-snapshot.tar")
+    
+    # Assert
+    _, kwargs = mock_create_instance.call_args
+    config = kwargs["config"]
+    assert config.filesystem_snapshot_path == str(tmp_path / "my-snapshot.tar")
+
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_create_with_filesystem_snapshot_fails_if_not_configured(mock_create_instance):
+    """
+    Tests that creating a sandbox with a filesystem snapshot fails if the manager
+    is not configured with a snapshot path.
+    """
+    mgr = SandboxManager() # No filesystem_snapshot_path
+    with pytest.raises(SandboxCreationError, match="Filesystem snapshot is not enabled on the server."):
+        await mgr.create_sandbox(sandbox_id="test", filesystem_snapshot_name="my-snapshot.tar")
+
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_snapshot_filesystem(mock_create_instance, tmp_path):
+    """
+    Tests that snapshotting a sandbox's filesystem calls the instance's method.
+    """
+    # Arrange
+    sandbox = FakeSandbox("snapshot-sandbox")
+    mock_create_instance.return_value = sandbox
+    mgr = SandboxManager(filesystem_snapshot_path=str(tmp_path))
+    await mgr.create_sandbox(sandbox_id="snapshot-sandbox")
+    snapshot_path = tmp_path / "my-snapshot.tar"
+    
+    # Act
+    await mgr.snapshot_filesystem("snapshot-sandbox", "my-snapshot.tar")
+    
+    # Assert
+    assert snapshot_path.is_file()
+
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_snapshot_filesystem_fails(mock_create_instance, tmp_path):
+    """
+    Tests that the manager correctly handles a failure during snapshotting.
+    """
+    # Arrange
+    config = FakeSandboxConfig(snapshot_filesystem_should_fail=True)
+    sandbox = FakeSandbox("fail-snapshot-sandbox", config=config)
+    mock_create_instance.return_value = sandbox
+    mgr = SandboxManager(filesystem_snapshot_path=str(tmp_path))
+    await mgr.create_sandbox(sandbox_id="fail-snapshot-sandbox")
+    
+    # Act & Assert
+    with pytest.raises(SandboxSnapshotFilesystemError, match="Fake sandbox failed to snapshot filesystem as configured."):
+        await mgr.snapshot_filesystem("fail-snapshot-sandbox", "my-snapshot.tar")

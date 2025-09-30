@@ -8,7 +8,7 @@ from typing import Callable, Optional
 import os
 from pathlib import Path
 import json
-from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError
+from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError
 
 logger = logging.getLogger(__name__)
 
@@ -25,27 +25,20 @@ class SandboxManager:
     """
     Manages the lifecycle of stateful sandbox instances.
     """
-    def __init__(self, checkpoint_and_restore_path: str = None):
+    def __init__(self, checkpoint_and_restore_path: str = None, filesystem_snapshot_path: str = None):
         self._sandboxes: dict[str, SandboxMetadata] = {}
         self._ip_pool = {f"192.168.100.{i}" for i in range(2, 255)}
         self._ip_allocations: dict[str, str] = {}
         self.checkpoint_and_restore_path = checkpoint_and_restore_path
+        self.filesystem_snapshot_path = filesystem_snapshot_path
 
     @property
     def is_checkpointing_enabled(self) -> bool:
         return self.checkpoint_and_restore_path is not None
 
-    def _read_persistent_metadata(self, sandbox_id: str) -> Optional[dict]:
-        """Reads and parses the metadata JSON file for a sandbox."""
-        if not self.is_checkpointing_enabled:
-            return None
-
-        metadata_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "metadata.json")
-        if not os.path.exists(metadata_path):
-            return None
-
-        with open(metadata_path, "r") as f:
-            return json.load(f)
+    @property
+    def is_filesystem_snapshot_enabled(self) -> bool:
+        return self.filesystem_snapshot_path is not None
 
     def _read_persistent_metadata(self, sandbox_id: str) -> Optional[dict]:
         """Reads and parses the metadata JSON file for a sandbox."""
@@ -88,6 +81,7 @@ class SandboxManager:
         idle_timeout: int = None,
         delete_callback: Optional[Callable[[str], None]] = None,
         enable_checkpoint: bool = False,
+        filesystem_snapshot_name: str = None,
     ):
         """
         Creates and initializes a new sandbox instance using the factory.
@@ -100,6 +94,11 @@ class SandboxManager:
         
         config = factory.make_sandbox_config()
         ip_address = None
+
+        if filesystem_snapshot_name:
+            if not self.is_filesystem_snapshot_enabled:
+                raise SandboxCreationError("Filesystem snapshot is not enabled on the server.")
+            config.filesystem_snapshot_path = os.path.join(self.filesystem_snapshot_path, filesystem_snapshot_name)
 
         if enable_checkpoint:
             if not self.is_checkpointing_enabled:
@@ -240,6 +239,21 @@ class SandboxManager:
 
         # After checkpointing, the local instance is no longer valid.
         await self.delete_sandbox(sandbox_id)
+
+    async def snapshot_filesystem(self, sandbox_id: str, snapshot_name: str):
+        """
+        Snapshots the filesystem of a sandbox.
+        """
+        if not self.is_filesystem_snapshot_enabled:
+            raise SandboxOperationError("Filesystem snapshot is not enabled on the server.")
+
+        sandbox = self.get_sandbox(sandbox_id)
+        if not sandbox:
+            raise SandboxOperationError(f"Sandbox not found: {sandbox_id}")
+
+        snapshot_path = os.path.join(self.filesystem_snapshot_path, snapshot_name)
+        await sandbox.snapshot_filesystem(snapshot_path)
+        logger.info(f"Sandbox {sandbox_id} filesystem snapshotted to {snapshot_path}")
 
     async def _idle_cleanup(self, sandbox_id: str, timeout: int):
         """A background task that waits for a timeout and then deletes the sandbox."""

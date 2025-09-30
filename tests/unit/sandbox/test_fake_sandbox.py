@@ -4,7 +4,7 @@ import os
 import tempfile
 from unittest.mock import AsyncMock
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
-from src.sandbox.interface import SandboxCreationError, SandboxOperationError, SandboxStreamClosed
+from src.sandbox.interface import SandboxCreationError, SandboxOperationError, SandboxSnapshotFilesystemError, SandboxStreamClosed
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 
 pytestmark = pytest.mark.asyncio
@@ -131,3 +131,22 @@ async def test_fake_sandbox_restore_fails_if_no_checkpoint():
 
     with pytest.raises(SandboxOperationError, match=f"Checkpoint file not found at {non_existent_path}"):
         await sandbox.restore(non_existent_path)
+
+async def test_fake_sandbox_snapshot_filesystem():
+    """
+    Tests that the FakeSandbox can be snapshotted and that it can fail.
+    """
+    # Test successful snapshot
+    sandbox = FakeSandbox("fake-snapshot")
+    await sandbox.create()
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        snapshot_path = tmp.name
+    await sandbox.snapshot_filesystem(snapshot_path)
+    os.remove(snapshot_path)
+
+    # Test failed snapshot
+    config = FakeSandboxConfig(snapshot_filesystem_should_fail=True)
+    sandbox = FakeSandbox("fake-snapshot-fail", config=config)
+    await sandbox.create()
+    with pytest.raises(SandboxSnapshotFilesystemError):
+        await sandbox.snapshot_filesystem("/tmp/dummy_path")

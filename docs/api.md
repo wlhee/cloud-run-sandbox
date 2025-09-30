@@ -11,6 +11,7 @@ The following environment variables can be used to configure the gVisor sandbox:
 |---|---|---|
 | `LOG_LEVEL` | The log level for the application. Can be `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. | `INFO` |
 | `CHECKPOINT_AND_RESTORE_PATH` | The path to a directory where sandboxes can be checkpointed and restored from (e.g., a mounted GCS volume). If not set, this functionality is disabled. | (not set) |
+| `FILESYSTEM_SNAPSHOT_PATH` | The path to a directory where filesystem snapshots can be stored and loaded from. If not set, this functionality is disabled. | (not set) |
 | `RUNSC_USE_SUDO` | Set to `true` to run `runsc` commands with `sudo`. | `false` |
 | `RUNSC_ROOTLESS` | Set to `true` to run `runsc` in rootless mode. | `false` |
 | `RUNSC_ROOT_DIR_BASE` | The base directory for sandbox root directories. | `/tmp` |
@@ -26,7 +27,9 @@ The following environment variables can be used to configure the gVisor sandbox:
 
 ## API Usage
 
-### Execute Code
+### HTTP API
+
+#### Execute Code
 
 You can execute Python or Bash code by sending a `POST` request to the `/execute`
 endpoint. The code should be sent as the raw request body, and the `language`
@@ -45,3 +48,30 @@ curl -s -X POST -H "Content-Type: text/plain" --data-binary @example/test_hello.
 ```bash
 curl -s -X POST -H "Content-Type: text/plain" --data "echo 'hello from bash'" https://<YOUR_SERVICE_URL>/execute?language=bash
 ```
+
+### WebSocket API
+
+The WebSocket API provides a way to create and interact with stateful sandboxes.
+
+- **/create**: Creates a new sandbox.
+- **/attach/{sandbox_id}**: Attaches to an existing sandbox.
+
+Communication is done via JSON messages. Upon connection, the client can send an
+initialization message to configure the sandbox. For example:
+
+```json
+{
+  "idle_timeout": 300,
+  "enable_checkpoint": true,
+  "filesystem_snapshot_name": "my-snapshot"
+}
+```
+
+- `idle_timeout`: The number of seconds of inactivity before the sandbox is
+  automatically deleted.
+- `enable_checkpoint`: Enables checkpointing for the sandbox.
+- `filesystem_snapshot_name`: The name of a filesystem snapshot to create the
+  sandbox from.
+
+After the sandbox is created, the server will send a `sandbox_id` message, and
+then a `status_update` message to indicate that the sandbox is running.
