@@ -36,12 +36,12 @@ The assumed `runsc` commands are:
 - [x] Update the `create_sandbox` message handler to accept an optional `filesystem_snapshot_name` in the payload.
 - [x] Pass this value to the `SandboxManager.create_sandbox` method.
 
-### 2.5. JavaScript Client (`clients/js/src/sandbox.ts`)
+### 2.5. JavaScript Client (`clients/js/src/sandbox.ts`) - DONE
 
 - [x] Update the `Sandbox.create` method to accept an optional `filesystemSnapshotName` parameter.
 - [x] Update the `SandboxInfo` type to include this new optional field.
 
-### 2.6. Testing - Partially Done
+### 2.6. Testing - DONE
 
 - **`tests/unit/sandbox/test_gvisor_sandbox.py`**: - DONE
     - [x] Add tests for the `snapshot_filesystem` method, mocking `subprocess.run` and verifying the `runsc tar` command.
@@ -49,10 +49,10 @@ The assumed `runsc` commands are:
 - **`tests/unit/sandbox/test_manager.py`**: - DONE
     - [x] Add tests for `snapshot_filesystem`, including the check for `filesystem_snapshot_path`.
     - [x] Add tests for `create_sandbox` with `filesystem_snapshot_name`.
-- **`tests/unit/handlers/test_websocket.py`**: - 
+- **`tests/unit/handlers/test_websocket.py`**: - DONE
     - [x] Add tests for the `create_sandbox` handler with the new parameter.
     - [x] Add tests for the `snapshot_filesystem` action
-- **`clients/js/tests/sandbox.test.ts`**:
+- **`clients/js/tests/sandbox.test.ts`**: - DONE
     - [x] Add tests for creating a sandbox with `filesystemSnapshotName`.
 
 ## 3. Development Timeline
@@ -61,6 +61,6 @@ The assumed `runsc` commands are:
 2.  [x] Implement changes to the sandbox manager.
 3.  [x] Write unit tests for the backend changes.
 4.  [x] Expose the feature through the WebSocket API.
-5.  [ ] Write integration tests.
-6.  [ ] Update the JavaScript client.
-7.  [ ] Write tests for the JavaScript client.
+5.  [x] Write integration tests.
+6.  [x] Update the JavaScript client.
+7.  [x] Write tests for the JavaScript client.

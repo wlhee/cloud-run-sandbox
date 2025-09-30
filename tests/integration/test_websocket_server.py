@@ -209,6 +209,64 @@ async def test_websocket_checkpoint_and_restore_success(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_websocket_filesystem_snapshot_and_create(monkeypatch):
+    """
+    Tests the full filesystem snapshot and create from snapshot lifecycle via WebSocket.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        monkeypatch.setattr(sandbox_manager, "filesystem_snapshot_path", temp_dir)
+        # 1. Create a sandbox
+        with client.websocket_connect("/create") as websocket:
+            websocket.send_json({"idle_timeout": 120})
+            assert websocket.receive_json()["event"] == "status_update"
+            sandbox_id = websocket.receive_json()["sandbox_id"]
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+            # 2. Execute a command to create a file
+            websocket.send_json({"language": "bash", "code": "echo 'hello' > /test.txt"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+            # 3. Snapshot the sandbox
+            snapshot_name = "my-snapshot"
+            websocket.send_json({"action": "snapshot_filesystem", "name": snapshot_name})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_CREATING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_CREATED"}
+
+        # 4. Create a new sandbox from the snapshot
+        with client.websocket_connect("/create") as websocket:
+            websocket.send_json({"filesystem_snapshot_name": snapshot_name})
+            assert websocket.receive_json()["event"] == "status_update"
+            assert websocket.receive_json()["event"] == "sandbox_id"
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+            # 5. Verify the file exists
+            websocket.send_json({"language": "bash", "code": "cat /test.txt"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+            assert websocket.receive_json() == {"event": "stdout", "data": "hello\n"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_websocket_create_from_snapshot_not_found(monkeypatch):
+    """
+    Tests that creating a sandbox from a non-existent snapshot fails.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        monkeypatch.setattr(sandbox_manager, "filesystem_snapshot_path", temp_dir)
+        with client.websocket_connect("/create") as websocket:
+            websocket.send_json({"filesystem_snapshot_name": "non-existent-snapshot"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATION_ERROR"}
+            error_message = websocket.receive_json()
+            assert error_message["event"] == "error"
+            assert "No such file or directory" in error_message["message"]
+            with pytest.raises(WebSocketDisconnect) as e:
+                websocket.receive_json()
+            assert e.value.code == 4000
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_websocket_restore_failure(monkeypatch):
     """
     Tests that a failure during restore is handled gracefully.
