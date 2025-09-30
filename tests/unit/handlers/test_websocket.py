@@ -55,7 +55,34 @@ async def test_create_interactive_session_success(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
     # Assert that the sandbox was created with the correct idle timeout
-    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False)
+    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False, filesystem_snapshot_name=None)
+
+@pytest.mark.asyncio
+@patch('src.handlers.websocket.sandbox_manager.filesystem_snapshot_path', new='/tmp/snapshots')
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
+    """
+    Tests that a sandbox can be created with a filesystem snapshot.
+    """
+    # Arrange
+    sandbox = FakeSandbox("snapshot-sandbox")
+    await sandbox.create()
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"filesystem_snapshot_name": "my-snapshot"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "snapshot-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+    # Assert that create_sandbox was called with the snapshot name
+    mock_create_sandbox.assert_called_once_with(
+        idle_timeout=300,
+        enable_checkpoint=False,
+        filesystem_snapshot_name="my-snapshot"
+    )
+
 
 @pytest.mark.asyncio
 @patch('src.handlers.websocket.sandbox_manager.create_sandbox')
@@ -408,3 +435,75 @@ def test_attach_restore_sandbox_failure(mock_restore_sandbox):
         with pytest.raises(WebSocketDisconnect) as e:
             websocket.receive_json()
         assert e.value.code == 4000
+
+@pytest.mark.asyncio
+@patch('src.handlers.websocket.sandbox_manager.filesystem_snapshot_path', new='/tmp/snapshots')
+@patch('src.handlers.websocket.sandbox_manager.snapshot_filesystem')
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+async def test_snapshot_filesystem(mock_create_sandbox, mock_snapshot_filesystem):
+    """
+    Tests that the 'snapshot_filesystem' action is correctly handled.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        websocket.send_json({"action": "snapshot_filesystem", "name": "my-snapshot"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_CREATING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_CREATED"}
+
+    mock_snapshot_filesystem.assert_called_once_with("test-sandbox", "my-snapshot")
+
+@pytest.mark.asyncio
+@patch('src.handlers.websocket.sandbox_manager.filesystem_snapshot_path', new=None)
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+async def test_snapshot_filesystem_not_configured(mock_create_sandbox):
+    """
+    Tests that taking a filesystem snapshot fails if the feature is not configured.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        websocket.send_json({"action": "snapshot_filesystem", "name": "my-snapshot"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_CREATING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": "Failed to snapshot filesystem for sandbox test-sandbox: Filesystem snapshot is not enabled on the server."}
+@pytest.mark.asyncio
+@patch('src.handlers.websocket.sandbox_manager.filesystem_snapshot_path', new='/tmp/snapshots')
+@patch('src.handlers.websocket.sandbox_manager.snapshot_filesystem')
+@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+async def test_snapshot_filesystem_error(mock_create_sandbox, mock_snapshot_filesystem):
+    """
+    Tests that an error during filesystem snapshotting is handled gracefully.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_sandbox.return_value = sandbox
+    mock_snapshot_filesystem.side_effect = SandboxOperationError("Snapshot failed")
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        websocket.send_json({"action": "snapshot_filesystem", "name": "my-snapshot"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_CREATING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": "Failed to snapshot filesystem for sandbox test-sandbox: Snapshot failed"}

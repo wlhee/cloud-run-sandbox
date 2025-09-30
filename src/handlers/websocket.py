@@ -201,7 +201,6 @@ class WebsocketHandler:
 
     async def handle_error(self, e: Exception, close_connection: bool, message: dict = None):
         error_status = SandboxStateEvent.SANDBOX_ERROR
-        error_message = str(e)
 
         if isinstance(e, SandboxRestoreError):
             error_status = SandboxStateEvent.SANDBOX_RESTORE_ERROR
@@ -230,7 +229,7 @@ class WebsocketHandler:
             error_status = SandboxStateEvent.SANDBOX_ERROR
 
         await self.send_status(error_status)
-        await self.websocket.send_json({"event": "error", "message": error_message})
+        await self.websocket.send_json({"event": "error", "message": str(e)})
 
         if close_connection:
             await self.websocket.close(code=4000)
