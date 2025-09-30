@@ -70,7 +70,7 @@ The sandbox supports stateful sessions through a checkpoint and restore mechanis
 
 ### Server Configuration
 
-To enable this feature, the Cloud Run service must be deployed with a persistent volume and a specific environment variable.
+To enable this feature, the Cloud Run service must be deployed with a persistent volume and a specific environment variable of `CHECKPOINT_AND_RESTORE_PATH`.
 
 1.  **Create a GCS Bucket**: First, ensure you have a Google Cloud Storage bucket to store the checkpoints.
 2.  **Deploy with Volume Mount**: Deploy the service with the GCS bucket mounted as a volume.
@@ -85,8 +85,8 @@ gcloud run deploy sandbox --source . \
   --execution-environment=gen2 \
   --concurrency=1 \
   --add-volume=name=gcs-volume,type=cloud-storage,bucket=<YOUR_BUCKET_NAME> \
-  --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs \
-  --set-env-vars='CHECKPOINT_AND_RESTORE_PATH=/mnt/gcs'
+  --add-volume-mount=volume=gcs-volume,mount-path=/mnt/checkpoint \
+  --set-env-vars='CHECKPOINT_AND_RESTORE_PATH=/mnt/checkpoint'
 ```
 
 Replace `<YOUR_PROJECT_ID>` and `<YOUR_BUCKET_NAME>` accordingly. If these are not configured, the server will reject any client requests to use the checkpointing feature.
@@ -109,7 +109,51 @@ const sandbox2 = await Sandbox.attach(url, sandboxId);
 
 For a complete, runnable demonstration, please see the example file: `example/checkpoint.ts`.
 
-## 4. Executing Python or Bash Code via HTTP (One-off testing)
+## 4. Filesystem Snapshot
+
+The sandbox supports creating a filesystem snapshot from a running sandbox. This allows a client to create a new sandbox from a snapshot, which can be faster than creating a new sandbox from scratch.
+
+### Server Configuration
+
+To enable this feature, the Cloud Run service must be deployed with a persistent volume and a specific environment variable of `FILESYSTEM_SNAPSHOT_PATH`.
+
+1.  **Create a GCS Bucket**: First, ensure you have a Google Cloud Storage bucket to store the snapshots.
+2.  **Deploy with Volume Mount**: Deploy the service with the GCS bucket mounted as a volume.
+
+Here is an example `gcloud` command:
+
+```bash
+gcloud run deploy sandbox --source . \
+  --project=<YOUR_PROJECT_ID> \
+  --region=us-central1 \
+  --allow-unauthenticated \
+  --execution-environment=gen2 \
+  --concurrency=1 \
+  --add-volume=name=gcs-volume,type=cloud-storage,bucket=<YOUR_BUCKET_NAME> \
+  --add-volume-mount=volume=gcs-volume,mount-path=/mnt/fs_snapshot \
+  --set-env-vars='FILESYSTEM_SNAPSHOT_PATH=/mnt/fs_snapshot'
+```
+
+Replace `<YOUR_PROJECT_ID>` and `<YOUR_BUCKET_NAME>` accordingly. If these are not configured, the server will reject any client requests to use the filesystem snapshot feature.
+
+### Example Usage
+
+Here is a simplified example of the filesystem snapshot flow:
+
+```typescript
+// 1. Create a sandbox
+const sandbox1 = await Sandbox.create(url);
+
+// 2. Snapshot the sandbox filesystem
+await sandbox1.snapshotFilesystem('my-snapshot');
+
+// 3. At a later time, create a new sandbox from the snapshot
+const sandbox2 = await Sandbox.create(url, { filesystemSnapshotName: 'my-snapshot' });
+```
+
+For a complete, runnable demonstration, please see the example file: `example/filesystem_snapshot.ts`.
+
+## 5. Executing Python or Bash Code via HTTP (One-off testing)
 
 To execute a Python or Bash script with HTTP, you can send a POST request to the `/execute`
 endpoint with the content of the script as the request body, and `language=[python|bash]` as a
@@ -129,7 +173,7 @@ curl -s -X POST -H "Content-Type: text/plain" --data "echo 'hello from bash'" ht
 
 Replace `<YOUR_SERVICE_URL>` with the URL of your deployed Cloud Run service. The output of the script will be available in the Cloud Run logs.
 
-## 4. Limitation
+## 6. Limitation
 
 Currently, the sandbox environment does not support importing non-standard Python libraries.
 

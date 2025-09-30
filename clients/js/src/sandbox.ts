@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { MessageKey, EventType, SandboxEvent, WebSocketMessage } from './types';
 import { SandboxProcess } from './process';
 
-type SandboxState = 'creating' | 'running' | 'closed' | 'failed' | 'checkpointing' | 'checkpointed' | 'restoring';
+type SandboxState = 'creating' | 'running' | 'closed' | 'failed' | 'checkpointing' | 'checkpointed' | 'restoring' | 'filesystem_snapshotting';
 
 export class Sandbox {
   private ws: WebSocket;
@@ -89,6 +89,17 @@ export class Sandbox {
           this._creationError = new Error(message.message || message.status);
           this.eventEmitter.emit('failed', this._creationError);
           break;
+        case SandboxEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATING:
+          this.state = 'filesystem_snapshotting';
+          break;
+        case SandboxEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATED:
+          this.state = 'running';
+          this.eventEmitter.emit('filesystem_snapshot_created');
+          break;
+        case SandboxEvent.SANDBOX_FILESYSTEM_SNAPSHOT_ERROR:
+          this.state = 'running';
+          this.eventEmitter.emit('filesystem_snapshot_error', new Error(message.message || message.status));
+          break;
       }
       return;
     }
@@ -123,8 +134,8 @@ export class Sandbox {
     // for the user to handle, e.g., this.eventEmitter.emit('error', err);
   }
 
-  static create(url: string, options: { idleTimeout?: number, enableCheckpoint?: boolean, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
-    const { idleTimeout = 60, enableCheckpoint = false, wsOptions } = options;
+  static create(url: string, options: { idleTimeout?: number, enableCheckpoint?: boolean, filesystemSnapshotName?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
+    const { idleTimeout = 60, enableCheckpoint = false, filesystemSnapshotName, wsOptions } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     const ws = new WebSocket(`${sanitizedUrl}/create`, wsOptions);
@@ -134,6 +145,7 @@ export class Sandbox {
       ws.send(JSON.stringify({
         idle_timeout: idleTimeout,
         enable_checkpoint: enableCheckpoint,
+        filesystem_snapshot_name: filesystemSnapshotName,
       }));
     });
     
@@ -187,6 +199,23 @@ export class Sandbox {
         resolve();
       });
       this.eventEmitter.once('checkpoint_error', (err) => {
+        reject(err);
+      });
+    });
+  }
+
+  public snapshotFilesystem(name: string): Promise<void> {
+    if (this.state !== 'running') {
+      return Promise.reject(new Error(`Sandbox is not in a running state. Current state: ${this.state}`));
+    }
+
+    this.ws.send(JSON.stringify({ action: 'snapshot_filesystem', name }));
+
+    return new Promise((resolve, reject) => {
+      this.eventEmitter.once('filesystem_snapshot_created', () => {
+        resolve();
+      });
+      this.eventEmitter.once('filesystem_snapshot_error', (err) => {
         reject(err);
       });
     });

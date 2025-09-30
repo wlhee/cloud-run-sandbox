@@ -45,6 +45,7 @@ describe('Sandbox', () => {
     expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: false,
+      filesystem_snapshot_name: undefined,
     }));
 
     sandbox.terminate();
@@ -72,6 +73,35 @@ describe('Sandbox', () => {
     expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: true,
+      filesystem_snapshot_name: undefined,
+    }));
+
+    sandbox.terminate();
+    expect(mockWsInstance.close).toHaveBeenCalled();
+  });
+
+  it('should create a sandbox with a filesystem snapshot', async () => {
+    const createPromise = Sandbox.create('ws://test-url', { filesystemSnapshotName: 'my-snapshot' });
+    
+    mockWsInstance.emit('open');
+
+    mockWsInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.SANDBOX_ID,
+      [MessageKey.SANDBOX_ID]: 'test-id',
+    }));
+    mockWsInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+    }));
+
+    const sandbox = await createPromise;
+
+    expect(sandbox).toBeInstanceOf(Sandbox);
+    expect(sandbox.sandboxId).toBe('test-id');
+    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+      idle_timeout: 60,
+      enable_checkpoint: false,
+      filesystem_snapshot_name: 'my-snapshot',
     }));
 
     sandbox.terminate();
@@ -311,5 +341,57 @@ describe('Sandbox', () => {
     
     // Assert that the sandboxId was set correctly on the client-side object
     expect(sandbox.sandboxId).toBe(testId);
+  });
+
+  it('should successfully create a filesystem snapshot', async () => {
+    const createPromise = Sandbox.create('ws://test-url');
+    mockWsInstance.emit('open');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    const sandbox = await createPromise;
+
+    const snapshotPromise = sandbox.snapshotFilesystem('my-snapshot');
+
+    // Simulate server responses
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATED' }));
+
+    await expect(snapshotPromise).resolves.toBeUndefined();
+  });
+
+  it('should handle a filesystem snapshot error', async () => {
+    const createPromise = Sandbox.create('ws://test-url');
+    mockWsInstance.emit('open');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    const sandbox = await createPromise;
+
+    const snapshotPromise = sandbox.snapshotFilesystem('my-snapshot');
+
+    // Simulate server responses for a failed snapshot
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
+    mockWsInstance.emit('message', JSON.stringify({
+      event: 'status_update',
+      status: 'SANDBOX_FILESYSTEM_SNAPSHOT_ERROR',
+      message: 'Snapshot failed',
+    }));
+
+    await expect(snapshotPromise).rejects.toThrow('Snapshot failed');
+  });
+
+  it('should reject snapshot if another snapshot is in progress', async () => {
+    const createPromise = Sandbox.create('ws://test-url');
+    mockWsInstance.emit('open');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    const sandbox = await createPromise;
+
+    const snapshotPromise1 = sandbox.snapshotFilesystem('my-snapshot-1');
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
+
+    await expect(sandbox.snapshotFilesystem('my-snapshot-2')).rejects.toThrow('Sandbox is not in a running state. Current state: filesystem_snapshotting');
+
+    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATED' }));
+    await expect(snapshotPromise1).resolves.toBeUndefined();
   });
 });

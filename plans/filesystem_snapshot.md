@@ -38,8 +38,8 @@ The assumed `runsc` commands are:
 
 ### 2.5. JavaScript Client (`clients/js/src/sandbox.ts`)
 
-- [ ] Update the `Sandbox.create` method to accept an optional `filesystemSnapshotName` parameter.
-- [ ] Update the `SandboxInfo` type to include this new optional field.
+- [x] Update the `Sandbox.create` method to accept an optional `filesystemSnapshotName` parameter.
+- [x] Update the `SandboxInfo` type to include this new optional field.
 
 ### 2.6. Testing - Partially Done
 
@@ -50,10 +50,10 @@ The assumed `runsc` commands are:
     - [x] Add tests for `snapshot_filesystem`, including the check for `filesystem_snapshot_path`.
     - [x] Add tests for `create_sandbox` with `filesystem_snapshot_name`.
 - **`tests/unit/handlers/test_websocket.py`**: - 
-    - [ ] Add tests for the `create_sandbox` handler with the new parameter.
-    - [ ] Add tests for the `snapshot_filesystem` action
+    - [x] Add tests for the `create_sandbox` handler with the new parameter.
+    - [x] Add tests for the `snapshot_filesystem` action
 - **`clients/js/tests/sandbox.test.ts`**:
-    - [ ] Add tests for creating a sandbox with `filesystemSnapshotName`.
+    - [x] Add tests for creating a sandbox with `filesystemSnapshotName`.
 
 ## 3. Development Timeline
 
