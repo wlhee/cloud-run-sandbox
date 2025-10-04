@@ -1,7 +1,7 @@
 import pytest
 from src.sandbox.manager import SandboxManager
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
-from src.sandbox.interface import SandboxCreationError, SandboxOperationError, SandboxSnapshotFilesystemError
+from src.sandbox.interface import SandboxCreationError, SandboxOperationError, SandboxSnapshotFilesystemError, SandboxRestoreError
 from unittest.mock import patch, ANY
 import asyncio
 import os
@@ -72,7 +72,9 @@ async def test_manager_create_sandbox_failure(mock_create_instance):
 
 @patch('src.sandbox.factory.create_sandbox_instance')
 async def test_idle_cleanup(mock_create_instance):
-    """Tests that an idle sandbox is automatically deleted."""
+    """
+    Tests that an idle sandbox is automatically deleted.
+    """
     # Arrange
     sandbox = FakeSandbox("idle-sandbox")
     mock_create_instance.return_value = sandbox
@@ -167,12 +169,12 @@ async def test_create_with_checkpoint_enabled(mock_create_instance, tmp_path):
     
     # Assert
     sandbox_dir = tmp_path / "checkpoint-sandbox"
+    checkpoints_dir = sandbox_dir / "checkpoints"
     metadata_path = sandbox_dir / "metadata.json"
-    assert sandbox_dir.is_dir()
+    assert checkpoints_dir.is_dir()
     assert metadata_path.is_file()
     with open(metadata_path, "r") as f:
         metadata = json.load(f)
-    assert metadata["status"] == "created"
     assert metadata["idle_timeout"] == 300
 
 @patch('src.sandbox.factory.create_sandbox_instance')
@@ -201,12 +203,19 @@ async def test_checkpoint_sandbox(mock_create_instance, tmp_path):
     await mgr.checkpoint_sandbox("checkpoint-sandbox")
     
     # Assert
-    checkpoint_file = tmp_path / "checkpoint-sandbox" / "checkpoint"
+    checkpoints_dir = tmp_path / "checkpoint-sandbox" / "checkpoints"
+    latest_path = checkpoints_dir / "latest"
+    assert latest_path.is_file()
+
+    with open(latest_path, "r") as f:
+        latest_checkpoint_name = f.read().strip()
+    
+    checkpoint_file = checkpoints_dir / latest_checkpoint_name
     assert checkpoint_file.is_file()
+
     metadata_path = tmp_path / "checkpoint-sandbox" / "metadata.json"
     with open(metadata_path, "r") as f:
         metadata = json.load(f)
-    assert metadata["status"] == "checkpointed"
     assert metadata["idle_timeout"] == 300 # Ensure idle_timeout is preserved
     assert mgr.get_sandbox("checkpoint-sandbox") is None # Should be removed from memory
 
@@ -218,13 +227,16 @@ async def test_restore_sandbox(mock_create_instance, tmp_path):
     """
     # Arrange
     sandbox_id = "restore-sandbox"
-    sandbox_dir = tmp_path / sandbox_id
-    checkpoint_path = sandbox_dir / "checkpoint"
-    metadata_path = sandbox_dir / "metadata.json"
-    os.makedirs(sandbox_dir)
-    checkpoint_path.touch()
+    checkpoints_dir = tmp_path / sandbox_id / "checkpoints"
+    os.makedirs(checkpoints_dir)
+    checkpoint_file = checkpoints_dir / "checkpoint_123.img"
+    checkpoint_file.touch()
+    latest_path = checkpoints_dir / "latest"
+    with open(latest_path, "w") as f:
+        f.write("checkpoint_123.img")
+    metadata_path = tmp_path / sandbox_id / "metadata.json"
     with open(metadata_path, "w") as f:
-        json.dump({"status": "checkpointed", "idle_timeout": 180}, f)
+        json.dump({"idle_timeout": 180}, f)
 
     restored_sandbox = FakeSandbox(sandbox_id)
     mock_create_instance.return_value = restored_sandbox
@@ -265,10 +277,13 @@ async def test_restore_sandbox_fails(mock_create_instance, tmp_path):
     """
     # Arrange
     sandbox_id = "fail-restore"
-    sandbox_dir = tmp_path / sandbox_id
-    checkpoint_path = sandbox_dir / "checkpoint"
-    os.makedirs(sandbox_dir)
-    checkpoint_path.touch()
+    checkpoints_dir = tmp_path / sandbox_id / "checkpoints"
+    os.makedirs(checkpoints_dir)
+    checkpoint_file = checkpoints_dir / "checkpoint_123.img"
+    checkpoint_file.touch()
+    latest_path = checkpoints_dir / "latest"
+    with open(latest_path, "w") as f:
+        f.write("checkpoint_123.img")
 
     config = FakeSandboxConfig(restore_should_fail=True)
     sandbox_that_will_fail = FakeSandbox(sandbox_id, config=config)
@@ -277,7 +292,7 @@ async def test_restore_sandbox_fails(mock_create_instance, tmp_path):
     mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
     
     # Act
-    with pytest.raises(SandboxOperationError, match="Failed to restore sandbox fail-restore"):
+    with pytest.raises(SandboxRestoreError, match="Failed to restore sandbox fail-restore"):
         await mgr.restore_sandbox(sandbox_id)
     
     # Assert
@@ -291,13 +306,16 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     """
     # Arrange
     sandbox_id = "restore-timer-sandbox"
-    sandbox_dir = tmp_path / sandbox_id
-    checkpoint_path = sandbox_dir / "checkpoint"
-    metadata_path = sandbox_dir / "metadata.json"
-    os.makedirs(sandbox_dir)
-    checkpoint_path.touch()
+    checkpoints_dir = tmp_path / sandbox_id / "checkpoints"
+    os.makedirs(checkpoints_dir)
+    checkpoint_file = checkpoints_dir / "checkpoint_123.img"
+    checkpoint_file.touch()
+    latest_path = checkpoints_dir / "latest"
+    with open(latest_path, "w") as f:
+        f.write("checkpoint_123.img")
+    metadata_path = tmp_path / sandbox_id / "metadata.json"
     with open(metadata_path, "w") as f:
-        json.dump({"status": "checkpointed", "idle_timeout": 0.1}, f)
+        json.dump({"idle_timeout": 0.1}, f)
 
     restored_sandbox = FakeSandbox(sandbox_id)
     mock_create_instance.return_value = restored_sandbox
@@ -312,6 +330,51 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     # Assert
     await asyncio.wait_for(delete_event.wait(), timeout=1)
     assert mgr.get_sandbox(sandbox_id) is None
+
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, tmp_path):
+    """
+    Tests the full lifecycle of checkpoint -> restore -> checkpoint -> restore
+    to ensure multiple checkpoints are handled correctly.
+    """
+    sandbox_id = "multi-checkpoint-sandbox"
+    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
+
+    # --- Create and First Checkpoint ---
+    mock_create_instance.return_value = FakeSandbox(sandbox_id)
+    await mgr.create_sandbox(sandbox_id=sandbox_id, enable_checkpoint=True)
+    await mgr.checkpoint_sandbox(sandbox_id)
+    
+    checkpoints_dir = tmp_path / sandbox_id / "checkpoints"
+    latest_path = checkpoints_dir / "latest"
+    assert latest_path.is_file()
+    with open(latest_path, "r") as f:
+        first_checkpoint_name = f.read().strip()
+    assert (checkpoints_dir / first_checkpoint_name).is_file()
+    assert mgr.get_sandbox(sandbox_id) is None
+
+    # --- First Restore ---
+    restored_sandbox_1 = FakeSandbox(sandbox_id)
+    mock_create_instance.return_value = restored_sandbox_1
+    sandbox_1 = await mgr.restore_sandbox(sandbox_id)
+    assert sandbox_1 is restored_sandbox_1
+    assert mgr.get_sandbox(sandbox_id) is restored_sandbox_1
+
+    # --- Second Checkpoint ---
+    await mgr.checkpoint_sandbox(sandbox_id)
+    assert latest_path.is_file()
+    with open(latest_path, "r") as f:
+        second_checkpoint_name = f.read().strip()
+    assert (checkpoints_dir / second_checkpoint_name).is_file()
+    assert second_checkpoint_name != first_checkpoint_name
+    assert mgr.get_sandbox(sandbox_id) is None
+
+    # --- Second Restore ---
+    restored_sandbox_2 = FakeSandbox(sandbox_id)
+    mock_create_instance.return_value = restored_sandbox_2
+    sandbox_2 = await mgr.restore_sandbox(sandbox_id)
+    assert sandbox_2 is restored_sandbox_2
+    assert mgr.get_sandbox(sandbox_id) is restored_sandbox_2
 
 # --- Filesystem Snapshot Tests ---
 

@@ -177,4 +177,6 @@ Replace `<YOUR_SERVICE_URL>` with the URL of your deployed Cloud Run service. Th
 
 Currently, the sandbox environment does not support importing non-standard Python libraries.
 
+A simple way is workaround is to update the Dockerfile to install the libraries needed.
+
 **TODO:** Add support for installing and using third-party libraries.

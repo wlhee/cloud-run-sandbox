@@ -6,6 +6,28 @@ This document outlines the checkpoint and restore functionality, enabling statef
 
 For the checkpoint and restore feature to be available, the server must be started with the `CHECKPOINT_AND_RESTORE_PATH` environment variable set to a valid path on a persistent volume. If this variable is not set, the server will reject any client requests to enable checkpointing and will not attempt to restore sandboxes from disk.
 
+## Filesystem Structure
+
+When checkpointing is enabled for a sandbox, the following directory structure is created within the path specified by the `CHECKPOINT_AND_RESTORE_PATH` environment variable:
+
+```
+/path/to/persistent/volume/
+└── {sandbox_id}/
+    ├── checkpoints/
+    │   ├── checkpoint_1678886400000.img
+    │   ├── checkpoint_1678886460000.img
+    │   └── latest
+    └── metadata.json
+```
+
+-   **`{sandbox_id}/`**: A directory unique to each sandbox.
+-   **`metadata.json`**: A file containing metadata about the sandbox, such as its `idle_timeout`.
+-   **`checkpoints/`**: A directory containing all checkpoint files for the sandbox.
+-   **`checkpoint_{timestamp}.img`**: A timestamped file representing a single checkpoint of the sandbox's state.
+-   **`latest`**: A simple text file that contains the filename of the most recent checkpoint (e.g., `checkpoint_1678886460000.img`). When a sandbox is restored, the server uses this file to identify which checkpoint to load.
+
+This structure allows for multiple checkpoints to be stored for each sandbox, with the `latest` file ensuring that the most recent checkpoint is always used for restoration.
+
 ## Overview
 
 The checkpoint and restore feature allows a client to save the complete state of a sandbox, including its filesystem and running processes, to a persistent volume. The sandbox can then be destroyed from the current server instance. At a later time, a client can reconnect to a different server instance, and the sandbox will be restored from the persistent volume to the exact state it was in when it was checkpointed.

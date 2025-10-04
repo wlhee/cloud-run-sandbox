@@ -52,7 +52,7 @@ class SandboxManager:
         with open(metadata_path, "r") as f:
             return json.load(f)
 
-    def _write_persistent_metadata(self, sandbox_id: str, status: str, idle_timeout: int = None):
+    def _write_persistent_metadata(self, sandbox_id: str, idle_timeout: int = None):
         """Writes metadata to a JSON file in the sandbox's persistence directory."""
         if not self.is_checkpointing_enabled:
             return
@@ -60,14 +60,13 @@ class SandboxManager:
         metadata_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "metadata.json")
         
         # When updating, preserve the original idle_timeout if not provided.
-        if status != "created" and os.path.exists(metadata_path):
+        if os.path.exists(metadata_path):
             with open(metadata_path, "r") as f:
                 existing_metadata = json.load(f)
             if idle_timeout is None:
                 idle_timeout = existing_metadata.get("idle_timeout")
 
         metadata = {
-            "status": status,
             "timestamp": time.time(),
             "idle_timeout": idle_timeout,
         }
@@ -110,8 +109,9 @@ class SandboxManager:
             # Create persistence directory.
             try:
                 sandbox_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id)
-                os.makedirs(sandbox_dir, exist_ok=False)
-                self._write_persistent_metadata(sandbox_id, "created", idle_timeout=idle_timeout)
+                checkpoints_dir = os.path.join(sandbox_dir, "checkpoints")
+                os.makedirs(checkpoints_dir, exist_ok=False)
+                self._write_persistent_metadata(sandbox_id, idle_timeout=idle_timeout)
             except FileExistsError:
                 raise SandboxCreationError(f"Sandbox directory already exists: {sandbox_dir}")
             except Exception as e:
@@ -162,10 +162,17 @@ class SandboxManager:
             return None
 
         sandbox_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id)
-        checkpoint_path = os.path.join(sandbox_dir, "checkpoint")
+        checkpoints_dir = os.path.join(sandbox_dir, "checkpoints")
+        latest_path = os.path.join(checkpoints_dir, "latest")
         metadata_path = os.path.join(sandbox_dir, "metadata.json")
+        checkpoint_path = None
 
-        if not os.path.exists(checkpoint_path):
+        if os.path.exists(latest_path):
+            with open(latest_path, "r") as f:
+                latest_checkpoint_name = f.read().strip()
+            checkpoint_path = os.path.join(checkpoints_dir, latest_checkpoint_name)
+
+        if not checkpoint_path or not os.path.exists(checkpoint_path):
             return None
 
         logger.info(f"Restoring sandbox {sandbox_id} from {checkpoint_path}")
@@ -231,10 +238,18 @@ class SandboxManager:
         if not sandbox:
             raise SandboxOperationError(f"Sandbox not found: {sandbox_id}")
 
-        checkpoint_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "checkpoint")
+        checkpoints_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "checkpoints")
+        checkpoint_name = f"checkpoint_{time.time_ns()}"
+        checkpoint_path = os.path.join(checkpoints_dir, checkpoint_name)
+
         await sandbox.checkpoint(checkpoint_path)
+
+        # Update the 'latest' file to point to the new checkpoint.
+        latest_path = os.path.join(checkpoints_dir, "latest")
+        with open(latest_path, "w") as f:
+            f.write(checkpoint_name)
         
-        self._write_persistent_metadata(sandbox_id, "checkpointed", idle_timeout=self._sandboxes[sandbox_id].idle_timeout)
+        self._write_persistent_metadata(sandbox_id, idle_timeout=self._sandboxes[sandbox_id].idle_timeout)
         logger.info(f"Sandbox {sandbox_id} checkpointed to {checkpoint_path}")
 
         # After checkpointing, the local instance is no longer valid.

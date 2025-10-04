@@ -209,6 +209,61 @@ async def test_websocket_checkpoint_and_restore_success(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_websocket_multi_checkpoint_and_restore(monkeypatch):
+    """
+    Tests the full lifecycle of checkpoint -> restore -> checkpoint -> restore.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        monkeypatch.setattr(sandbox_manager, "checkpoint_and_restore_path", temp_dir)
+        
+        # 1. Create a sandbox with checkpointing enabled
+        with client.websocket_connect("/create") as websocket:
+            websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
+            assert websocket.receive_json()["event"] == "status_update"
+            sandbox_id = websocket.receive_json()["sandbox_id"]
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+            # 2. Create a file with initial state
+            websocket.send_json({"language": "bash", "code": "echo 'state1' > /data.txt"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+            # 3. First checkpoint
+            websocket.send_json({"action": "checkpoint"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+
+        # 4. First restore and verify
+        with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+            websocket.send_json({"language": "bash", "code": "cat /data.txt"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+            assert websocket.receive_json() == {"event": "stdout", "data": "state1\n"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+            # 5. Update the file to a new state
+            websocket.send_json({"language": "bash", "code": "echo 'state2' > /data.txt"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+            # 6. Second checkpoint
+            websocket.send_json({"action": "checkpoint"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+
+        # 7. Second restore and verify
+        with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+            websocket.send_json({"language": "bash", "code": "cat /data.txt"})
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+            assert websocket.receive_json() == {"event": "stdout", "data": "state2\n"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@pytest.mark.skip(reason="runsc does not yet support creating from a tarball.")
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_websocket_filesystem_snapshot_and_create(monkeypatch):
     """
     Tests the full filesystem snapshot and create from snapshot lifecycle via WebSocket.
