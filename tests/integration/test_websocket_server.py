@@ -302,8 +302,9 @@ async def test_websocket_filesystem_snapshot_and_create(monkeypatch):
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="runsc does not yet support creating from a tarball.")
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_websocket_create_from_snapshot_not_found(monkeypatch):
+async def test_websocket_create_from_filesystem_snapshot_not_found(monkeypatch):
     """
     Tests that creating a sandbox from a non-existent snapshot fails.
     """
@@ -338,9 +339,12 @@ async def test_websocket_restore_failure(monkeypatch):
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
 
-        # 2. Corrupt the checkpoint file by removing it
-        checkpoint_path = os.path.join(temp_dir, sandbox_id, "checkpoint")
-        shutil.rmtree(checkpoint_path)
+        # 2. Corrupt the checkpoint by deleting the file pointed to by 'latest'
+        checkpoints_dir = os.path.join(temp_dir, sandbox_id, "checkpoints")
+        latest_path = os.path.join(checkpoints_dir, "latest")
+        with open(latest_path, "r") as f:
+            latest_checkpoint_name = f.read().strip()
+        os.remove(os.path.join(checkpoints_dir, latest_checkpoint_name))
 
         # 3. Attempt to attach to the sandbox
         with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
