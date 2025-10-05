@@ -239,7 +239,9 @@ class SandboxManager:
             raise SandboxOperationError(f"Sandbox not found: {sandbox_id}")
 
         checkpoints_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "checkpoints")
-        checkpoint_name = f"checkpoint_{time.time_ns()}.img"
+        # `runsc checkpoint --image-path` asks for a directory to create checkpoint realted files in.
+        # Hence, checkpoint_name is a subdirectory under checkpoints_dir.
+        checkpoint_name = f"checkpoint_{time.time_ns()}"
         checkpoint_path = os.path.join(checkpoints_dir, checkpoint_name)
 
         await sandbox.checkpoint(checkpoint_path)

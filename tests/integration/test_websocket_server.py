@@ -344,8 +344,8 @@ async def test_websocket_restore_failure(monkeypatch):
         latest_path = os.path.join(checkpoints_dir, "latest")
         with open(latest_path, "r") as f:
             latest_checkpoint_name = f.read().strip()
-        print([f'{entry.name}: {"directory" if entry.is_dir() else "file"}' for entry in os.scandir(checkpoints_dir)])
-        os.remove(os.path.join(checkpoints_dir, latest_checkpoint_name))
+        checkpoint_path = os.path.join(checkpoints_dir, latest_checkpoint_name)
+        shutil.rmtree(checkpoint_path)
 
         # 3. Attempt to attach to the sandbox
         with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
