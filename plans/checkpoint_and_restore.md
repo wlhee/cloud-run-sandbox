@@ -43,7 +43,7 @@ This phase focuses on establishing the `checkpoint` and `restore` contract and i
 
 ---
 
-#### **Phase 2: Manager Orchestration with GCS Volume Mount**
+#### **Phase 2: Manager Orchestration with GCS Volume Mount [DONE]**
 
 1.  **[DONE] Explicitly Configure the `SandboxManager`**:
     *   Modify the `SandboxManager` in `src/sandbox/manager.py` to accept an optional `checkpoint_and_restore_path: str` during initialization.
@@ -68,7 +68,7 @@ This phase focuses on establishing the `checkpoint` and `restore` contract and i
         1.  On a cache miss, it will check for the existence of the directory `{self.checkpoint_and_restore_path}/{sandbox_id}/`.
         2.  If it exists, it will create a new sandbox instance and call its `restore()` method, passing the direct path to the checkpoint on the mounted volume.
 
-5.  **Support for Multiple Checkpoints**:
+5.  **[DONE] Support for Multiple Checkpoints**:
     *   The current implementation only supports a single checkpoint per sandbox, overwriting it each time.
     *   The system needs to be enhanced to manage multiple, named checkpoints (e.g., using tags or timestamps).
     *   The `checkpoint` action in the WebSocket protocol will need to be updated to accept a name or tag for the checkpoint.

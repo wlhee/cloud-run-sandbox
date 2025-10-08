@@ -5,3 +5,4 @@ pytest-asyncio
 httpx
 requests
 certifi
+google-cloud-storage
