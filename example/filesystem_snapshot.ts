@@ -22,7 +22,9 @@
  * 1. Make sure you have ts-node installed (`npm install -g ts-node`).
  * 2. Set the environment variable:
  *    `export CLOUD_RUN_URL="wss://your-service-url.run.app"
- * 3. Run the script from the root of the repository:
+ * 3. Install the JS client for the sandbox:
+ *    `npm install clients/js/`
+ * 4. Run the script from the root of the repository:
  *    `ts-node example/filesystem_snapshot.ts`
  */
 import { Sandbox } from '../clients/js/src/sandbox';

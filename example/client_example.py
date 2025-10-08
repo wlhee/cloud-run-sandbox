@@ -11,10 +11,13 @@ async def main():
     This script expects the URL of your deployed Cloud Run service to be
     set in the `CLOUD_RUN_URL` environment variable.
     
-    The WebSocket URL should be in the format: wss://<your-cloud-run-url>
+    The WebSocket URL should be in the format: wss://<your-cloud-run-url>.
+
+    Ensure you also installed the Sandbox client for Python before running this.
     
     Example:
         CLOUD_RUN_URL="wss://sandbox-xxxxxxxxxx-uc.a.run.app" 
+        pip install -e clients/python
         python3 example/client_example.py
     """
     url = os.environ.get("CLOUD_RUN_URL")
