@@ -9,3 +9,6 @@ dist/
 
 # Examples
 example/**/*.js
+
+# Build artifacts
+out/
