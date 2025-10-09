@@ -16,6 +16,8 @@ Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
 
 The most convenient way to interact with the sandbox is by using one of the client libraries.
 
+For each of these examples, ensure you first install the respective client in the clients/ folder. For example, `npm install clients/js/` for Typescript.
+
 ### Python
 
 Here is a simple example of how to connect to the sandbox, execute a command, and print its output:
