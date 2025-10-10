@@ -369,6 +369,13 @@ class GVisorSandbox(SandboxInterface):
                 "path": f"/var/run/netns/{self._sandbox_id}"
             })
 
+        if self._config.filesystem_snapshot_path:
+            if not os.path.exists(self._config.filesystem_snapshot_path):
+                raise SandboxCreationError(f"Filesystem snapshot not found at {self._config.filesystem_snapshot_path}")
+            config["annotations"] = {
+                "dev.gvisor.tar.rootfs.upper": self._config.filesystem_snapshot_path
+            }
+
         config_path = os.path.join(self._bundle_dir, "config.json")
         logger.info(f"--- Writing config.json to {config_path} ---")
         logger.info(json.dumps(config, indent=4))
@@ -389,12 +396,7 @@ class GVisorSandbox(SandboxInterface):
 
             self._prepare_bundle()
             
-            run_cmd_list = ["run", "--bundle", self._bundle_dir]
-            if self._config.filesystem_snapshot_path:
-                if not os.path.exists(self._config.filesystem_snapshot_path):
-                    raise SandboxCreationError(f"Filesystem snapshot not found at {self._config.filesystem_snapshot_path}")
-                run_cmd_list.extend(["--rootfs-tar", self._config.filesystem_snapshot_path])
-            run_cmd_list.append(self._container_id)
+            run_cmd_list = ["run", "--bundle", self._bundle_dir, self._container_id]
             run_cmd = self._build_runsc_cmd(*run_cmd_list)
 
             self._main_process = await self._start_main_process(run_cmd, "create")
