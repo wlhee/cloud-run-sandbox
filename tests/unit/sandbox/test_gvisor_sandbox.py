@@ -691,7 +691,6 @@ async def test_restore_failure_raises_error():
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="runsc does not yet support creating from a tarball.")
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_gvisor_sandbox_create_with_non_existing_snapshot():
     """
@@ -707,7 +706,6 @@ async def test_gvisor_sandbox_create_with_non_existing_snapshot():
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="runsc does not yet support snapshot and create from snapshot.")
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_gvisor_sandbox_snapshot_and_create():
     """

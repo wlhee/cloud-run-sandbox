@@ -262,7 +262,6 @@ async def test_websocket_multi_checkpoint_and_restore(monkeypatch):
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="runsc does not yet support creating from a tarball.")
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_websocket_filesystem_snapshot_and_create(monkeypatch):
     """
@@ -302,7 +301,6 @@ async def test_websocket_filesystem_snapshot_and_create(monkeypatch):
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="runsc does not yet support creating from a tarball.")
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_websocket_create_from_filesystem_snapshot_not_found(monkeypatch):
     """

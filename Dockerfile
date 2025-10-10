@@ -4,19 +4,15 @@ FROM python:3.9-slim
 # Install gVisor dependencies
 RUN apt-get update && apt-get install -y curl wget sudo iproute2 iptables procps
 
-# Install gVisor
-RUN ( \
-      set -e; \
-      ARCH=$(uname -m); \
-      URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}; \
-      wget ${URL}/runsc ${URL}/runsc.sha512 \
-           ${URL}/containerd-shim-runsc-v1 ${URL}/containerd-shim-runsc-v1.sha512; \
-      sha512sum -c runsc.sha512 \
-              -c containerd-shim-runsc-v1.sha512; \
-      rm -f *.sha512; \
-      chmod a+rx runsc containerd-shim-runsc-v1; \
-      mv runsc containerd-shim-runsc-v1 /usr/local/bin; \
-    )
+# Install Google Cloud SDK to access GCS
+RUN apt-get install -y apt-transport-https ca-certificates gnupg && \
+    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - && \
+    apt-get update && apt-get install -y google-cloud-sdk
+
+# Download the pre-release runsc binary
+RUN gcloud storage cp gs://wlhe-prereleased-runsc/runsc /usr/local/bin/runsc && \
+    chmod +x /usr/local/bin/runsc
 
 # Set the working directory in the container
 WORKDIR /app
