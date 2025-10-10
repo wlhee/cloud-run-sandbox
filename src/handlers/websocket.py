@@ -150,6 +150,7 @@ class WebsocketHandler:
         try:
             await self.send_status(SandboxStateEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATING)
             if not sandbox_manager.is_filesystem_snapshotting_enabled:
+                logger.error(f"Filesystem snapshot rejected for sandbox {self.sandbox.sandbox_id}: feature is not enabled on the server.")
                 raise SandboxOperationError("Filesystem snapshot is not enabled on the server.")
 
             snapshot_name = message['name']

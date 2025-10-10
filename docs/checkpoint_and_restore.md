@@ -4,11 +4,11 @@ This document outlines the checkpoint and restore functionality, enabling statef
 
 ## Server Configuration
 
-For the checkpoint and restore feature to be available, the server must be started with the `CHECKPOINT_AND_RESTORE_PATH` environment variable set to a valid path on a persistent volume. If this variable is not set, the server will reject any client requests to enable checkpointing and will not attempt to restore sandboxes from disk.
+For the checkpoint and restore feature to be available, the server must be started with the `SANDBOX_CHECKPOINT_MOUNT_PATH` environment variable set to a valid path on a persistent volume. If this variable is not set, the server will reject any client requests to enable checkpointing and will not attempt to restore sandboxes from disk.
 
 ## Filesystem Structure
 
-When checkpointing is enabled for a sandbox, the following directory structure is created within the path specified by the `CHECKPOINT_AND_RESTORE_PATH` environment variable:
+When checkpointing is enabled for a sandbox, the following directory structure is created within the path specified by the `SANDBOX_CHECKPOINT_MOUNT_PATH` environment variable:
 
 ```
 /path/to/persistent/volume/

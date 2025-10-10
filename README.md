@@ -88,7 +88,7 @@ gcloud run deploy sandbox --source . \
   --concurrency=1 \
   --add-volume=name=gcs-volume,type=cloud-storage,bucket=<YOUR_BUCKET_NAME> \
   --add-volume-mount=volume=gcs-volume,mount-path=/mnt/checkpoint \
-  --set-env-vars='CHECKPOINT_AND_RESTORE_PATH=/mnt/checkpoint'
+  --set-env-vars='SANDBOX_CHECKPOINT_MOUNT_PATH=/mnt/checkpoint'
 ```
 
 Replace `<YOUR_PROJECT_ID>` and `<YOUR_BUCKET_NAME>` accordingly. If these are not configured, the server will reject any client requests to use the checkpointing feature.
@@ -133,7 +133,7 @@ gcloud run deploy sandbox --source . \
   --concurrency=1 \
   --add-volume=name=gcs-volume,type=cloud-storage,bucket=<YOUR_BUCKET_NAME> \
   --add-volume-mount=volume=gcs-volume,mount-path=/mnt/fs_snapshot \
-  --set-env-vars='FILESYSTEM_SNAPSHOT_PATH=/mnt/fs_snapshot'
+  --set-env-vars='FILESYSTEM_SNAPSHOT_MOUNT_PATH=/mnt/fs_snapshot'
 ```
 
 Replace `<YOUR_PROJECT_ID>` and `<YOUR_BUCKET_NAME>` accordingly. If these are not configured, the server will reject any client requests to use the filesystem snapshot feature.
