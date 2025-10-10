@@ -16,26 +16,18 @@ logging.basicConfig(
 )
 
 # ==============================================================================
-# Checkpoint and Restore Configuration
+# GCS Persistence Configuration
 # ------------------------------------------------------------------------------
-# If a path is provided, the manager will be initialized with checkpointing.
-# This path should correspond to a mounted GCS volume in the Cloud Run env.
+# If any GCS env vars are set, the manager will be initialized with the
+# corresponding persistence and locking configuration.
 # ==============================================================================
-checkpoint_path = os.environ.get("CHECKPOINT_AND_RESTORE_PATH")
-if checkpoint_path:
-    logging.info(f"Checkpointing enabled. Path: {checkpoint_path}")
-    sandbox_manager.checkpoint_and_restore_path = checkpoint_path
+from dataclasses import asdict
+from src.sandbox.config import GCSConfig
 
-# ==============================================================================
-# Filesystem Snapshot Configuration
-# ------------------------------------------------------------------------------
-# If a path is provided, the manager will be initialized with filesystem
-# snapshotting.
-# ==============================================================================
-filesystem_snapshot_path = os.environ.get("FILESYSTEM_SNAPSHOT_PATH")
-if filesystem_snapshot_path:
-    logging.info(f"Filesystem snapshot enabled. Path: {filesystem_snapshot_path}")
-    sandbox_manager.filesystem_snapshot_path = filesystem_snapshot_path
+gcs_config = GCSConfig.from_env()
+if any(asdict(gcs_config).values()):
+    logging.info("GCS persistence enabled.")
+    sandbox_manager.gcs_config = gcs_config
 
 PORT = int(os.environ.get("PORT", 8080))
 

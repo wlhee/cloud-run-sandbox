@@ -1,4 +1,5 @@
 import pytest
+from src.sandbox.config import GCSConfig
 from src.sandbox.manager import SandboxManager
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
 from src.sandbox.interface import SandboxCreationError, SandboxOperationError, SandboxSnapshotFilesystemError, SandboxRestoreError
@@ -162,8 +163,9 @@ async def test_create_with_checkpoint_enabled(mock_create_instance, tmp_path):
     # Arrange
     sandbox = FakeSandbox("checkpoint-sandbox")
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
-    
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.sandbox_checkpoint_mount_path = str(tmp_path)
     # Act
     await mgr.create_sandbox(sandbox_id="checkpoint-sandbox", enable_checkpoint=True, idle_timeout=300)
     
@@ -196,7 +198,9 @@ async def test_checkpoint_sandbox(mock_create_instance, tmp_path):
     # Arrange
     sandbox = FakeSandbox("checkpoint-sandbox")
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.sandbox_checkpoint_mount_path = str(tmp_path)
     await mgr.create_sandbox(sandbox_id="checkpoint-sandbox", enable_checkpoint=True, idle_timeout=300)
     
     # Act
@@ -241,7 +245,9 @@ async def test_restore_sandbox(mock_create_instance, tmp_path):
     restored_sandbox = FakeSandbox(sandbox_id)
     mock_create_instance.return_value = restored_sandbox
     
-    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.sandbox_checkpoint_mount_path = str(tmp_path)
     
     # Act
     sandbox = await mgr.restore_sandbox(sandbox_id)
@@ -260,7 +266,9 @@ async def test_checkpoint_sandbox_fails(mock_create_instance, tmp_path):
     config = FakeSandboxConfig(checkpoint_should_fail=True)
     sandbox = FakeSandbox("fail-sandbox", config=config)
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.sandbox_checkpoint_mount_path = str(tmp_path)
     await mgr.create_sandbox(sandbox_id="fail-sandbox", enable_checkpoint=True)
     
     # Act & Assert
@@ -289,7 +297,9 @@ async def test_restore_sandbox_fails(mock_create_instance, tmp_path):
     sandbox_that_will_fail = FakeSandbox(sandbox_id, config=config)
     mock_create_instance.return_value = sandbox_that_will_fail
     
-    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.sandbox_checkpoint_mount_path = str(tmp_path)
     
     # Act
     with pytest.raises(SandboxRestoreError, match="Failed to restore sandbox fail-restore"):
@@ -320,7 +330,9 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     restored_sandbox = FakeSandbox(sandbox_id)
     mock_create_instance.return_value = restored_sandbox
     
-    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.sandbox_checkpoint_mount_path = str(tmp_path)
     delete_event = asyncio.Event()
     
     # Act
@@ -330,7 +342,6 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     # Assert
     await asyncio.wait_for(delete_event.wait(), timeout=1)
     assert mgr.get_sandbox(sandbox_id) is None
-
 @patch('src.sandbox.factory.create_sandbox_instance')
 async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, tmp_path):
     """
@@ -338,7 +349,9 @@ async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, tmp_p
     to ensure multiple checkpoints are handled correctly.
     """
     sandbox_id = "multi-checkpoint-sandbox"
-    mgr = SandboxManager(checkpoint_and_restore_path=str(tmp_path))
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.sandbox_checkpoint_mount_path = str(tmp_path)
 
     # --- Create and First Checkpoint ---
     mock_create_instance.return_value = FakeSandbox(sandbox_id)
@@ -386,7 +399,9 @@ async def test_create_with_filesystem_snapshot(mock_create_instance, tmp_path):
     # Arrange
     sandbox = FakeSandbox("snapshot-sandbox")
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager(filesystem_snapshot_path=str(tmp_path))
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.filesystem_snapshot_mount_path = str(tmp_path)
     
     # Act
     await mgr.create_sandbox(sandbox_id="snapshot-sandbox", filesystem_snapshot_name="my-snapshot.tar")
@@ -414,13 +429,15 @@ async def test_snapshot_filesystem(mock_create_instance, tmp_path):
     # Arrange
     sandbox = FakeSandbox("snapshot-sandbox")
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager(filesystem_snapshot_path=str(tmp_path))
+    mgr = SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.filesystem_snapshot_mount_path = str(tmp_path)
     await mgr.create_sandbox(sandbox_id="snapshot-sandbox")
     snapshot_path = tmp_path / "my-snapshot.tar"
-    
+        
     # Act
     await mgr.snapshot_filesystem("snapshot-sandbox", "my-snapshot.tar")
-    
+        
     # Assert
     assert snapshot_path.is_file()
 
@@ -433,9 +450,12 @@ async def test_snapshot_filesystem_fails(mock_create_instance, tmp_path):
     config = FakeSandboxConfig(snapshot_filesystem_should_fail=True)
     sandbox = FakeSandbox("fail-snapshot-sandbox", config=config)
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager(filesystem_snapshot_path=str(tmp_path))
+    mgr= SandboxManager()
+    mgr.gcs_config = GCSConfig()
+    mgr.gcs_config.filesystem_snapshot_mount_path = str(tmp_path)
     await mgr.create_sandbox(sandbox_id="fail-snapshot-sandbox")
     
     # Act & Assert
     with pytest.raises(SandboxSnapshotFilesystemError, match="Fake sandbox failed to snapshot filesystem as configured."):
         await mgr.snapshot_filesystem("fail-snapshot-sandbox", "my-snapshot.tar")
+

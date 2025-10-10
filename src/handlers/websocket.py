@@ -50,10 +50,12 @@ class WebsocketHandler:
 
             await self.send_status(SandboxStateEvent.SANDBOX_CREATING)
 
-            if enable_checkpoint and not sandbox_manager.is_checkpointing_enabled:
+            if enable_checkpoint and not sandbox_manager.is_sandbox_checkpointing_enabled:
                 raise SandboxCreationError("Checkpointing is not enabled on the server.")
+            
+            if filesystem_snapshot_name and not sandbox_manager.is_filesystem_snapshotting_enabled:
+                raise SandboxCreationError("Filesystem snapshot is not enabled on the server.")
 
-            # 2. Create the sandbox
             self.sandbox = await sandbox_manager.create_sandbox(
                 idle_timeout=idle_timeout,
                 enable_checkpoint=enable_checkpoint,
@@ -74,7 +76,7 @@ class WebsocketHandler:
         """Sets up the handler for an existing sandbox."""
         try:
             sandbox = sandbox_manager.get_sandbox(sandbox_id)
-            if not sandbox and sandbox_manager.is_checkpointing_enabled:
+            if not sandbox and sandbox_manager.is_sandbox_checkpointing_enabled:
                 await self.send_status(SandboxStateEvent.SANDBOX_RESTORING)
                 sandbox = await sandbox_manager.restore_sandbox(sandbox_id)
 
@@ -146,8 +148,11 @@ class WebsocketHandler:
     async def handle_snapshot_filesystem(self, message: dict):
         """Handles a snapshot filesystem request from the client."""
         try:
-            snapshot_name = message['name']
             await self.send_status(SandboxStateEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATING)
+            if not sandbox_manager.is_filesystem_snapshotting_enabled:
+                raise SandboxOperationError("Filesystem snapshot is not enabled on the server.")
+
+            snapshot_name = message['name']
             await sandbox_manager.snapshot_filesystem(self.sandbox.sandbox_id, snapshot_name)
             await self.send_status(SandboxStateEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATED)
         except (SandboxOperationError, SandboxSnapshotFilesystemError) as e:

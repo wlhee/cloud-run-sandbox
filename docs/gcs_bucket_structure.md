@@ -24,7 +24,8 @@ While different buckets can be used for each artifact type, a clear directory st
 │       └── checkpoint.img
 │
 └── filesystem_snapshots/
-    └── <snapshot_id>.tar.gz  # An archive of the sandbox filesystem
+    └── <snapshot_id>/
+        └── <snapshot_id>.tar.gz  # An archive of the sandbox filesystem
 ```
 
 ## 3. Metadata File (`metadata.json`)
@@ -35,13 +36,10 @@ This is the central file for a GCS-backed sandbox. It lives in the `sandboxes/<s
 {
   "sandbox_id": "sandbox-abc-123",
   "created_timestamp": "2025-10-08T10:00:00Z",
-  "latest_checkpoint": {
+  "idle_timeout": 300,
+  "latest_sandbox_checkpoint": {
     "bucket": "company-sandbox-checkpoints",
     "path": "sandbox_checkpoints/checkpoint-xyz/"
-  },
-  "latest_snapshot": {
-    "bucket": "company-sandbox-snapshots",
-    "path": "filesystem_snapshots/snapshot-def.tar.gz"
   }
 }
 ```
@@ -55,8 +53,7 @@ The server's storage strategy is controlled by environment variables. For each a
 
 | Artifact Type | GCS Client Mode Variable | Mounted Mode Variable | Recommended Mode | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Lock** | `SANDBOX_LOCK_BUCKET` | (Not Applicable) | **GCS Client (Mandatory)** | Defines location for `lock.json`. **Must** use the GCS client to leverage atomic conditional writes for safe locking. |
-| **Metadata** | `SANDBOX_METADATA_BUCKET` | `SANDBOX_METADATA_MOUNT_PATH` | **GCS Client** | Defines location for `metadata.json`. GCS client is strongly recommended for consistency. |
+| **Lock & Metadata** | `SANDBOX_METADATA_BUCKET` | `SANDBOX_METADATA_MOUNT_PATH` | **GCS Client** | Defines location for `lock.json` and `metadata.json`. GCS client is strongly recommended for atomic operations. |
 | **Checkpoints** | `SANDBOX_CHECKPOINT_BUCKET` | `SANDBOX_CHECKPOINT_MOUNT_PATH` | **Mounted** | Defines location for memory checkpoints. Mounted is recommended on Cloud Run. GCS Client is a fallback. |
 | **Snapshots** | `FILESYSTEM_SNAPSHOT_BUCKET` | `FILESYSTEM_SNAPSHOT_MOUNT_PATH` | **Mounted** | Defines location for filesystem snapshots. Mounted is highly recommended on Cloud Run for performance. GCS Client is a fallback. |
 

@@ -8,44 +8,48 @@ from typing import Callable, Optional
 import os
 from pathlib import Path
 import json
+
+from .handle import SandboxHandle
+from .config import GCSConfig
 from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class SandboxMetadata:
-    instance: any
-    idle_timeout: int = None
-    last_activity: float = field(default_factory=time.time)
-    cleanup_task: asyncio.Task = None
-    delete_callback: Optional[Callable[[str], None]] = None
-    ip_address: Optional[str] = None
 
 class SandboxManager:
     """
     Manages the lifecycle of stateful sandbox instances.
     """
-    def __init__(self, checkpoint_and_restore_path: str = None, filesystem_snapshot_path: str = None):
-        self._sandboxes: dict[str, SandboxMetadata] = {}
+    def __init__(self):
+        self._sandboxes: dict[str, SandboxHandle] = {}
         self._ip_pool = {f"192.168.100.{i}" for i in range(2, 255)}
         self._ip_allocations: dict[str, str] = {}
-        self.checkpoint_and_restore_path = checkpoint_and_restore_path
-        self.filesystem_snapshot_path = filesystem_snapshot_path
+        self.gcs_config: GCSConfig | None = None
 
     @property
-    def is_checkpointing_enabled(self) -> bool:
-        return self.checkpoint_and_restore_path is not None
+    def is_sandbox_checkpointing_enabled(self) -> bool:
+        """Checks if sandbox checkpointing is configured."""
+        return self.gcs_config and (
+            self.gcs_config.sandbox_checkpoint_bucket or self.gcs_config.sandbox_checkpoint_mount_path
+        )
 
     @property
-    def is_filesystem_snapshot_enabled(self) -> bool:
-        return self.filesystem_snapshot_path is not None
+    def is_filesystem_snapshotting_enabled(self) -> bool:
+        """Checks if filesystem snapshotting is configured."""
+        return self.gcs_config and (
+            self.gcs_config.filesystem_snapshot_bucket or self.gcs_config.filesystem_snapshot_mount_path
+        )
 
     def _read_persistent_metadata(self, sandbox_id: str) -> Optional[dict]:
         """Reads and parses the metadata JSON file for a sandbox."""
-        if not self.is_checkpointing_enabled:
+        if not self.is_sandbox_checkpointing_enabled:
             return None
 
-        metadata_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "metadata.json")
+        # TODO: This only handles the local mount path case. GCS client logic will be added later.
+        base_path = self.gcs_config.sandbox_checkpoint_mount_path
+        if not base_path:
+            return None
+
+        metadata_path = os.path.join(base_path, sandbox_id, "metadata.json")
         if not os.path.exists(metadata_path):
             return None
 
@@ -54,10 +58,15 @@ class SandboxManager:
 
     def _write_persistent_metadata(self, sandbox_id: str, idle_timeout: int = None):
         """Writes metadata to a JSON file in the sandbox's persistence directory."""
-        if not self.is_checkpointing_enabled:
+        if not self.is_sandbox_checkpointing_enabled:
             return
 
-        metadata_path = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "metadata.json")
+        # TODO: This only handles the local mount path case. GCS client logic will be added later.
+        base_path = self.gcs_config.sandbox_checkpoint_mount_path
+        if not base_path:
+            return
+
+        metadata_path = os.path.join(base_path, sandbox_id, "metadata.json")
         
         # When updating, preserve the original idle_timeout if not provided.
         if os.path.exists(metadata_path):
@@ -95,12 +104,18 @@ class SandboxManager:
         ip_address = None
 
         if filesystem_snapshot_name:
-            if not self.is_filesystem_snapshot_enabled:
+            if not self.is_filesystem_snapshotting_enabled:
                 raise SandboxCreationError("Filesystem snapshot is not enabled on the server.")
-            config.filesystem_snapshot_path = os.path.join(self.filesystem_snapshot_path, filesystem_snapshot_name)
+            
+            # TODO: This only handles the local mount path case. GCS client logic will be added later.
+            base_path = self.gcs_config.filesystem_snapshot_mount_path
+            if not base_path:
+                raise SandboxCreationError("Filesystem snapshot is enabled but no mount path is configured.")
+
+            config.filesystem_snapshot_path = os.path.join(base_path, filesystem_snapshot_name)
 
         if enable_checkpoint:
-            if not self.is_checkpointing_enabled:
+            if not self.is_sandbox_checkpointing_enabled:
                 raise SandboxCreationError("Checkpointing is not enabled on the server.")
             
             # Enforce network="sandbox" for checkpointing.  
@@ -108,7 +123,12 @@ class SandboxManager:
             
             # Create persistence directory.
             try:
-                sandbox_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id)
+                # TODO: This only handles the local mount path case. GCS client logic will be added later.
+                base_path = self.gcs_config.sandbox_checkpoint_mount_path
+                if not base_path:
+                    raise SandboxCreationError("Checkpointing is enabled but no mount path is configured.")
+
+                sandbox_dir = os.path.join(base_path, sandbox_id)
                 checkpoints_dir = os.path.join(sandbox_dir, "checkpoints")
                 os.makedirs(checkpoints_dir, exist_ok=False)
                 self._write_persistent_metadata(sandbox_id, idle_timeout=idle_timeout)
@@ -129,7 +149,7 @@ class SandboxManager:
         
         await sandbox_instance.create()
 
-        metadata = SandboxMetadata(
+        handle = SandboxHandle(
             instance=sandbox_instance,
             idle_timeout=idle_timeout,
             delete_callback=delete_callback,
@@ -137,18 +157,18 @@ class SandboxManager:
         )
 
         if idle_timeout:
-            metadata.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, idle_timeout))
+            handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, idle_timeout))
 
-        self._sandboxes[sandbox_id] = metadata
+        self._sandboxes[sandbox_id] = handle
         logger.info(f"Sandbox manager created {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
         return sandbox_instance
 
     def get_sandbox(self, sandbox_id):
         """Retrieves a sandbox by its ID from the in-memory cache."""
-        metadata = self._sandboxes.get(sandbox_id)
-        if metadata:
+        handle = self._sandboxes.get(sandbox_id)
+        if handle:
             self.reset_idle_timer(sandbox_id)
-            return metadata.instance
+            return handle.instance
         return None
 
     async def restore_sandbox(self, sandbox_id: str, delete_callback: Optional[Callable[[str], None]] = None):
@@ -158,10 +178,15 @@ class SandboxManager:
         if self.get_sandbox(sandbox_id):
             raise SandboxOperationError(f"Sandbox {sandbox_id} is already in memory.")
 
-        if not self.is_checkpointing_enabled:
+        if not self.is_sandbox_checkpointing_enabled:
             return None
 
-        sandbox_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id)
+        # TODO: This only handles the local mount path case. GCS client logic will be added later.
+        base_path = self.gcs_config.sandbox_checkpoint_mount_path
+        if not base_path:
+            return None
+
+        sandbox_dir = os.path.join(base_path, sandbox_id)
         checkpoints_dir = os.path.join(sandbox_dir, "checkpoints")
         latest_path = os.path.join(checkpoints_dir, "latest")
         metadata_path = os.path.join(sandbox_dir, "metadata.json")
@@ -199,16 +224,16 @@ class SandboxManager:
                 metadata = json.load(f)
                 idle_timeout = metadata.get("idle_timeout")
 
-        metadata = SandboxMetadata(
+        handle = SandboxHandle(
             instance=sandbox_instance,
             idle_timeout=idle_timeout,
             ip_address=ip_address,
             delete_callback=delete_callback,
         )
         if idle_timeout:
-            metadata.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, idle_timeout))
+            handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, idle_timeout))
 
-        self._sandboxes[sandbox_id] = metadata
+        self._sandboxes[sandbox_id] = handle
         return sandbox_instance
 
     def reset_idle_timer(self, sandbox_id: str):
@@ -216,29 +241,34 @@ class SandboxManager:
         Updates the last activity time for a sandbox, resetting its idle timer.
         Returns the cancelled cleanup task.
         """
-        metadata = self._sandboxes.get(sandbox_id)
+        handle = self._sandboxes.get(sandbox_id)
         cancelled_task = None
-        if metadata and metadata.idle_timeout:
+        if handle and handle.idle_timeout:
             logger.debug(f"Updating activity for sandbox {sandbox_id}")
-            metadata.last_activity = time.time()
-            if metadata.cleanup_task:
-                metadata.cleanup_task.cancel()
-                cancelled_task = metadata.cleanup_task
-            metadata.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, metadata.idle_timeout))
+            handle.last_activity = time.time()
+            if handle.cleanup_task:
+                handle.cleanup_task.cancel()
+                cancelled_task = handle.cleanup_task
+            handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, handle.idle_timeout))
         return cancelled_task
 
     async def checkpoint_sandbox(self, sandbox_id: str):
         """
         Checkpoints a sandbox and then removes it from the local manager.
         """
-        if not self.is_checkpointing_enabled:
+        if not self.is_sandbox_checkpointing_enabled:
             raise SandboxOperationError("Checkpointing is not enabled on the server.")
 
         sandbox = self.get_sandbox(sandbox_id)
         if not sandbox:
             raise SandboxOperationError(f"Sandbox not found: {sandbox_id}")
 
-        checkpoints_dir = os.path.join(self.checkpoint_and_restore_path, sandbox_id, "checkpoints")
+        # TODO: This only handles the local mount path case. GCS client logic will be added later.
+        base_path = self.gcs_config.sandbox_checkpoint_mount_path
+        if not base_path:
+            raise SandboxOperationError("Checkpointing is enabled but no mount path is configured.")
+
+        checkpoints_dir = os.path.join(base_path, sandbox_id, "checkpoints")
         # `runsc checkpoint --image-path` asks for a directory to create checkpoint realted files in.
         # Hence, checkpoint_name is a subdirectory under checkpoints_dir.
         checkpoint_name = f"checkpoint_{time.time_ns()}"
@@ -261,14 +291,19 @@ class SandboxManager:
         """
         Snapshots the filesystem of a sandbox.
         """
-        if not self.is_filesystem_snapshot_enabled:
+        if not self.is_filesystem_snapshotting_enabled:
             raise SandboxOperationError("Filesystem snapshot is not enabled on the server.")
 
         sandbox = self.get_sandbox(sandbox_id)
         if not sandbox:
             raise SandboxOperationError(f"Sandbox not found: {sandbox_id}")
 
-        snapshot_path = os.path.join(self.filesystem_snapshot_path, snapshot_name)
+        # TODO: This only handles the local mount path case. GCS client logic will be added later.
+        base_path = self.gcs_config.filesystem_snapshot_mount_path
+        if not base_path:
+            raise SandboxOperationError("Filesystem snapshot is enabled but no mount path is configured.")
+
+        snapshot_path = os.path.join(base_path, snapshot_name)
         await sandbox.snapshot_filesystem(snapshot_path)
         logger.info(f"Sandbox {sandbox_id} filesystem snapshotted to {snapshot_path}")
 
@@ -284,19 +319,19 @@ class SandboxManager:
     async def delete_sandbox(self, sandbox_id: str):
         """Deletes a sandbox and removes it from the manager."""
         logger.info(f"Sandbox manager deleting sandbox {sandbox_id}...")
-        metadata = self._sandboxes.pop(sandbox_id, None)
-        if metadata:
-            if metadata.cleanup_task:
-                metadata.cleanup_task.cancel()
-            await metadata.instance.delete()
+        handle = self._sandboxes.pop(sandbox_id, None)
+        if handle:
+            if handle.cleanup_task:
+                handle.cleanup_task.cancel()
+            await handle.instance.delete()
             
             # Release the IP address back to the pool.
-            if metadata.ip_address:
-                self._ip_pool.add(metadata.ip_address)
+            if handle.ip_address:
+                self._ip_pool.add(handle.ip_address)
                 del self._ip_allocations[sandbox_id]
 
-            if metadata.delete_callback:
-                metadata.delete_callback(sandbox_id)
+            if handle.delete_callback:
+                handle.delete_callback(sandbox_id)
 
             logger.info(f"Sandbox manager deleted {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
 
