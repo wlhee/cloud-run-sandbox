@@ -7,6 +7,7 @@ from starlette.websockets import WebSocketDisconnect
 import os
 import tempfile
 from src.sandbox.manager import manager as sandbox_manager
+from src.sandbox.config import GCSConfig
 
 client = TestClient(app)
 runsc_path = shutil.which("runsc")
@@ -173,12 +174,12 @@ async def test_gvisor_sandbox_stdin():
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_websocket_checkpoint_and_restore_success(monkeypatch):
+async def test_websocket_checkpoint_and_restore_success():
     """
     Tests the full checkpoint and restore lifecycle via WebSocket.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        monkeypatch.setattr(sandbox_manager, "checkpoint_and_restore_path", temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path=temp_dir)
         # 1. Create a sandbox with checkpointing enabled
         with client.websocket_connect("/create") as websocket:
             websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
@@ -209,12 +210,12 @@ async def test_websocket_checkpoint_and_restore_success(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_websocket_multi_checkpoint_and_restore(monkeypatch):
+async def test_websocket_multi_checkpoint_and_restore():
     """
     Tests the full lifecycle of checkpoint -> restore -> checkpoint -> restore.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        monkeypatch.setattr(sandbox_manager, "checkpoint_and_restore_path", temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path=temp_dir)
         
         # 1. Create a sandbox with checkpointing enabled
         with client.websocket_connect("/create") as websocket:
@@ -263,12 +264,12 @@ async def test_websocket_multi_checkpoint_and_restore(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_websocket_filesystem_snapshot_and_create(monkeypatch):
+async def test_websocket_filesystem_snapshot_and_create():
     """
     Tests the full filesystem snapshot and create from snapshot lifecycle via WebSocket.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        monkeypatch.setattr(sandbox_manager, "filesystem_snapshot_path", temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path=temp_dir)
         # 1. Create a sandbox
         with client.websocket_connect("/create") as websocket:
             websocket.send_json({"idle_timeout": 120})
@@ -302,12 +303,12 @@ async def test_websocket_filesystem_snapshot_and_create(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_websocket_create_from_filesystem_snapshot_not_found(monkeypatch):
+async def test_websocket_create_from_filesystem_snapshot_not_found():
     """
     Tests that creating a sandbox from a non-existent snapshot fails.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        monkeypatch.setattr(sandbox_manager, "filesystem_snapshot_path", temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path=temp_dir)
         with client.websocket_connect("/create") as websocket:
             websocket.send_json({"filesystem_snapshot_name": "non-existent-snapshot"})
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
@@ -321,12 +322,12 @@ async def test_websocket_create_from_filesystem_snapshot_not_found(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_websocket_restore_failure(monkeypatch):
+async def test_websocket_restore_failure():
     """
     Tests that a failure during restore is handled gracefully.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        monkeypatch.setattr(sandbox_manager, "checkpoint_and_restore_path", temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path=temp_dir)
         # 1. Create and checkpoint a sandbox
         with client.websocket_connect("/create") as websocket:
             websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
@@ -355,12 +356,12 @@ async def test_websocket_restore_failure(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_websocket_checkpoint_during_execution(monkeypatch):
+async def test_websocket_checkpoint_during_execution():
     """
     Tests that checkpointing during an execution fails gracefully.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        monkeypatch.setattr(sandbox_manager, "checkpoint_and_restore_path", temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path=temp_dir)
         with client.websocket_connect("/create") as websocket:
             # 1. Send initial config and receive confirmation
             websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})

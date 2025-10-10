@@ -391,6 +391,8 @@ class GVisorSandbox(SandboxInterface):
             
             run_cmd_list = ["run", "--bundle", self._bundle_dir]
             if self._config.filesystem_snapshot_path:
+                if not os.path.exists(self._config.filesystem_snapshot_path):
+                    raise SandboxCreationError(f"Filesystem snapshot not found at {self._config.filesystem_snapshot_path}")
                 run_cmd_list.extend(["--rootfs-tar", self._config.filesystem_snapshot_path])
             run_cmd_list.append(self._container_id)
             run_cmd = self._build_runsc_cmd(*run_cmd_list)

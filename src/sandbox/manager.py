@@ -150,6 +150,7 @@ class SandboxManager:
         await sandbox_instance.create()
 
         handle = SandboxHandle(
+            sandbox_id=sandbox_id,
             instance=sandbox_instance,
             idle_timeout=idle_timeout,
             delete_callback=delete_callback,
@@ -225,6 +226,7 @@ class SandboxManager:
                 idle_timeout = metadata.get("idle_timeout")
 
         handle = SandboxHandle(
+            sandbox_id=sandbox_id,
             instance=sandbox_instance,
             idle_timeout=idle_timeout,
             ip_address=ip_address,
