@@ -19,18 +19,11 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Install Google Cloud SDK
-      run: |
-        echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
-        sudo apt-get install -y apt-transport-https ca-certificates gnupg
-        curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
-        sudo apt-get update && sudo apt-get install -y google-cloud-sdk
-
     - name: Install gVisor (runsc)
       run: |
-        gcloud storage cp gs://wlhe-prereleased-runsc/runsc /tmp/runsc
-        chmod +x /tmp/runsc
-        sudo mv /tmp/runsc /usr/local/bin/runsc
+        wget https://storage.googleapis.com/wlhe-prereleased-runsc/runsc
+        chmod +x runsc
+        sudo mv runsc /usr/local/bin/runsc
         runsc --version
 
     - name: Install dependencies
