@@ -23,7 +23,7 @@ class SandboxManager:
         self._sandboxes: dict[str, SandboxHandle] = {}
         self._ip_pool = {f"192.168.100.{i}" for i in range(2, 255)}
         self._ip_allocations: dict[str, str] = {}
-        self.gcs_config: GCSConfig | None = None
+        self.gcs_config: Optional[GCSConfig] = None
 
     @property
     def is_sandbox_checkpointing_enabled(self) -> bool:

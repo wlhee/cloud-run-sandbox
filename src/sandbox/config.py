@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import os
+from typing import Optional
 
 
 @dataclass
@@ -7,12 +8,12 @@ class GCSConfig:
     """
     Configuration for GCS-backed sandbox persistence and locking.
     """
-    metadata_bucket: str | None = None
-    metadata_mount_path: str | None = None
-    sandbox_checkpoint_bucket: str | None = None
-    sandbox_checkpoint_mount_path: str | None = None
-    filesystem_snapshot_bucket: str | None = None
-    filesystem_snapshot_mount_path: str | None = None
+    metadata_bucket: Optional[str] = None
+    metadata_mount_path: Optional[str] = None
+    sandbox_checkpoint_bucket: Optional[str] = None
+    sandbox_checkpoint_mount_path: Optional[str] = None
+    filesystem_snapshot_bucket: Optional[str] = None
+    filesystem_snapshot_mount_path: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> "GCSConfig":
