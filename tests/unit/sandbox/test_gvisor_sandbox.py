@@ -717,6 +717,12 @@ async def test_gvisor_sandbox_snapshot_and_create():
 
     try:
         await sandbox1.create()
+        # Create a file in the first sandbox
+        await sandbox1.execute(CodeLanguage.BASH, "echo 'hello snapshot' > /test.txt")
+        try:
+            async for _ in sandbox1.stream_outputs(): pass
+        except SandboxStreamClosed: pass
+
         await sandbox1.snapshot_filesystem(snapshot_path)
     finally:
         await sandbox1.delete()
@@ -728,6 +734,16 @@ async def test_gvisor_sandbox_snapshot_and_create():
 
     try:
         await sandbox2.create()
+        # Verify the file exists in the new sandbox
+        await sandbox2.execute(CodeLanguage.BASH, "cat /test.txt")
+        events = []
+        try:
+            async for event in sandbox2.stream_outputs():
+                events.append(event)
+        except SandboxStreamClosed: pass
+            
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "hello snapshot" in stdout
     finally:
         await sandbox2.delete()
         if os.path.exists(snapshot_path):

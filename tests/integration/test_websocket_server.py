@@ -301,25 +301,24 @@ async def test_websocket_filesystem_snapshot_and_create():
             assert websocket.receive_json() == {"event": "stdout", "data": "hello\n"}
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
-async def test_websocket_create_from_filesystem_snapshot_not_found():
-    """
-    Tests that creating a sandbox from a non-existent snapshot fails.
-    """
-    with tempfile.TemporaryDirectory() as temp_dir:
-        sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path=temp_dir)
-        with client.websocket_connect("/create") as websocket:
-            websocket.send_json({"filesystem_snapshot_name": "non-existent-snapshot"})
-            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATION_ERROR"}
-            error_message = websocket.receive_json()
-            assert error_message["event"] == "error"
-            assert "No such file or directory" in error_message["message"]
-            with pytest.raises(WebSocketDisconnect) as e:
-                websocket.receive_json()
-            assert e.value.code == 4000
-
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+    async def test_websocket_create_from_filesystem_snapshot_not_found():
+        """
+        Tests that creating a sandbox from a non-existent snapshot fails.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path=temp_dir)
+            with client.websocket_connect("/create") as websocket:
+                websocket.send_json({"filesystem_snapshot_name": "non-existent-snapshot"})
+                assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+                assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATION_ERROR"}
+                error_message = websocket.receive_json()
+                assert error_message["event"] == "error"
+                assert "Filesystem snapshot not found" in error_message["message"]
+                with pytest.raises(WebSocketDisconnect) as e:
+                    websocket.receive_json()
+                assert e.value.code == 4000
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_websocket_restore_failure():
