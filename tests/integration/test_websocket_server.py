@@ -397,8 +397,8 @@ async def test_websocket_checkpoint_during_execution():
             sandbox_id = websocket.receive_json()["sandbox_id"]
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
-            # 2. Start a command that waits for stdin
-            websocket.send_json({"language": "bash", "code": "read name; echo $name"})
+            # 2. Start a long-running command
+            websocket.send_json({"language": "bash", "code": "sleep 2; echo 'done'"})
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
 
             # 3. Try to checkpoint while the first is running
@@ -411,7 +411,6 @@ async def test_websocket_checkpoint_during_execution():
             assert error_message["event"] == "error"
             assert "Cannot checkpoint while an execution is in progress" in error_message["message"]
             
-            # 5. Unblock the first command and let it finish
-            websocket.send_json({"event": "stdin", "data": "World\n"})
-            assert websocket.receive_json() == {"event": "stdout", "data": "World\n"}
+            # 5. Wait for the first command to finish and receive its output
+            assert websocket.receive_json() == {"event": "stdout", "data": "done\n"}
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}

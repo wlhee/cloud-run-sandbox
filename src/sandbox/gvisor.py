@@ -413,6 +413,7 @@ class GVisorSandbox(SandboxInterface):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
+        logger.info(f"GVISOR ({self.sandbox_id}): Received execute call.")
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot execute code in a sandbox that is not in the RUNNING state (current state: {self._state})")
 
@@ -460,6 +461,7 @@ class GVisorSandbox(SandboxInterface):
             logger.info(f"GVISOR ({self.sandbox_id}): Exec process stream closed.")
         
         await exec_process.wait()
+        logger.info(f"GVISOR ({self.sandbox_id}): OS process has finished. About to send SANDBOX_EXECUTION_DONE.")
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
 
     async def write_stdin(self, data: str):
@@ -520,6 +522,7 @@ class GVisorSandbox(SandboxInterface):
         """
         Creates a checkpoint of the sandbox's state using 'runsc checkpoint'.
         """
+        logger.info(f"GVISOR ({self.sandbox_id}): Received checkpoint call. Current state: {self._state}, is_executing: {self._exec_process.is_running if self._exec_process else 'None'}")
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
 

@@ -195,6 +195,7 @@ class SandboxManager:
         """
         Checkpoints a sandbox and then removes it from the local manager.
         """
+        logger.info(f"MANAGER ({sandbox_id}): Received call to checkpoint sandbox.")
         handle = self._sandboxes.get(sandbox_id)
         if not handle:
             raise SandboxOperationError(f"Sandbox not found: {sandbox_id}")
