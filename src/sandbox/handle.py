@@ -298,15 +298,15 @@ class SandboxHandle:
         return path
 
     @classmethod
-    def build_filesystem_snapshot_path(cls, gcs_config: GCSConfig, sandbox_id: str, snapshot_name: str) -> Optional[str]:
+    def build_filesystem_snapshot_path(cls, gcs_config: GCSConfig, snapshot_name: str) -> Optional[str]:
         """
         Constructs the full local path for a new filesystem snapshot file.
         """
         if not gcs_config or not gcs_config.filesystem_snapshot_mount_path:
             return None
-        return os.path.join(gcs_config.filesystem_snapshot_mount_path, "filesystem_snapshots", sandbox_id, f"{snapshot_name}.tar")
+        return os.path.join(gcs_config.filesystem_snapshot_mount_path, "filesystem_snapshots", snapshot_name, f"{snapshot_name}.tar")
 
-    def filesystem_snapshot_file_path(self, snapshot_id: str, create_parent_dir: bool = False) -> Optional[str]:
+    def filesystem_snapshot_file_path(self, snapshot_name: str, create_parent_dir: bool = False) -> Optional[str]:
         """
         Constructs the full local path for a new filesystem snapshot file.
 
@@ -315,7 +315,7 @@ class SandboxHandle:
         *if* the server has snapshotting enabled before calling this method.
         This method is only responsible for knowing *where* the snapshot should go.
         """
-        path = self.build_filesystem_snapshot_path(self.gcs_config, snapshot_id, snapshot_id)
+        path = self.build_filesystem_snapshot_path(self.gcs_config, snapshot_name)
         if not path:
             return None
         if create_parent_dir:

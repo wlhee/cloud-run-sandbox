@@ -455,7 +455,7 @@ async def test_create_with_filesystem_snapshot(mock_create_instance, tmp_path):
     # Assert
     _, kwargs = mock_create_instance.call_args
     config = kwargs["config"]
-    assert config.filesystem_snapshot_path == str(tmp_path / "filesystem_snapshots" / "snapshot-sandbox" / "my-snapshot.tar")
+    assert config.filesystem_snapshot_path == str(tmp_path / "filesystem_snapshots" / "my-snapshot" / "my-snapshot.tar")
 
 @patch('src.sandbox.factory.create_sandbox_instance')
 async def test_create_with_filesystem_snapshot_fails_if_not_configured(mock_create_instance):

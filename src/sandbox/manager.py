@@ -70,7 +70,7 @@ class SandboxManager:
                 raise SandboxCreationError("Filesystem snapshot is not enabled on the server.")
             
             config.filesystem_snapshot_path = SandboxHandle.build_filesystem_snapshot_path(
-                self.gcs_config, sandbox_id, filesystem_snapshot_name
+                self.gcs_config, filesystem_snapshot_name
             )
 
         if enable_checkpoint:
