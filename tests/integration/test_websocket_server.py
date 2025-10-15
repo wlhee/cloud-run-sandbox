@@ -371,9 +371,11 @@ async def test_websocket_restore_failure():
         with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORE_ERROR"}
+            error_message = websocket.receive_json()
+            assert error_message["event"] == "error"
             with pytest.raises(WebSocketDisconnect) as e:
                 websocket.receive_json()
-            assert e.value.code == 1011
+            assert e.value.code == 4000
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
@@ -396,7 +398,7 @@ async def test_websocket_checkpoint_during_execution():
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
             # 2. Start a long-running command
-            websocket.send_json({"language": "bash", "code": "sleep 3; echo 'done'"})
+            websocket.send_json({"language": "bash", "code": "sleep 5; echo 'done'"})
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
 
             # 3. Try to checkpoint while the first is running
