@@ -370,7 +370,7 @@ async def test_websocket_restore_failure():
         # 3. Attempt to attach to the sandbox
         with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
-            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_NOT_FOUND"}
+            assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORE_ERROR"}
             with pytest.raises(WebSocketDisconnect) as e:
                 websocket.receive_json()
             assert e.value.code == 1011
@@ -396,7 +396,7 @@ async def test_websocket_checkpoint_during_execution():
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
             # 2. Start a long-running command
-            websocket.send_json({"language": "bash", "code": "sleep 2; echo 'done'"})
+            websocket.send_json({"language": "bash", "code": "sleep 3; echo 'done'"})
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
 
             # 3. Try to checkpoint while the first is running
