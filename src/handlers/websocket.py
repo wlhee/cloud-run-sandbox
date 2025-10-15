@@ -134,7 +134,7 @@ class WebsocketHandler:
 
     async def handle_checkpoint(self):
         """Handles a checkpoint request from the client."""
-        logger.info(f"WEBSOCKET ({self.sandbox.sandbox_id}): Received checkpoint action from client.")
+        print(f"WEBSOCKET ({self.sandbox.sandbox_id}): Received checkpoint action from client.")
         try:
             await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTING)
             await sandbox_manager.checkpoint_sandbox(self.sandbox.sandbox_id)
