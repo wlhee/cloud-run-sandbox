@@ -10,8 +10,12 @@ The following environment variables can be used to configure the gVisor sandbox:
 | Variable | Description | Default |
 |---|---|---|
 | `LOG_LEVEL` | The log level for the application. Can be `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. | `INFO` |
-| `SANDBOX_CHECKPOINT_MOUNT_PATH` | The path to a directory where sandboxes can be checkpointed and restored from (e.g., a mounted GCS volume). If not set, this functionality is disabled. | (not set) |
-| `FILESYSTEM_SNAPSHOT_MOUNT_PATH` | The path to a directory where filesystem snapshots can be stored and loaded from. If not set, this functionality is disabled. | (not set) |
+| `SANDBOX_METADATA_MOUNT_PATH` | The local path to the GCS bucket where metadata is stored. | (not set) |
+| `SANDBOX_METADATA_BUCKET` | The name of the GCS bucket where metadata is stored. | (not set) |
+| `SANDBOX_CHECKPOINT_MOUNT_PATH` | The local path to the GCS bucket where checkpoints are stored. | (not set) |
+| `SANDBOX_CHECKPOINT_BUCKET` | The name of the GCS bucket where checkpoints are stored. | (not set) |
+| `FILESYSTEM_SNAPSHOT_MOUNT_PATH` | The local path to the GCS bucket where filesystem snapshots are stored. | (not set) |
+| `FILESYSTEM_SNAPSHOT_BUCKET` | The name of the GCS bucket where filesystem snapshots are stored. | (not set) |
 | `RUNSC_USE_SUDO` | Set to `true` to run `runsc` commands with `sudo`. | `false` |
 | `RUNSC_ROOTLESS` | Set to `true` to run `runsc` in rootless mode. | `false` |
 | `RUNSC_ROOT_DIR_BASE` | The base directory for sandbox root directories. | `/tmp` |

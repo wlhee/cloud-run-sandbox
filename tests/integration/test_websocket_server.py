@@ -179,7 +179,12 @@ async def test_websocket_checkpoint_and_restore_success():
     Tests the full checkpoint and restore lifecycle via WebSocket.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path=temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(
+            metadata_mount_path=temp_dir,
+            metadata_bucket="test-bucket",
+            sandbox_checkpoint_mount_path=temp_dir,
+            sandbox_checkpoint_bucket="test-bucket",
+        )
         # 1. Create a sandbox with checkpointing enabled
         with client.websocket_connect("/create") as websocket:
             websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
@@ -215,7 +220,12 @@ async def test_websocket_multi_checkpoint_and_restore():
     Tests the full lifecycle of checkpoint -> restore -> checkpoint -> restore.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path=temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(
+            metadata_mount_path=temp_dir,
+            metadata_bucket="test-bucket",
+            sandbox_checkpoint_mount_path=temp_dir,
+            sandbox_checkpoint_bucket="test-bucket",
+        )
         
         # 1. Create a sandbox with checkpointing enabled
         with client.websocket_connect("/create") as websocket:
@@ -269,7 +279,10 @@ async def test_websocket_filesystem_snapshot_and_create():
     Tests the full filesystem snapshot and create from snapshot lifecycle via WebSocket.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path=temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(
+            filesystem_snapshot_mount_path=temp_dir,
+            filesystem_snapshot_bucket="test-bucket",
+        )
         # 1. Create a sandbox
         with client.websocket_connect("/create") as websocket:
             websocket.send_json({"idle_timeout": 120})
@@ -308,7 +321,10 @@ async def test_websocket_filesystem_snapshot_and_create():
         Tests that creating a sandbox from a non-existent snapshot fails.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
-            sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path=temp_dir)
+            sandbox_manager.gcs_config = GCSConfig(
+                filesystem_snapshot_mount_path=temp_dir,
+                filesystem_snapshot_bucket="test-bucket",
+            )
             with client.websocket_connect("/create") as websocket:
                 websocket.send_json({"filesystem_snapshot_name": "non-existent-snapshot"})
                 assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
@@ -326,7 +342,12 @@ async def test_websocket_restore_failure():
     Tests that a failure during restore is handled gracefully.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path=temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(
+            metadata_mount_path=temp_dir,
+            metadata_bucket="test-bucket",
+            sandbox_checkpoint_mount_path=temp_dir,
+            sandbox_checkpoint_bucket="test-bucket",
+        )
         # 1. Create and checkpoint a sandbox
         with client.websocket_connect("/create") as websocket:
             websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
@@ -337,13 +358,13 @@ async def test_websocket_restore_failure():
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
             assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
 
-        # 2. Corrupt the checkpoint by deleting the file pointed to by 'latest'
-        checkpoints_dir = os.path.join(temp_dir, sandbox_id, "checkpoints")
-        latest_path = os.path.join(checkpoints_dir, "latest")
-        with open(latest_path, "r") as f:
-            latest_checkpoint_name = f.read().strip()
-        checkpoint_path = os.path.join(checkpoints_dir, latest_checkpoint_name)
-        shutil.rmtree(checkpoint_path)
+        # 2. Corrupt the checkpoint by deleting the checkpoint directory
+        metadata_path = os.path.join(temp_dir, "sandboxes", sandbox_id, "metadata.json")
+        with open(metadata_path, "r") as f:
+            metadata = json.load(f)
+        checkpoint_path = metadata["latest_sandbox_checkpoint"]["path"]
+        full_checkpoint_path = os.path.join(temp_dir, checkpoint_path)
+        shutil.rmtree(full_checkpoint_path)
 
         # 3. Attempt to attach to the sandbox
         with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
@@ -360,7 +381,12 @@ async def test_websocket_checkpoint_during_execution():
     Tests that checkpointing during an execution fails gracefully.
     """
     with tempfile.TemporaryDirectory() as temp_dir:
-        sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path=temp_dir)
+        sandbox_manager.gcs_config = GCSConfig(
+            metadata_mount_path=temp_dir,
+            metadata_bucket="test-bucket",
+            sandbox_checkpoint_mount_path=temp_dir,
+            sandbox_checkpoint_bucket="test-bucket",
+        )
         with client.websocket_connect("/create") as websocket:
             # 1. Send initial config and receive confirmation
             websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})

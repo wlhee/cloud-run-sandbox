@@ -1,59 +1,53 @@
-# GCS Persistence and Locking Refactor Plan
+# GCS Persistence and Locking Refactor Plan (Revised)
 
-This document outlines the implementation plan for refactoring the GCS-backed sandbox functionality based on the finalized design in `docs/gcs_bucket_structure.md`.
+This document outlines the implementation plan for refactoring the GCS-backed sandbox functionality. The core of this refactor is the introduction of `SandboxHandle` as a centralized class for managing all state and configuration for a single sandbox instance, ensuring that logic for persistence is isolated and easily testable.
 
-## Phase 1: Refactor Configuration & Data Structures
+## Phase 1: Introduce `SandboxHandle` and Centralize Configuration
 
-1.  **Introduce New Configuration Module:**
-    - Create a new file `src/sandbox/config.py`.
-    - This module will be responsible for parsing and validating all GCS-related environment variables:
-        - `SANDBOX_LOCK_BUCKET`
-        - `SANDBOX_METADATA_BUCKET` / `SANDBOX_METADATA_MOUNT_PATH`
-        - `SANDBOX_CHECKPOINT_BUCKET` / `SANDBOX_CHECKPOINT_MOUNT_PATH`
-        - `FILESYSTEM_SNAPSHOT_BUCKET` / `FILESYSTEM_SNAPSHOT_MOUNT_PATH`
-    - It should provide a singleton or a simple function to access the validated configuration throughout the application.
+1.  **Introduce `src/sandbox/handle.py`:**
+    - This new file will define the `SandboxHandle`, `GCSSandboxMetadata`, and `GCSArtifact` data classes.
+    - The `SandboxHandle` will be the single source of truth for a sandbox's state, including:
+        - **In-memory runtime data:** `instance`, `cleanup_task`, `last_activity`, `idle_timeout`, etc.
+        - **Persistent state:** `gcs_config` and the loaded `gcs_metadata`.
+    - It will centralize all path construction logic for GCS artifacts (metadata, lock files, checkpoints, snapshots).
+    - It will contain methods for reading and writing the persistent `metadata.json` file.
 
-2.  **Update Data Types:**
-    - Modify `src/sandbox/types.py`.
-    - Update the relevant data classes to match the new `metadata.json` format.
+2.  **Solidify `src/sandbox/config.py`:**
+    - This module will remain the central point for parsing and validating all GCS-related environment variables.
+    - It will provide a `GCSConfig` object that is passed to and stored within the `SandboxHandle`.
 
-3.  **Validation Strategy:**
-    - **No Startup Validation:** The server will always start, regardless of which GCS environment variables are set. Its capabilities are determined at runtime.
-    - **Validation at Request Time:** The server must validate it can support all requested features at the time of the request.
-        - **`create_sandbox(gcs_sandbox_id=...)`**: This is the primary validation point. The server will check for the presence of `SANDBOX_LOCK_BUCKET` and `SANDBOX_METADATA_BUCKET`. If they are not configured, the API call will fail immediately.
-        - **`checkpoint()`**: When this API is called, the server will check for `SANDBOX_CHECKPOINT_BUCKET` / `..._MOUNT_PATH`. If not configured, the call fails.
-        - **`snapshot()`**: When this API is called, the server will check for `FILESYSTEM_SNAPSHOT_BUCKET` / `..._MOUNT_PATH`. If not configured, the call fails.
+3.  **Add Comprehensive Tests for `SandboxHandle`:**
+    - Create a new test file: `tests/unit/sandbox/test_handle.py`.
+    - Add extensive unit tests to verify:
+        - All path construction logic under various configurations (e.g., mounted vs. non-mounted paths).
+        - Validation logic within the handle.
+        - The correctness of reading and writing metadata to a mock filesystem.
 
-## Phase 2: Isolate GCS Logic in the Sandbox Manager
+## Phase 2: Integrate `SandboxHandle` into the Sandbox Manager
 
-1.  **Centralize Path Logic in `manager.py`:**
-    - Modify `src/sandbox/manager.py`.
-    - The `SandboxManager` will import and use the new configuration module from `src/sandbox/config.py`.
-    - Implement the core path resolution logic: for a given artifact, check for a `_MOUNT_PATH` environment variable first. If present, combine it with the relative path from the metadata to create a full local path. If not, fall back to constructing a `gs://` URI from the corresponding `_BUCKET` variable.
-    - This manager will be the single component responsible for creating the final path string (local or GCS) for an artifact.
+1.  **Refactor `src/sandbox/manager.py`:**
+    - The `SandboxManager` will be refactored to delegate all persistence logic to the `SandboxHandle`.
+    - It will maintain a dictionary of active `SandboxHandle` instances, keyed by `sandbox_id`.
+    - The `GCSConfig` is passed to the `SandboxManager` on initialization (in `main.py`). The manager will then pass this config to the `SandboxHandle` when a new sandbox is created.
+    - All sandbox operations (create, get, checkpoint, snapshot) will be mediated through the corresponding `SandboxHandle`.
+        - **Creation/Restore:** The manager will create a `SandboxHandle` and use it to read the `metadata.json` from GCS to restore a sandbox's state.
+        - **Checkpoint/Snapshot:** The manager will use the handle to determine the correct paths for storing artifacts, and then use the handle to update and persist the new metadata.
 
-2.  **Update `gvisor.py`:**
-    - Modify `src/sandbox/gvisor.py`.
-    - The `GVisorSandbox` class will be updated to accept a path to a snapshot archive (`.tar.gz`).
-    - Implement the sandbox creation/restore logic:
-        1. Create a new temporary directory to serve as the sandbox rootfs.
-        2. Based on the path format (local vs. `gs://`), either copy the archive from the local path or download it from GCS.
-        3. Extract the archive into the newly created rootfs directory.
-        4. Start the sandbox using this prepared directory.
+2.  **Centralize Validation in `SandboxHandle`:**
+    - All validation logic will be moved from the manager into the `SandboxHandle`.
+    - At the time of a request, the handle will validate that the server has the necessary GCS configuration to support the requested feature (e.g., checkpointing requires `SANDBOX_CHECKPOINT_BUCKET`). If not, the operation will fail early.
 
-3.  **Update `factory.py`:**
-    - Modify `src/sandbox/factory.py`.
-    - Update the `SandboxFactory` to pass the new GCS configuration parameters from the API request into the `SandboxManager`.
+3.  **Update `gvisor.py`:**
+    - The `GVisorSandbox` will not be aware of the `SandboxHandle`. It will continue to accept simple paths for archives, which will be provided by the `SandboxManager` after being resolved by the `SandboxHandle`.
 
 ## Phase 3: Update Locking and Tests
 
 1.  **Refactor `GCSLock`:**
-    - Modify `src/sandbox/lock/gcs.py`.
-    - Update the `GCSLock` class to be initialized using the `SANDBOX_LOCK_BUCKET` provided by the new configuration module.
+    - The `GCSLock` in `src/sandbox/lock/gcs.py` will be updated to use the `GCSConfig` object.
+    - The `SandboxManager` will use the `lock_path` property from the `SandboxHandle` to determine the correct path for the lock file.
 
 2.  **Update Unit & Integration Tests:**
-    - **`test_config.py`**: Add a new test file to verify the logic in the new config module.
-    - **`test_gcs.py`**: Update the lock tests to mock the new configuration system.
-    - **`test_manager.py`**: Add extensive new tests to verify the path resolution logic for all modes (mounted vs. GCS client) and the request-time validation logic.
-    - **`test_gvisor_sandbox.py`**: Add tests to verify the archive download and extraction logic.
-    - **Integration Tests**: Update integration tests in `tests/integration/` to cover the full end-to-end lifecycle of creating, attaching, and detaching a GCS-backed sandbox using the new configuration.
+    - **`test_handle.py`**: As described in Phase 1, this will be a new and comprehensive test suite.
+    - **`test_manager.py`**: Tests will be updated to mock the `SandboxHandle` and verify that the manager correctly uses the handle to manage the sandbox lifecycle.
+    - **`test_gcs.py`**: The lock tests will be updated to mock the new configuration system.
+    - **Integration Tests**: The tests in `tests/integration/` will be updated to cover the full end-to-end lifecycle of creating, attaching, and detaching a GCS-backed sandbox using the new `SandboxHandle`-based architecture.

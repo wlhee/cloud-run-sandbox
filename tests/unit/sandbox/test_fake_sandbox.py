@@ -95,19 +95,17 @@ async def test_fake_sandbox_checkpoint_and_restore():
     Tests that the FakeSandbox can be checkpointed and restored successfully.
     """
     sandbox = FakeSandbox("fake-checkpoint")
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        checkpoint_path = tmp.name
+    with tempfile.TemporaryDirectory() as tmpdir:
+        checkpoint_path = tmpdir
 
-    # Checkpoint should create the file
-    await sandbox.create()
-    await sandbox.checkpoint(checkpoint_path)
-    assert os.path.exists(checkpoint_path)
+        # Checkpoint should create the file
+        await sandbox.create()
+        await sandbox.checkpoint(checkpoint_path)
+        assert os.path.exists(os.path.join(checkpoint_path, "checkpoint.img"))
 
-    # Restore should succeed
-    sandbox2 = FakeSandbox("fake-restore")
-    await sandbox2.restore(checkpoint_path)
-    
-    os.remove(checkpoint_path)
+        # Restore should succeed
+        sandbox2 = FakeSandbox("fake-restore")
+        await sandbox2.restore(checkpoint_path)
 
 async def test_fake_sandbox_checkpoint_fails_if_running():
     """

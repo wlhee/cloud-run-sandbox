@@ -25,7 +25,7 @@ While different buckets can be used for each artifact type, a clear directory st
 │
 └── filesystem_snapshots/
     └── <snapshot_id>/
-        └── <snapshot_id>.tar.gz  # An archive of the sandbox filesystem
+        └── <snapshot_id>.tar  # An archive of the sandbox filesystem
 ```
 
 ## 3. Metadata File (`metadata.json`)

@@ -145,7 +145,9 @@ class FakeSandbox(SandboxInterface):
             raise SandboxOperationError("Fake sandbox failed to checkpoint as configured.")
         
         logger.info(f"Fake sandbox {self.sandbox_id}: CHECKPOINTING to {checkpoint_path}.")
-        with open(checkpoint_path, "w") as f:
+        # The provided path is a directory. Create a dummy file inside it.
+        os.makedirs(checkpoint_path, exist_ok=True)
+        with open(os.path.join(checkpoint_path, "checkpoint.img"), "w") as f:
             f.write("checkpoint_data")
         
         self._state = SandboxState.CHECKPOINTED

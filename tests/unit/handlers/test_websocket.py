@@ -69,7 +69,10 @@ async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
     sandbox = FakeSandbox("snapshot-sandbox")
     await sandbox.create()
     mock_create_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path='/tmp/snapshots')
+    sandbox_manager.gcs_config = GCSConfig(
+        filesystem_snapshot_mount_path='/tmp/snapshots',
+        filesystem_snapshot_bucket="test-bucket",
+    )
 
 
     # Act & Assert
@@ -328,7 +331,12 @@ def test_attach_restore_sandbox(mock_get_sandbox, mock_restore_sandbox):
     sandbox = FakeSandbox("test-sandbox")
     mock_get_sandbox.return_value = None # Simulate cache miss
     mock_restore_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path='/tmp')
+    sandbox_manager.gcs_config = GCSConfig(
+        metadata_mount_path='/tmp',
+        metadata_bucket="test-bucket",
+        sandbox_checkpoint_mount_path='/tmp',
+        sandbox_checkpoint_bucket="test-bucket",
+    )
 
     # Act & Assert
     with client.websocket_connect("/attach/test-sandbox") as websocket:
@@ -362,7 +370,12 @@ async def test_sandbox_checkpoint(mock_create_sandbox, mock_checkpoint_sandbox):
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path='/tmp')
+    sandbox_manager.gcs_config = GCSConfig(
+        metadata_mount_path='/tmp',
+        metadata_bucket="test-bucket",
+        sandbox_checkpoint_mount_path='/tmp',
+        sandbox_checkpoint_bucket="test-bucket",
+    )
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
@@ -388,7 +401,12 @@ async def test_sandbox_checkpoint_failure(mock_create_sandbox, mock_checkpoint_s
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
     mock_checkpoint_sandbox.side_effect = SandboxCheckpointError("Checkpoint failed")
-    sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path='/tmp')
+    sandbox_manager.gcs_config = GCSConfig(
+        metadata_mount_path='/tmp',
+        metadata_bucket="test-bucket",
+        sandbox_checkpoint_mount_path='/tmp',
+        sandbox_checkpoint_bucket="test-bucket",
+    )
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
@@ -411,7 +429,12 @@ def test_attach_restore_sandbox_not_found(mock_restore_sandbox):
     """
     # Arrange
     mock_restore_sandbox.return_value = None
-    sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path='/tmp')
+    sandbox_manager.gcs_config = GCSConfig(
+        metadata_mount_path='/tmp',
+        metadata_bucket="test-bucket",
+        sandbox_checkpoint_mount_path='/tmp',
+        sandbox_checkpoint_bucket="test-bucket",
+    )
 
     # Act & Assert
     with client.websocket_connect("/attach/test-sandbox") as websocket:
@@ -428,7 +451,12 @@ def test_attach_restore_sandbox_failure(mock_restore_sandbox):
     """
     # Arrange
     mock_restore_sandbox.side_effect = SandboxRestoreError("Restore failed")
-    sandbox_manager.gcs_config = GCSConfig(sandbox_checkpoint_mount_path='/tmp')
+    sandbox_manager.gcs_config = GCSConfig(
+        metadata_mount_path='/tmp',
+        metadata_bucket="test-bucket",
+        sandbox_checkpoint_mount_path='/tmp',
+        sandbox_checkpoint_bucket="test-bucket",
+    )
 
     # Act & Assert
     with client.websocket_connect("/attach/test-sandbox") as websocket:
@@ -449,7 +477,10 @@ async def test_snapshot_filesystem(mock_create_sandbox, mock_snapshot_filesystem
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path='/tmp/snapshots')
+    sandbox_manager.gcs_config = GCSConfig(
+        filesystem_snapshot_mount_path='/tmp/snapshots',
+        filesystem_snapshot_bucket="test-bucket",
+    )
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
@@ -497,7 +528,10 @@ async def test_snapshot_filesystem_error(mock_create_sandbox, mock_snapshot_file
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
     mock_snapshot_filesystem.side_effect = SandboxOperationError("Snapshot failed")
-    sandbox_manager.gcs_config = GCSConfig(filesystem_snapshot_mount_path='/tmp/snapshots')
+    sandbox_manager.gcs_config = GCSConfig(
+        filesystem_snapshot_mount_path='/tmp/snapshots',
+        filesystem_snapshot_bucket="test-bucket",
+    )
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
