@@ -6,6 +6,7 @@ import asyncio
 from starlette.websockets import WebSocketDisconnect
 import os
 import tempfile
+import json
 from src.sandbox.manager import manager as sandbox_manager
 from src.sandbox.config import GCSConfig
 
