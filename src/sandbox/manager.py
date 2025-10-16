@@ -11,7 +11,7 @@ import json
 
 from .handle import SandboxHandle
 from .config import GCSConfig
-from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError
+from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxExecutionInProgressError, SandboxCheckpointError
 
 logger = logging.getLogger(__name__)
 
@@ -211,10 +211,15 @@ class SandboxManager:
             handle.update_latest_checkpoint()
             
             logger.info(f"Sandbox {sandbox_id} checkpointed to {checkpoint_path}")
-
-        finally:
-            # After checkpointing, the local instance is no longer valid, even if checkpointing failed.
+            # After checkpointing, the local instance is no longer valid.
             await self.delete_sandbox(sandbox_id)
+        except SandboxExecutionInProgressError:
+            # Re-raise the specific error to be handled by the caller (websocket handler)
+            raise
+        except Exception as e:
+            # On other errors, delete the sandbox to ensure a clean state
+            await self.delete_sandbox(sandbox_id)
+            raise SandboxCheckpointError(f"Failed to checkpoint sandbox {sandbox_id}: {e}") from e
 
     async def snapshot_filesystem(self, sandbox_id: str, snapshot_name: str):
         """

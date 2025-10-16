@@ -141,7 +141,7 @@ class WebsocketHandler:
             await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
             await self.websocket.close(code=1000)
         except SandboxExecutionInProgressError as e:
-            print(f"WEBSOCKET ({self.sandbox.sandbox_id}): Cannot checkpoint: execution in progress.")
+            print(f"WEBSOCKET ({self.sandbox.sandbox_id}): Caught SandboxExecutionInProgressError.")
             await self.handle_error(e, close_connection=False)
         except Exception as e:
             e = SandboxCheckpointError(f"Failed to checkpoint sandbox {self.sandbox.sandbox_id}: {e}")
