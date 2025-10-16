@@ -39,7 +39,7 @@ async def main():
 
         # Execute a bash command
         print("\nExecuting command: echo 'Hello from bash!'")
-        process = await sandbox.exec("echo 'Hello from bash!'", "bash")
+        process = await sandbox.exec("bash", "echo 'Hello from bash!'")
 
         # Read the output streams
         stdout = await process.stdout.read_all()

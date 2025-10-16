@@ -28,7 +28,7 @@ async def test_process_exec_success_read():
         ]
         
         # Start exec in the background
-        exec_task = asyncio.create_task(process.exec("echo 'Hello World'", "bash"))
+        exec_task = asyncio.create_task(process.exec("bash", "echo 'Hello World'"))
         
         # Feed messages to the process to unblock exec and subsequent reads
         for msg in messages:
@@ -68,7 +68,7 @@ async def test_process_stream_iteration():
             {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE},
         ]
         
-        exec_task = asyncio.create_task(process.exec("some command", "bash"))
+        exec_task = asyncio.create_task(process.exec("bash", "some command"))
         
         for msg in messages:
             process.handle_message(msg)
@@ -113,7 +113,7 @@ async def test_process_exec_failure_unblocks_wait():
 
     # Act & Assert
     with pytest.raises(SandboxExecutionError, match="Something went wrong"):
-        exec_task = asyncio.create_task(process.exec("some code", "python"))
+        exec_task = asyncio.create_task(process.exec("python", "some code"))
         process.handle_message(error_message)
         await exec_task
 
@@ -147,7 +147,7 @@ async def test_process_terminate():
         await asyncio.sleep(0)
 
     # Act
-    exec_task = asyncio.create_task(process.exec("long command", "bash"))
+    exec_task = asyncio.create_task(process.exec("bash", "long command"))
     await exec_and_feed_partial()
     await exec_task # exec() is now unblocked
 
@@ -187,7 +187,7 @@ async def test_process_terminate_while_reading():
         })
         await asyncio.sleep(0)
 
-    exec_task = asyncio.create_task(process.exec("long command", "bash"))
+    exec_task = asyncio.create_task(process.exec("bash", "long command"))
     await exec_and_feed_first_chunk()
     await exec_task
 
@@ -239,7 +239,7 @@ async def test_process_terminate_while_full_reading():
         })
         await asyncio.sleep(0)
 
-    exec_task = asyncio.create_task(process.exec("long command", "bash"))
+    exec_task = asyncio.create_task(process.exec("bash", "long command"))
     await exec_and_feed_first_chunk()
     await exec_task
 
@@ -337,7 +337,7 @@ async def test_process_write_to_stdin():
 
     async def exec_and_write():
         # Start exec in the background
-        exec_task = asyncio.create_task(process.exec("cat", "bash"))
+        exec_task = asyncio.create_task(process.exec("bash", "cat"))
         
         # Simulate server acknowledging the execution start
         process.handle_message({

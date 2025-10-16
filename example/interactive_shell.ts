@@ -32,7 +32,7 @@ async function main() {
     console.log(`Connected to sandbox: ${sandbox.sandboxId}`);
     console.log("Starting interactive shell... (type 'exit' to quit)");
 
-    const shellProcess = await sandbox.exec("export PS1='sandbox> '; /bin/bash -i", 'bash');
+    const shellProcess = await sandbox.exec('bash', "export PS1='sandbox> '; /bin/bash -i");
 
     // Pipe stdin
     process.stdin.on('data', (data) => {

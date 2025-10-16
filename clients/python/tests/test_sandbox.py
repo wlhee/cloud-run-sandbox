@@ -159,8 +159,7 @@ async def test_sandbox_exec_dispatches_messages(mock_websocket_factory):
     sandbox = await Sandbox.create("ws://test")
     
     # Act
-    process = await sandbox.exec("command", "bash")
-    
+    process = await sandbox.exec("bash", "command")    
     # Assert
     output = await process.stdout.read_all()
     assert output == "output"

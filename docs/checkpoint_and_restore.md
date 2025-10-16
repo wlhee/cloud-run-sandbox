@@ -4,7 +4,12 @@ This document outlines the checkpoint and restore functionality, enabling statef
 
 ## Server Configuration
 
-For the checkpoint and restore feature to be available, the server must be started with the `SANDBOX_CHECKPOINT_MOUNT_PATH` environment variable set to a valid path on a persistent volume. If this variable is not set, the server will reject any client requests to enable checkpointing and will not attempt to restore sandboxes from disk.
+For the checkpoint and restore feature to be available, the server must be started with the following environment variables set:
+
+-   **`SANDBOX_CHECKPOINT_BUCKET`**: The name of the GCS bucket where checkpoint artifacts are stored.
+-   **`SANDBOX_CHECKPOINT_MOUNT_PATH`**: The local filesystem path (on a persistent volume) where the bucket is mounted.
+
+Both of these variables are required. If either is not set, the server will reject any client requests to enable checkpointing and will not attempt to restore sandboxes from disk.
 
 ## Filesystem Structure
 

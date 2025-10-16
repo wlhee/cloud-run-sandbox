@@ -43,7 +43,7 @@ async function main() {
 
     // Execute a bash command
     console.log("\nExecuting command: echo 'Hello from bash!'");
-    const process = await sandbox.exec("echo 'Hello from bash!'", "bash");
+    const process = await sandbox.exec("bash", "echo 'Hello from bash!'");
 
     // Concurrently read streams and wait for the process to complete
     const [stdout, stderr] = await Promise.all([

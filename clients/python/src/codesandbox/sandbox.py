@@ -56,7 +56,7 @@ class Sandbox:
             raise self._creation_error
 
 
-    async def exec(self, code: str, language: str) -> SandboxProcess:
+    async def exec(self, language: str, code: str) -> SandboxProcess:
         """
         Creates and starts a new process in the sandbox for code execution.
         """
@@ -68,7 +68,7 @@ class Sandbox:
         process = SandboxProcess(self._ws, on_done=self._clear_active_process)
         self._active_process = process
         
-        await process.exec(code, language)
+        await process.exec(language, code)
         return process
 
     def _clear_active_process(self):

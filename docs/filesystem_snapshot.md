@@ -4,7 +4,12 @@ This document outlines the filesystem snapshot functionality, enabling faster sa
 
 ## Server Configuration
 
-For the filesystem snapshot feature to be available, the server must be started with the `FILESYSTEM_SNAPSHOT_MOUNT_PATH` environment variable set to a valid path on a persistent volume. If this variable is not set, the server will reject any client requests to create a snapshot or create a sandbox from a snapshot.
+For the filesystem snapshot feature to be available, the server must be started with the following environment variables set:
+
+-   **`FILESYSTEM_SNAPSHOT_BUCKET`**: The name of the GCS bucket where snapshot artifacts are stored.
+-   **`FILESYSTEM_SNAPSHOT_MOUNT_PATH`**: The local filesystem path (on a persistent volume) where the bucket is mounted.
+
+Both of these variables are required. If either is not set, the server will reject any client requests to create a snapshot or create a sandbox from a snapshot.
 
 ## Overview
 

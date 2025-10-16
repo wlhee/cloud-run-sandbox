@@ -66,7 +66,7 @@ export class SandboxProcess {
     }
   }
 
-  public async exec(code: string, language: string): Promise<void> {
+  public async exec(language: string, code: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.eventEmitter.once('started', () => {
         if (this._startError) {

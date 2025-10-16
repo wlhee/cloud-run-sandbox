@@ -20,7 +20,7 @@ async def main():
     sandbox = await Sandbox.create("wss://<CLOUD_RUN_URL>")
 
     # Execute a command
-    process = await sandbox.exec("echo 'Hello from the sandbox!'", "bash")
+    process = await sandbox.exec("bash", "echo 'Hello from the sandbox!'")
 
     # Read the output
     output = await process.stdout.read_all()

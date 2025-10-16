@@ -221,7 +221,7 @@ export class Sandbox {
     });
   }
 
-  public async exec(code: string, language: string): Promise<SandboxProcess> {
+  public async exec(language: string, code: string): Promise<SandboxProcess> {
     if (this.activeProcess) {
       throw new Error('Another process is already running in this sandbox.');
     }
@@ -236,7 +236,7 @@ export class Sandbox {
       this.activeProcess = null;
     });
 
-    await process.exec(code, language);
+    await process.exec(language, code);
     return process;
   }
 

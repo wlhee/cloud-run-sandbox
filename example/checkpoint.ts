@@ -53,7 +53,7 @@ async function main() {
     const filename = `/tmp/testfile_${Date.now()}.txt`;
     const content = "Hello from the original sandbox!";
     console.log(`\nExecuting command to write to ${filename}...`);
-    const writeFileProcess = await sandbox.exec(`echo "${content}" > ${filename}`, "bash");
+    const writeFileProcess = await sandbox.exec("bash", `echo "${content}" > ${filename}`);
     await writeFileProcess.wait();
     console.log("File written successfully.");
 
@@ -72,7 +72,7 @@ async function main() {
 
     // 5. Verify the state by reading the file
     console.log(`\nExecuting command to read from ${filename}...`);
-    const readFileProcess = await sandbox.exec(`cat ${filename}`, "bash");
+    const readFileProcess = await sandbox.exec("bash", `cat ${filename}`);
     const stdout = await readFileProcess.stdout.readAll();
     await readFileProcess.wait();
 

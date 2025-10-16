@@ -70,7 +70,7 @@ describe('SandboxProcess', () => {
     server.connect(process);
 
     // Act
-    const execPromise = process.exec('print("hello")', 'python');
+    const execPromise = process.exec('python', 'print("hello")');
     server.sendRunning();
     await execPromise;
 
@@ -85,7 +85,7 @@ describe('SandboxProcess', () => {
     // Arrange
     const process = new SandboxProcess(server.ws as any);
     server.connect(process);
-    const execPromise = process.exec('test', 'bash');
+    const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
 
@@ -101,7 +101,7 @@ describe('SandboxProcess', () => {
     // Arrange
     const process = new SandboxProcess(server.ws as any);
     server.connect(process);
-    const execPromise = process.exec('test', 'bash');
+    const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
 
@@ -119,7 +119,7 @@ describe('SandboxProcess', () => {
     server.connect(process);
 
     // Act
-    const execPromise = process.exec('test', 'bash');
+    const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
 
@@ -159,7 +159,7 @@ describe('SandboxProcess', () => {
     const stderrPromise1 = new Promise<void>(resolve => { resolveStderr1 = resolve; });
 
     // Act
-    const execPromise = process.exec('test', 'bash');
+    const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
 
@@ -209,7 +209,7 @@ describe('SandboxProcess', () => {
     server.connect(process);
 
     // Act
-    const execPromise = process.exec('bad code', 'python');
+    const execPromise = process.exec('python', 'bad code');
     server.sendError('Syntax error');
 
     // Assert
@@ -222,7 +222,7 @@ describe('SandboxProcess', () => {
     server.connect(process);
 
     // Act
-    const execPromise = process.exec('test', 'bash');
+    const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
 
@@ -242,7 +242,7 @@ describe('SandboxProcess', () => {
     server.connect(process);
 
     // Act
-    const execPromise = process.exec('test', 'bash');
+    const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
 
@@ -261,7 +261,7 @@ describe('SandboxProcess', () => {
     server.connect(process);
 
     // Act
-    const execPromise = process.exec('test', 'bash');
+    const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
 

@@ -87,7 +87,7 @@ class SandboxProcess:
             self.stderr._put(message.get(MessageKey.DATA))
             return
 
-    async def exec(self, code: str, language: str):
+    async def exec(self, language: str, code: str):
         """
         Starts the execution of the process in the sandbox and waits for confirmation.
 

@@ -124,7 +124,7 @@ describe('Sandbox', () => {
     await expect(checkpointPromise).resolves.toBeUndefined();
 
     // Verify that exec fails after checkpointing
-    await expect(sandbox.exec('echo "hello"', 'bash')).rejects.toThrow('Sandbox is not in a running state. Current state: checkpointed');
+    await expect(sandbox.exec('bash', 'echo "hello"')).rejects.toThrow('Sandbox is not in a running state. Current state: checkpointed');
   });
 
   it('should reject creation on server error and terminate the socket', async () => {
@@ -187,7 +187,7 @@ describe('Sandbox', () => {
     const sandbox = await createPromise;
 
     // Run first process
-    const process1Promise = sandbox.exec('echo "hello"', 'bash');
+    const process1Promise = sandbox.exec('bash', 'echo "hello"');
     mockWsInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
@@ -212,7 +212,7 @@ describe('Sandbox', () => {
     await process1.wait();
 
     // Run second process
-    const process2Promise = sandbox.exec('echo "world"', 'bash');
+    const process2Promise = sandbox.exec('bash', 'echo "world"');
     mockWsInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
@@ -244,7 +244,7 @@ describe('Sandbox', () => {
     }));
     const sandbox = await createPromise;
 
-    const processPromise = sandbox.exec('sleep 10', 'bash');
+    const processPromise = sandbox.exec('bash', 'sleep 10');
     mockWsInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
@@ -275,7 +275,7 @@ describe('Sandbox', () => {
     expect(sandbox.sandboxId).toBe('test-id');
 
     // Verify that exec works after attaching
-    const execPromise = sandbox.exec('echo "hello"', 'bash');
+    const execPromise = sandbox.exec('bash', 'echo "hello"');
     mockWsInstance.emit('message', JSON.stringify({
       "event": "status_update",
       "status": "SANDBOX_EXECUTION_RUNNING"
@@ -303,7 +303,7 @@ describe('Sandbox', () => {
     await expect(checkpointPromise).rejects.toThrow('Fatal checkpoint failure');
 
     // Verify that exec fails after a fatal checkpoint error
-    await expect(sandbox.exec('echo "hello"', 'bash')).rejects.toThrow('Sandbox is not in a running state. Current state: failed');
+    await expect(sandbox.exec('bash', 'echo "hello"')).rejects.toThrow('Sandbox is not in a running state. Current state: failed');
   });
 
   it('should handle a recoverable checkpoint error', async () => {

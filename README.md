@@ -1,13 +1,18 @@
 # Cloud Run Sandbox
 
-This project provides a web server that can execute Python code in a sandboxed environment on Google Cloud Run using gVisor (`runsc`).
+This project provides a web server for executing arbitrary code (such as Python and Bash) in a secure sandboxed environment on Google Cloud Run. It leverages gVisor (`runsc`) for strong isolation and supports advanced features like stateful sessions through memory checkpoint/restore and efficient environment duplication via filesystem snapshots.
 
 ## 1. Deployment
 
 To deploy this application to Cloud Run, you will need to have the `gcloud` CLI installed and authenticated. Then, run the following command from the root of the project directory:
 
 ```bash
-gcloud run deploy sandbox --source . --project=<YOUR_PROJECT_ID> --region=us-central1 --allow-unauthenticated --execution-environment=gen2 --concurrency=1
+gcloud run deploy sandbox --source . \
+  --project=<YOUR_PROJECT_ID> \
+  --region=us-central1 \
+  --allow-unauthenticated \
+  --execution-environment=gen2 \
+  --concurrency=1 
 ```
 
 Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
@@ -17,30 +22,6 @@ Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
 The most convenient way to interact with the sandbox is by using one of the client libraries.
 
 For each of these examples, ensure you first install the respective client in the clients/ folder. For example, `npm install clients/js/` for Typescript.
-
-### Python
-
-Here is a simple example of how to connect to the sandbox, execute a command, and print its output:
-
-```python
-from codesandbox import Sandbox
-
-# Replace `https` with `wss` of the Cloud Run service URL.
-url = "wss://<YOUR_SERVICE_URL>"
-sandbox = await Sandbox.create(url)
-
-# Execute a command
-process = await sandbox.exec("echo 'Hello from the sandbox!'", "bash")
-
-# Read the output
-stdout = await process.stdout.read_all()
-print(f"STDOUT: {stdout}")
-
-# Clean up the sandbox session
-await sandbox.terminate()
-```
-
-For a more detailed and robust example that includes secure SSL/TLS setup, please see `example/client_example.py`.
 
 ### TypeScript
 
@@ -54,7 +35,7 @@ const url = "wss://<YOUR_SERVICE_URL>";
 const sandbox = await Sandbox.create(url);
 
 // Execute a command
-const process = await sandbox.exec("echo 'Hello from the sandbox!'", "bash");
+const process = await sandbox.exec('bash', "echo 'Hello from the sandbox!'");
 
 // Read the output
 const stdout = await process.stdout.readAll();
@@ -72,7 +53,13 @@ The sandbox supports stateful sessions through a checkpoint and restore mechanis
 
 ### Server Configuration
 
-To enable this feature, the Cloud Run service must be deployed with a persistent volume and a specific environment variable of `CHECKPOINT_AND_RESTORE_PATH`.
+To enable this feature, the Cloud Run service must be deployed with a persistent volume and specific environment variables:
+  - `SANDBOX_METADATA_MOUNT_PATH`
+  - `SANDBOX_METADATA_BUCKET`
+  - `SANDBOX_CHECKPOINT_MOUNT_PATH`
+  - `SANDBOX_CHECKPOINT_BUCKET`
+
+Please see `docs/checkpoint_and_restore.md` for more details.
 
 1.  **Create a GCS Bucket**: First, ensure you have a Google Cloud Storage bucket to store the checkpoints.
 2.  **Deploy with Volume Mount**: Deploy the service with the GCS bucket mounted as a volume.
@@ -80,18 +67,21 @@ To enable this feature, the Cloud Run service must be deployed with a persistent
 Here is an example `gcloud` command:
 
 ```bash
+PROJECT_ID=<YOUR_PROJECT_ID>
+BUCKET_NAME=<YOUR_BUCKET_NAME>
+
 gcloud run deploy sandbox --source . \
-  --project=<YOUR_PROJECT_ID> \
+  --project=${PROJECT_ID} \
   --region=us-central1 \
   --allow-unauthenticated \
   --execution-environment=gen2 \
   --concurrency=1 \
-  --add-volume=name=gcs-volume,type=cloud-storage,bucket=<YOUR_BUCKET_NAME> \
+  --add-volume=name=gcs-volume,type=cloud-storage,bucket=${BUCKET_NAME} \
   --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs \
   --set-env-vars='SANDBOX_METADATA_MOUNT_PATH=/mnt/gcs' \
-  --set-env-vars='SANDBOX_METADATA_BUCKET=<YOUR_BUCKET_NAME>' \
+  --set-env-vars='SANDBOX_METADATA_BUCKET=${BUCKET_NAME}' \
   --set-env-vars='SANDBOX_CHECKPOINT_MOUNT_PATH=/mnt/gcs' \
-  --set-env-vars='SANDBOX_CHECKPOINT_BUCKET=<YOUR_BUCKET_NAME>'
+  --set-env-vars='SANDBOX_CHECKPOINT_BUCKET=${BUCKET_NAME}'
 ```
 
 Replace `<YOUR_PROJECT_ID>` and `<YOUR_BUCKET_NAME>` accordingly. If these are not configured, the server will reject any client requests to use the checkpointing feature.
@@ -120,7 +110,9 @@ The sandbox supports creating a filesystem snapshot from a running sandbox. This
 
 ### Server Configuration
 
-To enable this feature, the Cloud Run service must be deployed with a persistent volume and a specific environment variable of `FILESYSTEM_SNAPSHOT_PATH`.
+To enable this feature, the Cloud Run service must be deployed with a persistent volume and specific environment variables of `FILESYSTEM_SNAPSHOT_PATH` and `FILESYSTEM_SNAPSHOT_BUCKET`.
+
+Please see `docs/filesystem_snapshot.md` for more details.
 
 1.  **Create a GCS Bucket**: First, ensure you have a Google Cloud Storage bucket to store the snapshots.
 2.  **Deploy with Volume Mount**: Deploy the service with the GCS bucket mounted as a volume.
@@ -128,16 +120,19 @@ To enable this feature, the Cloud Run service must be deployed with a persistent
 Here is an example `gcloud` command:
 
 ```bash
+PROJECT_ID=<YOUR_PROJECT_ID>
+BUCKET_NAME=<YOUR_BUCKET_NAME>
+
 gcloud run deploy sandbox --source . \
-  --project=<YOUR_PROJECT_ID> \
+  --project=${PROJECT_ID} \
   --region=us-central1 \
   --allow-unauthenticated \
   --execution-environment=gen2 \
   --concurrency=1 \
-  --add-volume=name=gcs-volume,type=cloud-storage,bucket=<YOUR_BUCKET_NAME> \
+  --add-volume=name=gcs-volume,type=cloud-storage,bucket=${BUCKET_NAME} \
   --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs \
   --set-env-vars='FILESYSTEM_SNAPSHOT_MOUNT_PATH=/mnt/gcs' \
-  --set-env-vars='FILESYSTEM_SNAPSHOT_BUCKET=<YOUR_BUCKET_NAME>'
+  --set-env-vars='FILESYSTEM_SNAPSHOT_BUCKET=${BUCKET_NAME}'
 ```
 
 Replace `<YOUR_PROJECT_ID>` and `<YOUR_BUCKET_NAME>` accordingly. If these are not configured, the server will reject any client requests to use the filesystem snapshot feature.

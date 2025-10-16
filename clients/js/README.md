@@ -19,7 +19,7 @@ async function main() {
   const sandbox = await Sandbox.create('wss://<CLOUD_RUN_URL>');
 
   // Execute a command
-  const process = await sandbox.exec("echo 'Hello from the sandbox!'", 'bash');
+  const process = await sandbox.exec('bash', "echo 'Hello from the sandbox!'");
 
   // Read the output
   for await (const chunk of process.stdout) {
