@@ -92,7 +92,7 @@ Here is a simplified example of the checkpoint/restore flow:
 
 ```typescript
 // 1. Create a sandbox with checkpointing enabled
-const sandbox1 = await Sandbox.create(url, { enableCheckpoint: true });
+const sandbox1 = await Sandbox.create(url, { enableSandboxCheckpoint: true });
 const sandboxId = sandbox1.sandboxId;
 
 // 2. Checkpoint the sandbox

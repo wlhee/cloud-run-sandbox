@@ -53,7 +53,7 @@ describe('Sandbox', () => {
   });
 
   it('should create a sandbox with checkpointing enabled', async () => {
-    const createPromise = Sandbox.create('ws://test-url', { enableCheckpoint: true });
+    const createPromise = Sandbox.create('ws://test-url', { enableSandboxCheckpoint: true });
     
     mockWsInstance.emit('open');
 
@@ -109,7 +109,7 @@ describe('Sandbox', () => {
   });
 
   it('should successfully checkpoint a sandbox and prevent further execution', async () => {
-    const createPromise = Sandbox.create('ws://test-url', { enableCheckpoint: true });
+    const createPromise = Sandbox.create('ws://test-url', { enableSandboxCheckpoint: true });
     mockWsInstance.emit('open');
     mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
     mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
@@ -155,7 +155,7 @@ describe('Sandbox', () => {
     mockWsInstance.emit('open');
     mockWsInstance.emit('close');
 
-    await expect(createPromise).rejects.toThrow('Connection closed during creation');
+    await expect(createPromise).rejects.toThrow('Connection closed during creation/restoration: code=undefined');
     expect(mockWsInstance.terminate).toHaveBeenCalled();
   });
 
@@ -284,7 +284,7 @@ describe('Sandbox', () => {
   });
 
   it('should handle a fatal checkpoint error', async () => {
-    const createPromise = Sandbox.create('ws://test-url', { enableCheckpoint: true });
+    const createPromise = Sandbox.create('ws://test-url', { enableSandboxCheckpoint: true });
     mockWsInstance.emit('open');
     mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
     mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
@@ -307,7 +307,7 @@ describe('Sandbox', () => {
   });
 
   it('should handle a recoverable checkpoint error', async () => {
-    const createPromise = Sandbox.create('ws://test-url', { enableCheckpoint: true });
+    const createPromise = Sandbox.create('ws://test-url', { enableSandboxCheckpoint: true });
     mockWsInstance.emit('open');
     mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
     mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));

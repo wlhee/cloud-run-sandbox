@@ -45,7 +45,7 @@ async function main() {
   try {
     // 1. Create a new sandbox with checkpointing enabled
     console.log("Creating a new sandbox with checkpointing enabled...");
-    sandbox = await Sandbox.create(url, { enableCheckpoint: true });
+    sandbox = await Sandbox.create(url, { enableSandboxCheckpoint: true });
     sandboxId = sandbox.sandboxId;
     console.log(`Successfully created sandbox with ID: ${sandboxId}`);
 

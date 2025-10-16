@@ -134,8 +134,8 @@ export class Sandbox {
     // for the user to handle, e.g., this.eventEmitter.emit('error', err);
   }
 
-  static create(url: string, options: { idleTimeout?: number, enableCheckpoint?: boolean, filesystemSnapshotName?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
-    const { idleTimeout = 60, enableCheckpoint = false, filesystemSnapshotName, wsOptions } = options;
+  static create(url: string, options: { idleTimeout?: number, enableSandboxCheckpoint?: boolean, filesystemSnapshotName?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
+    const { idleTimeout = 60, enableSandboxCheckpoint = false, filesystemSnapshotName, wsOptions } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     const ws = new WebSocket(`${sanitizedUrl}/create`, wsOptions);
@@ -144,7 +144,7 @@ export class Sandbox {
     ws.on('open', () => {
       ws.send(JSON.stringify({
         idle_timeout: idleTimeout,
-        enable_checkpoint: enableCheckpoint,
+        enable_checkpoint: enableSandboxCheckpoint,
         filesystem_snapshot_name: filesystemSnapshotName,
       }));
     });
