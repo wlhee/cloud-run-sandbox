@@ -21,6 +21,8 @@ async def test_from_path_and_acquire_behavior(MockStorageClient):
     mock_blob = mock_bucket.blob.return_value
     # We need to mock the download call inside _read_lock_data
     mock_blob.download_as_bytes.side_effect = gcs_exceptions.NotFound("not found")
+    mock_blob.upload_from_string.side_effect = gcs_exceptions.PreconditionFailed("Race condition")
+
 
     gcs_path = "gs://my-bucket/locks/sandbox-123.lock"
     owner_id = "test-owner"
@@ -30,12 +32,14 @@ async def test_from_path_and_acquire_behavior(MockStorageClient):
     # The acquire method is incomplete, so we wrap it in a try/except
     try:
         await lock.acquire()
-    except Exception:
+    except LockContentionError:
         pass
 
     # Assert
     mock_client.bucket.assert_called_once_with("my-bucket")
-    mock_bucket.blob.assert_called_once_with("locks/sandbox-123.lock")
+    # Blob is now called multiple times, once for read and once for write
+    assert mock_bucket.blob.call_count > 0
+    mock_bucket.blob.assert_any_call("locks/sandbox-123.lock")
 
 
 @pytest.mark.asyncio

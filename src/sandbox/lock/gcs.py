@@ -67,13 +67,14 @@ class GCSLock(LockInterface):
         self._handoff_signaled = False
         self._test_only_on_renew_callback: Optional[Callable[[], None]] = None
 
-    def _read_lock_data(self, blob: storage.Blob) -> Optional[LockData]:
+    def _read_lock_data(self) -> Optional[LockData]:
         """
         Reads and parses the lock data from a GCS blob.
 
         Returns:
             A LockData object if the blob exists, otherwise None.
         """
+        blob = self._bucket.blob(self._blob_name)
         try:
             # download_as_bytes() implicitly reloads metadata, so we get the
             # latest generation number.
@@ -87,7 +88,7 @@ class GCSLock(LockInterface):
             return None
 
     def _write_lock_data(
-        self, blob: storage.Blob, data: Dict[str, Any], generation: Optional[int]
+        self, data: Dict[str, Any], generation: Optional[int]
     ) -> bool:
         """
         Writes lock data to a GCS blob with a generation condition.
@@ -101,6 +102,7 @@ class GCSLock(LockInterface):
         Returns:
             True if the write was successful, False if a precondition failed.
         """
+        blob = self._bucket.blob(self._blob_name)
         try:
             blob.upload_from_string(
                 json.dumps(data),
@@ -162,17 +164,16 @@ class GCSLock(LockInterface):
         """
         Asynchronously acquires the lock, waiting if necessary.
         """
-        blob = self._bucket.blob(self._blob_name)
-        lock_data = self._read_lock_data(blob)
+        lock_data = self._read_lock_data()
 
         if lock_data is None:
-            await self._try_acquire_new_lock(blob)
+            await self._try_acquire_new_lock()
         else:
-            await self._try_acquire_existing_lock(blob, lock_data, timeout_sec)
+            await self._try_acquire_existing_lock(lock_data, timeout_sec)
 
         self._start_background_tasks()
 
-    async def _try_acquire_new_lock(self, blob: storage.Blob) -> None:
+    async def _try_acquire_new_lock(self) -> None:
         """Attempt to acquire a lock that does not currently exist."""
         new_data = {
             "ownerId": self._owner_id,
@@ -180,7 +181,7 @@ class GCSLock(LockInterface):
             "waitingOwnerId": None,
         }
         # Use generation `0` to ensure we only create a new file.
-        if self._write_lock_data(blob, new_data, generation=0):
+        if self._write_lock_data(new_data, generation=0):
             return  # Lock acquired
 
         # We lost the race to acquire the new lock.
@@ -189,16 +190,16 @@ class GCSLock(LockInterface):
         )
 
     async def _try_acquire_existing_lock(
-        self, blob: storage.Blob, lock_data: LockData, timeout_sec: int
+        self, lock_data: LockData, timeout_sec: int
     ) -> None:
         """Attempt to acquire a lock that already exists."""
         if lock_data.is_expired:
-            await self._handle_expired_lock(blob, lock_data)
+            await self._handle_expired_lock(lock_data)
         else:
-            await self._handle_active_lock(blob, lock_data, timeout_sec)
+            await self._handle_active_lock(lock_data, timeout_sec)
 
     async def _handle_expired_lock(
-        self, blob: storage.Blob, lock_data: LockData
+        self, lock_data: LockData
     ) -> None:
         """Handle acquiring a lock that is expired."""
         # The lock is expired. A waiter has priority over any new contender.
@@ -215,13 +216,13 @@ class GCSLock(LockInterface):
             "waiterExpiresAt": None,
         }
         generation = lock_data.generation
-        if not self._write_lock_data(blob, new_data, generation=generation):
+        if not self._write_lock_data(new_data, generation=generation):
             raise LockContentionError(
                 "Failed to acquire expired lock due to a race condition."
             )
 
     async def _handle_active_lock(
-        self, blob: storage.Blob, lock_data: LockData, timeout_sec: int
+        self, lock_data: LockData, timeout_sec: int
     ) -> None:
         """Handle acquiring a lock that is currently active."""
         # Check if there is an active, non-expired waiter.
@@ -236,7 +237,7 @@ class GCSLock(LockInterface):
         lock_data.raw["waiterExpiresAt"] = time.time() + self._lease_sec
         generation = lock_data.generation
 
-        if not self._write_lock_data(blob, lock_data.raw, generation=generation):
+        if not self._write_lock_data(lock_data.raw, generation=generation):
             # We lost the race to become the waiter.
             raise LockContentionError(
                 "Failed to become waiter due to a race condition."
@@ -247,7 +248,7 @@ class GCSLock(LockInterface):
         while time.monotonic() - start_time < timeout_sec:
             await asyncio.sleep(1)  # Poll interval
             logger.debug(f"Polling lock '{self._blob_name}' for release...")
-            polled_lock_data = self._read_lock_data(blob)
+            polled_lock_data = self._read_lock_data()
 
             if polled_lock_data is None or polled_lock_data.is_expired:
                 new_data = {
@@ -258,13 +259,14 @@ class GCSLock(LockInterface):
                 }
                 # Use the generation from the expired lock if it exists, otherwise 0.
                 generation = polled_lock_data.generation if polled_lock_data else 0
-                if self._write_lock_data(blob, new_data, generation=generation):
+                if self._write_lock_data(new_data, generation=generation):
                     return  # Lock acquired
                 else:
                     # The lock was released, but another process acquired it before us.
-                    raise LockContentionError(
-                        "Lost race to acquire lock after it was released."
-                    )
+                    # This is likely due to eventual consistency. Instead of failing,
+                    # we will just continue the polling loop to re-read the state.
+                    logger.info(f"[{self._owner_id}] Lost race to claim lock. Retrying poll.")
+                    continue
 
         # If the loop finishes, we timed out waiting for the release.
         raise LockTimeoutError(
@@ -294,9 +296,8 @@ class GCSLock(LockInterface):
 
     async def _check_for_waiter(self) -> None:
         """Checks for a waiter and triggers the handoff if needed."""
-        blob = self._bucket.blob(self._blob_name)
         try:
-            lock_data = self._read_lock_data(blob)
+            lock_data = self._read_lock_data()
             if not lock_data or lock_data.owner_id != self._owner_id:
                 return  # We don't own the lock anymore
 
@@ -315,8 +316,7 @@ class GCSLock(LockInterface):
         """Internal method to perform a single renewal operation."""
         logger.info(f"[{self._owner_id}] Renewing lock...")
         try:
-            blob = self._bucket.blob(self._blob_name)
-            lock_data = self._read_lock_data(blob)
+            lock_data = self._read_lock_data()
             if not lock_data or lock_data.owner_id != self._owner_id:
                 logger.warning(
                     f"Lock {self._blob_name} lost or expired. Stopping renewal."
@@ -327,7 +327,7 @@ class GCSLock(LockInterface):
                 return
 
             lock_data.raw["expiresAt"] = time.time() + self._lease_sec
-            if not self._write_lock_data(blob, lock_data.raw, lock_data.generation):
+            if not self._write_lock_data(lock_data.raw, lock_data.generation):
                 logger.warning(f"Failed to renew lock {self._blob_name} due to contention.")
 
             logger.info(f"[{self._owner_id}] Lock renewed.")
@@ -363,7 +363,7 @@ class GCSLock(LockInterface):
 
         blob = self._bucket.blob(self._blob_name)
         try:
-            lock_data = self._read_lock_data(blob)
+            lock_data = self._read_lock_data()
             if not lock_data or lock_data.owner_id != self._owner_id:
                 # We are not the owner, so we shouldn't do anything.
                 return
@@ -372,7 +372,7 @@ class GCSLock(LockInterface):
             if lock_data.has_waiter and not lock_data.is_waiter_expired:
                 # There is an active waiter. Signal them by expiring the lock.
                 lock_data.raw["expiresAt"] = 0
-                self._write_lock_data(blob, lock_data.raw, lock_data.generation)
+                self._write_lock_data(lock_data.raw, lock_data.generation)
             else:
                 # No active waiter. Just delete the lock.
                 blob.delete(if_generation_match=lock_data.generation)
