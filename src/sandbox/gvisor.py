@@ -528,6 +528,7 @@ class GVisorSandbox(SandboxInterface):
 
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointing to {checkpoint_path}")
         if self._exec_process and self._exec_process.is_running:
+            print(f"GVISOR ({self.sandbox_id}): RAISING SandboxExecutionInProgressError")
             raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
 
         cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self._container_id)
