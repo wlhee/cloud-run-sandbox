@@ -276,7 +276,7 @@ class GVisorSandbox(SandboxInterface):
         Raises:
             SandboxCreationError: If the process fails to start or the health check fails.
         """
-        print(f"Starting main process with command: {' '.join(cmd)}")
+        logger.info(f"Starting main process with command: {' '.join(cmd)}")
         process = Process(cmd)
         await process.start()
 
@@ -413,7 +413,6 @@ class GVisorSandbox(SandboxInterface):
         """
         Executes the given code in the sandbox using 'runsc exec'.
         """
-        print(f"GVISOR ({self.sandbox_id}): Received execute call.")
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot execute code in a sandbox that is not in the RUNNING state (current state: {self._state})")
 
@@ -461,7 +460,6 @@ class GVisorSandbox(SandboxInterface):
             logger.info(f"GVISOR ({self.sandbox_id}): Exec process stream closed.")
         
         await exec_process.wait()
-        print(f"GVISOR ({self.sandbox_id}): OS process has finished. About to send SANDBOX_EXECUTION_DONE.")
         yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
 
     async def write_stdin(self, data: str):
@@ -522,13 +520,11 @@ class GVisorSandbox(SandboxInterface):
         """
         Creates a checkpoint of the sandbox's state using 'runsc checkpoint'.
         """
-        print(f"GVISOR ({self.sandbox_id}): Received checkpoint call. Current state: {self._state}, is_executing: {self._exec_process.is_running if self._exec_process else 'None'}")
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
 
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointing to {checkpoint_path}")
         if self._exec_process and self._exec_process.is_running:
-            print(f"GVISOR ({self.sandbox_id}): RAISING SandboxExecutionInProgressError")
             raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
 
         cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self._container_id)
