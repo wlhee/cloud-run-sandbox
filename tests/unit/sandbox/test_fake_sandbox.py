@@ -148,3 +148,21 @@ async def test_fake_sandbox_snapshot_filesystem():
     await sandbox.create()
     with pytest.raises(SandboxSnapshotFilesystemError):
         await sandbox.snapshot_filesystem("/tmp/dummy_path")
+
+async def test_fake_sandbox_force_checkpoint_while_running():
+    """
+    Tests that a forced checkpoint succeeds while an execution is running
+    and that new executions are prevented.
+    """
+    config = FakeSandboxConfig(executions=[ExecConfig()])
+    sandbox = FakeSandbox("fake-checkpoint-force", config=config)
+    await sandbox.create()
+    await sandbox.execute(CodeLanguage.PYTHON, "code")
+
+    # Forced checkpoint should succeed
+    with tempfile.TemporaryDirectory() as tmpdir:
+        await sandbox.checkpoint(tmpdir, force=True)
+
+    # New executions should be blocked
+    with pytest.raises(SandboxOperationError, match="Sandbox is shutting down"):
+        await sandbox.execute(CodeLanguage.PYTHON, "new code")

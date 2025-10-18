@@ -12,6 +12,7 @@ import json
 from .handle import SandboxHandle
 from .config import GCSConfig
 from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxExecutionInProgressError, SandboxCheckpointError
+from .lock.factory import LockFactory
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +20,12 @@ class SandboxManager:
     """
     Manages the lifecycle of stateful sandbox instances.
     """
-    def __init__(self):
+    def __init__(self, lock_factory: Optional[LockFactory] = None):
         self._sandboxes: dict[str, SandboxHandle] = {}
         self._ip_pool = {f"192.168.100.{i}" for i in range(2, 255)}
         self._ip_allocations: dict[str, str] = {}
         self.gcs_config: Optional[GCSConfig] = None
+        self.lock_factory = lock_factory
 
     @property
     def is_sandbox_checkpointing_enabled(self) -> bool:
@@ -52,6 +54,7 @@ class SandboxManager:
         delete_callback: Optional[Callable[[str], None]] = None,
         enable_checkpoint: bool = False,
         filesystem_snapshot_name: str = None,
+        enable_sandbox_handoff: bool = False,
     ):
         """
         Creates and initializes a new sandbox instance using the factory.
@@ -61,60 +64,77 @@ class SandboxManager:
         """
         if sandbox_id is None:
             sandbox_id = "sandbox-" + str(uuid.uuid4())[:4]
-        
+
+        if enable_sandbox_handoff and not enable_checkpoint:
+            raise SandboxCreationError("Sandbox handoff requires checkpointing to be enabled.")
+
         config = factory.make_sandbox_config()
         ip_address = None
+        handle = None
+        success = False
 
-        if filesystem_snapshot_name:
-            if not self.is_filesystem_snapshotting_enabled:
-                raise SandboxCreationError("Filesystem snapshot is not enabled on the server.")
-            
-            config.filesystem_snapshot_path = SandboxHandle.build_filesystem_snapshot_path(
-                self.gcs_config, filesystem_snapshot_name
-            )
+        try:
+            if filesystem_snapshot_name:
+                if not self.is_filesystem_snapshotting_enabled:
+                    raise SandboxCreationError("Filesystem snapshot is not enabled on the server.")
+                
+                config.filesystem_snapshot_path = SandboxHandle.build_filesystem_snapshot_path(
+                    self.gcs_config, filesystem_snapshot_name
+                )
 
-        if enable_checkpoint:
-            if not self.is_sandbox_checkpointing_enabled:
-                raise SandboxCreationError("Checkpointing is not enabled on the server.")
-            config.network = "sandbox"
+            if enable_checkpoint:
+                if not self.is_sandbox_checkpointing_enabled:
+                    raise SandboxCreationError("Checkpointing is not enabled on the server.")
+                config.network = "sandbox"
 
-        # Allocate an IP address if networking is enabled.
-        if config.network == "sandbox":
-            if not self._ip_pool:
-                raise SandboxCreationError("No available IP addresses in the pool.")
-            ip_address = self._ip_pool.pop()
-            self._ip_allocations[sandbox_id] = ip_address
-            config.ip_address = ip_address
+            if config.network == "sandbox":
+                if not self._ip_pool:
+                    raise SandboxCreationError("No available IP addresses in the pool.")
+                ip_address = self._ip_pool.pop()
+                self._ip_allocations[sandbox_id] = ip_address
+                config.ip_address = ip_address
 
-        sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config)
-        
-        await sandbox_instance.create()
+            if enable_checkpoint:
+                handle = await SandboxHandle.create_persistent(
+                    sandbox_id=sandbox_id,
+                    instance=None, # Instance created later
+                    idle_timeout=idle_timeout,
+                    gcs_config=self.gcs_config,
+                    lock_factory=self.lock_factory,
+                    delete_callback=delete_callback,
+                    ip_address=ip_address,
+                    enable_sandbox_handoff=enable_sandbox_handoff,
+                    on_release_requested=self._on_release_requested,
+                    on_renewal_error=self._on_renewal_error,
+                )
+            else:
+                handle = SandboxHandle.create_ephemeral(
+                    sandbox_id=sandbox_id,
+                    instance=None, # Instance created later
+                    idle_timeout=idle_timeout,
+                    gcs_config=self.gcs_config,
+                    delete_callback=delete_callback,
+                    ip_address=ip_address,
+                )
 
-        if enable_checkpoint:
-            handle = SandboxHandle.create_persistent(
-                sandbox_id=sandbox_id,
-                instance=sandbox_instance,
-                idle_timeout=idle_timeout,
-                gcs_config=self.gcs_config,
-                delete_callback=delete_callback,
-                ip_address=ip_address,
-            )
-        else:
-            handle = SandboxHandle.create_ephemeral(
-                sandbox_id=sandbox_id,
-                instance=sandbox_instance,
-                idle_timeout=idle_timeout,
-                gcs_config=self.gcs_config,
-                delete_callback=delete_callback,
-                ip_address=ip_address,
-            )
+            sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config)
+            await sandbox_instance.create()
+            handle.instance = sandbox_instance
 
-        if idle_timeout:
-            handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, idle_timeout))
+            if idle_timeout:
+                handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, idle_timeout))
 
-        self._sandboxes[sandbox_id] = handle
-        logger.info(f"Sandbox manager created {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
-        return sandbox_instance
+            self._sandboxes[sandbox_id] = handle
+            logger.info(f"Sandbox manager created {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
+            success = True
+            return sandbox_instance
+        finally:
+            if not success:
+                if ip_address:
+                    self._ip_pool.add(ip_address)
+                    del self._ip_allocations[sandbox_id]
+                if handle and handle.lock:
+                    await handle.lock.release()
 
     def get_sandbox(self, sandbox_id):
         """
@@ -138,42 +158,58 @@ class SandboxManager:
         if not self.is_sandbox_checkpointing_enabled:
             return None
         
-        config = factory.make_sandbox_config()
-        config.network = "sandbox"
-        
-        if not self._ip_pool:
-            raise SandboxCreationError("No available IP addresses in the pool.")
-        ip_address = self._ip_pool.pop()
-        self._ip_allocations[sandbox_id] = ip_address
-        config.ip_address = ip_address
-
-        sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config)
-        
-        handle = SandboxHandle.attach_persistent(
-            sandbox_id=sandbox_id,
-            instance=sandbox_instance,
-            gcs_config=self.gcs_config,
-            delete_callback=delete_callback,
-            ip_address=ip_address,
-        )
-
-        checkpoint_path = handle.latest_checkpoint_path
-        if not checkpoint_path or not os.path.exists(checkpoint_path):
-            raise SandboxRestoreError(f"Latest checkpoint not found for sandbox {sandbox_id}")
-
-        logger.info(f"Restoring sandbox {sandbox_id} from {checkpoint_path}")
-        
+        handle = None
+        ip_address = None
+        success = False
         try:
-            await sandbox_instance.restore(checkpoint_path)
-        except SandboxOperationError as e:
-            logger.error(f"Failed to restore sandbox {sandbox_id}: {e}")
-            raise SandboxRestoreError(f"Failed to restore sandbox {sandbox_id}") from e
+            handle = await SandboxHandle.attach_persistent(
+                sandbox_id=sandbox_id,
+                instance=None, # Instance created later
+                gcs_config=self.gcs_config,
+                lock_factory=self.lock_factory,
+                delete_callback=delete_callback,
+                on_release_requested=self._on_release_requested,
+                on_renewal_error=self._on_renewal_error,
+            )
 
-        if handle.idle_timeout:
-            handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, handle.idle_timeout))
+            config = factory.make_sandbox_config()
+            config.network = "sandbox"
+            
+            if not self._ip_pool:
+                raise SandboxCreationError("No available IP addresses in the pool.")
+            ip_address = self._ip_pool.pop()
+            self._ip_allocations[sandbox_id] = ip_address
+            config.ip_address = ip_address
+            handle.ip_address = ip_address
 
-        self._sandboxes[sandbox_id] = handle
-        return sandbox_instance
+            sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config)
+            handle.instance = sandbox_instance
+            
+            checkpoint_path = handle.latest_checkpoint_path
+            if not checkpoint_path or not os.path.exists(checkpoint_path):
+                raise SandboxRestoreError(f"Latest checkpoint not found for sandbox {sandbox_id}")
+
+            logger.info(f"Restoring sandbox {sandbox_id} from {checkpoint_path}")
+            
+            try:
+                await sandbox_instance.restore(checkpoint_path)
+            except SandboxOperationError as e:
+                logger.error(f"Failed to restore sandbox {sandbox_id}: {e}")
+                raise SandboxRestoreError(f"Failed to restore sandbox {sandbox_id}") from e
+
+            if handle.idle_timeout:
+                handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, handle.idle_timeout))
+
+            self._sandboxes[sandbox_id] = handle
+            success = True
+            return sandbox_instance
+        finally:
+            if not success:
+                if ip_address:
+                    self._ip_pool.add(ip_address)
+                    del self._ip_allocations[sandbox_id]
+                if handle and handle.lock:
+                    await handle.lock.release()
 
     def reset_idle_timer(self, sandbox_id: str):
         """
@@ -191,7 +227,7 @@ class SandboxManager:
             handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, handle.idle_timeout))
         return cancelled_task
 
-    async def checkpoint_sandbox(self, sandbox_id: str):
+    async def checkpoint_sandbox(self, sandbox_id: str, force: bool = False):
         """
         Checkpoints a sandbox and then removes it from the local manager.
         """
@@ -204,7 +240,7 @@ class SandboxManager:
 
         try:
             checkpoint_path = handle.sandbox_checkpoint_dir_path()
-            await handle.instance.checkpoint(checkpoint_path)
+            await handle.instance.checkpoint(checkpoint_path, force=force)
 
             # The handle is now responsible for updating its own metadata
             handle.update_latest_checkpoint()
@@ -255,6 +291,9 @@ class SandboxManager:
                 handle.cleanup_task.cancel()
             await handle.instance.delete()
             
+            if handle.lock:
+                await handle.lock.release()
+
             # Release the IP address back to the pool.
             if handle.ip_address:
                 self._ip_pool.add(handle.ip_address)
@@ -280,6 +319,16 @@ class SandboxManager:
         for sandbox_id in sandbox_ids:
             await self.delete_sandbox(sandbox_id)
         logger.info("All sandboxes deleted.")
+
+    async def _on_release_requested(self, sandbox_id: str):
+        """Callback for when another process wants to take over the sandbox."""
+        logger.warning(f"Lock release requested for sandbox {sandbox_id}. Checkpointing and shutting down.")
+        await self.checkpoint_sandbox(sandbox_id, force=True)
+
+    async def _on_renewal_error(self, sandbox_id: str):
+        """Callback for when the lock renewal fails."""
+        logger.error(f"Lock renewal failed for sandbox {sandbox_id}. Shutting down.")
+        await self.delete_sandbox(sandbox_id)
 
 # Create a single, global instance of the manager that the application will use.
 manager = SandboxManager()

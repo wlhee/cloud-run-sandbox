@@ -102,9 +102,11 @@ class SandboxInterface(ABC):
         pass
 
     @abstractmethod
-    async def checkpoint(self, checkpoint_path: str) -> None:
+    async def checkpoint(self, checkpoint_path: str, force: bool = False) -> None:
         """
         Creates a checkpoint of the sandbox's state.
+        If force is True, the checkpoint will be created even if an execution
+        is in progress.
         """
         pass
 

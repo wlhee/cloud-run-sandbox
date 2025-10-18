@@ -604,6 +604,46 @@ async def test_gvisor_sandbox_checkpoint_fails_if_running():
     finally:
         await sandbox.delete()
 
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_force_checkpoint_while_running():
+    """
+    Tests that a forced checkpoint terminates a running execution.
+    """
+    sandbox_id = "gvisor-test-force-checkpoint"
+    sandbox = create_sandbox_instance(sandbox_id)
+    checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
+
+    try:
+        await sandbox.create()
+        
+        # Start a long-running process
+        long_running_code = "import time; print('start'); time.sleep(5); print('end')"
+        await sandbox.execute(CodeLanguage.PYTHON, long_running_code)
+
+        # Give the process a moment to start running inside the sandbox
+        await asyncio.sleep(0.1)
+        assert sandbox._exec_process is not None
+        assert sandbox._exec_process.is_running
+
+        # A normal checkpoint should fail
+        with pytest.raises(SandboxExecutionInProgressError):
+            await sandbox.checkpoint(checkpoint_dir, force=False)
+
+        # A forced checkpoint should succeed
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        await sandbox.checkpoint(checkpoint_dir, force=True)
+
+        # Verify that the execution process was terminated and cleared
+        assert sandbox._exec_process is None
+
+    finally:
+        await sandbox.delete()
+        if os.path.exists(checkpoint_dir):
+            shutil.rmtree(checkpoint_dir)
+
+
 # --- State Machine Behavioral Tests ---
 
 @pytest.mark.asyncio

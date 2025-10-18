@@ -516,7 +516,7 @@ class GVisorSandbox(SandboxInterface):
         await self._teardown_network()
         logger.info(f"GVISOR ({self.sandbox_id}): Deleted.")
 
-    async def checkpoint(self, checkpoint_path: str) -> None:
+    async def checkpoint(self, checkpoint_path: str, force: bool = False) -> None:
         """
         Creates a checkpoint of the sandbox's state using 'runsc checkpoint'.
         """
@@ -525,7 +525,13 @@ class GVisorSandbox(SandboxInterface):
 
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointing to {checkpoint_path}")
         if self._exec_process and self._exec_process.is_running:
-            raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
+            if not force:
+                raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
+            else:
+                logger.warning(f"GVISOR ({self.sandbox_id}): Forcing checkpoint with a running process. Terminating execution.")
+                await self._exec_process.stop()
+                await self._exec_process.wait()
+                self._exec_process = None
 
         cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self._container_id)
         await self._run_sync_command(cmd)

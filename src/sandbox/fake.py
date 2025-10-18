@@ -39,6 +39,7 @@ class FakeSandbox(SandboxInterface):
         self._state = SandboxState.INITIALIZED
         self._exec_count = 0
         self._is_attached = False
+        self._shutting_down = False
 
     @property
     def sandbox_id(self):
@@ -64,6 +65,8 @@ class FakeSandbox(SandboxInterface):
         await asyncio.sleep(0.01)
 
     async def execute(self, language: CodeLanguage, code: str):
+        if self._shutting_down:
+            raise SandboxOperationError("Sandbox is shutting down and cannot start new executions.")
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot execute code in a sandbox that is not in the RUNNING state (current state: {self._state})")
 
@@ -133,17 +136,20 @@ class FakeSandbox(SandboxInterface):
         expected_data = current_exec_config.expected_stdin.pop(0)
         assert data == expected_data
 
-    async def checkpoint(self, checkpoint_path: str) -> None:
+    async def checkpoint(self, checkpoint_path: str, force: bool = False) -> None:
         """
         Simulates checkpointing by creating a dummy file.
         """
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
-        if self._is_running_exec():
+        if self._is_running_exec() and not force:
             raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
         if self._config.checkpoint_should_fail:
             raise SandboxOperationError("Fake sandbox failed to checkpoint as configured.")
         
+        if force:
+            self._shutting_down = True
+
         logger.info(f"Fake sandbox {self.sandbox_id}: CHECKPOINTING to {checkpoint_path}.")
         # The provided path is a directory. Create a dummy file inside it.
         os.makedirs(checkpoint_path, exist_ok=True)

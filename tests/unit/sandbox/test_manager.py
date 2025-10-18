@@ -3,7 +3,9 @@ from src.sandbox.config import GCSConfig
 from src.sandbox.manager import SandboxManager
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig
 from src.sandbox.interface import SandboxCreationError, SandboxOperationError, SandboxSnapshotFilesystemError, SandboxRestoreError
-from unittest.mock import patch, ANY
+from src.sandbox.lock.factory import LockFactory
+from src.sandbox.lock.interface import LockContentionError
+from unittest.mock import patch, ANY, MagicMock, AsyncMock
 import asyncio
 import os
 import json
@@ -502,4 +504,234 @@ async def test_snapshot_filesystem_fails(mock_create_instance, tmp_path):
     # Act & Assert
     with pytest.raises(SandboxSnapshotFilesystemError, match="Fake sandbox failed to snapshot filesystem as configured."):
         await mgr.snapshot_filesystem("fail-snapshot-sandbox", "my-snapshot")
+
+
+# --- Locking and Handoff Tests ---
+
+class TestManagerLocking:
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path):
+        self.tmp_path = tmp_path
+        self.mock_lock_factory = MagicMock(spec=LockFactory)
+        self.mgr = SandboxManager(lock_factory=self.mock_lock_factory)
+        self.mgr.gcs_config = GCSConfig(
+            metadata_mount_path=str(tmp_path),
+            metadata_bucket="test-bucket",
+            sandbox_checkpoint_mount_path=str(tmp_path),
+            sandbox_checkpoint_bucket="test-bucket"
+        )
+
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_create_with_handoff_acquires_lock(self, mock_create_instance):
+        # Arrange
+        mock_lock = AsyncMock()
+        self.mock_lock_factory.create_lock.return_value = mock_lock
+        mock_create_instance.return_value = FakeSandbox("handoff-sandbox")
+
+        # Act
+        await self.mgr.create_sandbox(
+            sandbox_id="handoff-sandbox",
+            enable_checkpoint=True,
+            enable_sandbox_handoff=True
+        )
+
+        # Assert
+        self.mock_lock_factory.create_lock.assert_called_once_with(
+            "handoff-sandbox",
+            "sandboxes/handoff-sandbox/lock.json",
+            on_release_requested=self.mgr._on_release_requested,
+            on_renewal_error=self.mgr._on_renewal_error,
+        )
+        mock_lock.acquire.assert_awaited_once()
+        handle = self.mgr._sandboxes.get("handoff-sandbox")
+        assert handle is not None
+        assert handle.lock is mock_lock
+
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_delete_sandbox_releases_lock(self, mock_create_instance):
+        # Arrange
+        mock_lock = AsyncMock()
+        self.mock_lock_factory.create_lock.return_value = mock_lock
+        mock_create_instance.return_value = FakeSandbox("locked-sandbox")
+        await self.mgr.create_sandbox(
+            sandbox_id="locked-sandbox",
+            enable_checkpoint=True,
+            enable_sandbox_handoff=True
+        )
+        # Act
+        await self.mgr.delete_sandbox("locked-sandbox")
+
+        # Assert
+        mock_lock.release.assert_awaited_once()
+
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_create_sandbox_releases_resources_on_lock_failure(self, mock_create_instance):
+        # Arrange
+        mock_lock = AsyncMock()
+        mock_lock.acquire.side_effect = LockContentionError("Failed to acquire lock")
+        self.mock_lock_factory.create_lock.return_value = mock_lock
+        mock_create_instance.return_value = FakeSandbox("lock-fail-sandbox")
+        
+        initial_ip_pool_size = len(self.mgr._ip_pool)
+
+        # Act & Assert
+        with pytest.raises(SandboxCreationError):
+            await self.mgr.create_sandbox(
+                sandbox_id="lock-fail-sandbox",
+                enable_checkpoint=True,
+                enable_sandbox_handoff=True
+            )
+        
+        assert self.mgr.get_sandbox("lock-fail-sandbox") is None
+        assert len(self.mgr._ip_pool) == initial_ip_pool_size
+        # The release method should be called to clean up resources even if acquisition fails.
+        mock_lock.release.assert_awaited_once()
+
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_restore_sandbox_with_handoff_acquires_lock(self, mock_create_instance):
+        # Arrange
+        sandbox_id = "restore-handoff-sandbox"
+        # 1. Create metadata that indicates handoff is enabled
+        metadata_dir = self.tmp_path / "sandboxes" / sandbox_id
+        os.makedirs(metadata_dir)
+        metadata_path = metadata_dir / "metadata.json"
+        with open(metadata_path, "w") as f:
+            json.dump({
+                "sandbox_id": sandbox_id,
+                "created_timestamp": time.time(),
+                "idle_timeout": 180,
+                "enable_sandbox_checkpoint": True,
+                "enable_sandbox_handoff": True, # IMPORTANT
+                "latest_sandbox_checkpoint": {
+                    "bucket": "test-bucket",
+                    "path": "sandbox_checkpoints/ckpt_123"
+                }
+            }, f)
+        
+        checkpoints_dir = self.tmp_path / "sandbox_checkpoints" / "ckpt_123"
+        os.makedirs(checkpoints_dir)
+
+        mock_lock = AsyncMock()
+        self.mock_lock_factory.create_lock.return_value = mock_lock
+        mock_create_instance.return_value = FakeSandbox(sandbox_id)
+
+        # Act
+        await self.mgr.restore_sandbox(sandbox_id)
+
+        # Assert
+        self.mock_lock_factory.create_lock.assert_called_once_with(
+            sandbox_id,
+            f"sandboxes/{sandbox_id}/lock.json",
+            on_release_requested=self.mgr._on_release_requested,
+            on_renewal_error=self.mgr._on_renewal_error,
+        )
+        mock_lock.acquire.assert_awaited_once()
+        handle = self.mgr._sandboxes.get(sandbox_id)
+        assert handle is not None
+        assert handle.lock is mock_lock
+
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_restore_sandbox_releases_resources_on_failure(self, mock_create_instance):
+        # Arrange
+        sandbox_id = "restore-fail-sandbox"
+        # 1. Create metadata
+        metadata_dir = self.tmp_path / "sandboxes" / sandbox_id
+        os.makedirs(metadata_dir)
+        metadata_path = metadata_dir / "metadata.json"
+        with open(metadata_path, "w") as f:
+            json.dump({
+                "sandbox_id": sandbox_id,
+                "created_timestamp": time.time(),
+                "idle_timeout": 180,
+                "enable_sandbox_checkpoint": True,
+                "enable_sandbox_handoff": True,
+                "latest_sandbox_checkpoint": {
+                    "bucket": "test-bucket",
+                    "path": "sandbox_checkpoints/ckpt_123"
+                }
+            }, f)
+        checkpoints_dir = self.tmp_path / "sandbox_checkpoints" / "ckpt_123"
+        os.makedirs(checkpoints_dir)
+
+        # 2. Configure mocks
+        mock_lock = AsyncMock()
+        self.mock_lock_factory.create_lock.return_value = mock_lock
+        
+        config = FakeSandboxConfig(restore_should_fail=True)
+        sandbox_that_will_fail = FakeSandbox(sandbox_id, config=config)
+        mock_create_instance.return_value = sandbox_that_will_fail
+        
+        initial_ip_pool_size = len(self.mgr._ip_pool)
+
+        # Act & Assert
+        with pytest.raises(SandboxRestoreError):
+            await self.mgr.restore_sandbox(sandbox_id)
+        
+        assert self.mgr.get_sandbox(sandbox_id) is None
+        assert len(self.mgr._ip_pool) == initial_ip_pool_size
+        mock_lock.release.assert_awaited_once()
+
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_on_release_requested_checkpoints_sandbox(self, mock_create_instance):
+        # Arrange
+        sandbox_id = "release-req-sandbox"
+        mock_lock = AsyncMock()
+        
+        # Capture the callback
+        on_release_requested_callback = None
+        def capture_callback(*args, **kwargs):
+            nonlocal on_release_requested_callback
+            on_release_requested_callback = kwargs.get("on_release_requested")
+            return mock_lock
+        self.mock_lock_factory.create_lock.side_effect = capture_callback
+        
+        mock_create_instance.return_value = FakeSandbox(sandbox_id)
+        
+        # Spy on the checkpoint method
+        self.mgr.checkpoint_sandbox = AsyncMock(wraps=self.mgr.checkpoint_sandbox)
+
+        await self.mgr.create_sandbox(
+            sandbox_id=sandbox_id,
+            enable_checkpoint=True,
+            enable_sandbox_handoff=True
+        )
+        assert on_release_requested_callback is not None
+
+        # Act
+        await on_release_requested_callback(sandbox_id)
+
+        # Assert
+        self.mgr.checkpoint_sandbox.assert_awaited_once_with(sandbox_id, force=True)
+
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_on_renewal_error_deletes_sandbox(self, mock_create_instance):
+        # Arrange
+        sandbox_id = "renewal-err-sandbox"
+        mock_lock = AsyncMock()
+        
+        # Capture the callback
+        on_renewal_error_callback = None
+        def capture_callback(*args, **kwargs):
+            nonlocal on_renewal_error_callback
+            on_renewal_error_callback = kwargs.get("on_renewal_error")
+            return mock_lock
+        self.mock_lock_factory.create_lock.side_effect = capture_callback
+        
+        mock_create_instance.return_value = FakeSandbox(sandbox_id)
+        
+        # Spy on the delete method
+        self.mgr.delete_sandbox = AsyncMock(wraps=self.mgr.delete_sandbox)
+
+        await self.mgr.create_sandbox(
+            sandbox_id=sandbox_id,
+            enable_checkpoint=True,
+            enable_sandbox_handoff=True
+        )
+        assert on_renewal_error_callback is not None
+
+        # Act
+        await on_renewal_error_callback(sandbox_id)
+
+        # Assert
+        self.mgr.delete_sandbox.assert_awaited_once_with(sandbox_id)
 

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Callable, Type
+from typing import Optional, Callable, Type, Awaitable
 import asyncio
 import time
 import os
@@ -8,8 +8,35 @@ import logging
 
 from .config import GCSConfig
 from .interface import SandboxCreationError, SandboxRestoreError, SandboxOperationError
+from .lock.interface import LockInterface, LockContentionError, LockTimeoutError, LockError
+from .lock.factory import LockFactory
 
 logger = logging.getLogger(__name__)
+
+
+async def _acquire_lock(
+    lock_factory: LockFactory,
+    sandbox_id: str,
+    on_release_requested: Optional[Callable[[str], Awaitable[None]]] = None,
+    on_renewal_error: Optional[Callable[[str], Awaitable[None]]] = None,
+) -> Optional[LockInterface]:
+    """Helper to acquire a lock."""
+    if not lock_factory:
+        raise SandboxCreationError("Sandbox handoff is requested, but the server is not configured with a lock factory.")
+
+    blob_name = SandboxHandle.build_lock_blob_name(sandbox_id)
+    lock = lock_factory.create_lock(
+        sandbox_id,
+        blob_name,
+        on_release_requested=on_release_requested,
+        on_renewal_error=on_renewal_error,
+    )
+    try:
+        await lock.acquire()
+    except LockError:
+        await lock.release()
+        raise
+    return lock
 
 
 @dataclass
@@ -38,6 +65,8 @@ class GCSSandboxMetadata:
     latest_sandbox_checkpoint: Optional[GCSArtifact] = None
     # Whether this sandbox supports checkpointing.
     enable_sandbox_checkpoint: bool = False
+    # Whether this sandbox can be handed off between different sandbox manager instances.
+    enable_sandbox_handoff: bool = False
 
 
 @dataclass
@@ -59,6 +88,7 @@ class SandboxHandle:
     cleanup_task: asyncio.Task = None
     delete_callback: Optional[Callable[[str], None]] = None
     ip_address: Optional[str] = None
+    lock: Optional[LockInterface] = None
 
     gcs_config: Optional[GCSConfig] = None
     gcs_metadata: Optional[GCSSandboxMetadata] = None
@@ -71,6 +101,7 @@ class SandboxHandle:
             gcs_config: Optional[GCSConfig] = None,
             delete_callback: Optional[Callable[[str], None]] = None,
             ip_address: Optional[str] = None,
+            lock: Optional[LockInterface] = None,
             **kwargs):
         """
         Basic constructor for a SandboxHandle. Should not be called directly.
@@ -83,6 +114,7 @@ class SandboxHandle:
         self.delete_callback = delete_callback
         self.ip_address = ip_address
         self.last_activity = time.time()
+        self.lock = lock
         self._checkpoint_id: Optional[str] = None
 
     @classmethod
@@ -107,14 +139,18 @@ class SandboxHandle:
         return cls(sandbox_id, instance, idle_timeout, gcs_config=gcs_config, delete_callback=delete_callback, ip_address=ip_address, **kwargs)
 
     @classmethod
-    def create_persistent(
+    async def create_persistent(
         cls: Type['SandboxHandle'],
         sandbox_id: str,
         instance: any,
         idle_timeout: int,
         gcs_config: GCSConfig,
+        lock_factory: LockFactory,
         delete_callback: Optional[Callable[[str], None]] = None,
         ip_address: Optional[str] = None,
+        enable_sandbox_handoff: bool = False,
+        on_release_requested: Optional[Callable[[str], Awaitable[None]]] = None,
+        on_renewal_error: Optional[Callable[[str], Awaitable[None]]] = None,
         **kwargs
     ) -> 'SandboxHandle':
         """
@@ -134,34 +170,56 @@ class SandboxHandle:
         if not gcs_config.sandbox_checkpoint_bucket:
             raise SandboxCreationError("Server is not configured for persistence: SANDBOX_CHECKPOINT_BUCKET is not set.")
 
-        # 2. Instantiate Handle
-        handle = cls(sandbox_id, instance, idle_timeout, gcs_config=gcs_config, delete_callback=delete_callback, ip_address=ip_address, **kwargs)
+        # 2. Create Base Directory
+        metadata_path = cls.build_metadata_path(gcs_config, sandbox_id)
+        base_dir = os.path.dirname(metadata_path)
+        try:
+            os.makedirs(base_dir, exist_ok=False)
+        except OSError as e:
+            if os.path.exists(base_dir):
+                raise SandboxCreationError(f"Sandbox directory already exists at {base_dir}")
+            raise SandboxCreationError(f"Failed to create directory at {base_dir}: {e}")
 
-        # 3. Create Metadata Object
+        # 3. Acquire lock if handoff is enabled
+        lock = None
+        if enable_sandbox_handoff:
+            try:
+                lock = await _acquire_lock(
+                    lock_factory,
+                    sandbox_id,
+                    on_release_requested=on_release_requested,
+                    on_renewal_error=on_renewal_error,
+                )
+            except LockError as e:
+                raise SandboxCreationError(f"Failed to acquire lock for sandbox {sandbox_id}") from e
+
+        # 4. Instantiate Handle
+        handle = cls(sandbox_id, instance, idle_timeout, gcs_config=gcs_config, delete_callback=delete_callback, ip_address=ip_address, lock=lock, **kwargs)
+
+        # 5. Create and Write Metadata
         handle.gcs_metadata = GCSSandboxMetadata(
             sandbox_id=sandbox_id,
             created_timestamp=time.time(),
             idle_timeout=idle_timeout,
             enable_sandbox_checkpoint=True,
+            enable_sandbox_handoff=enable_sandbox_handoff,
         )
-
-        # 4. Create Base Directory
-        handle._create_new_directory(os.path.dirname(handle.metadata_path))
-
-        # 5. Write Initial Metadata
         handle.write_metadata()
 
         # 6. Return Handle
         return handle
 
     @classmethod
-    def attach_persistent(
+    async def attach_persistent(
         cls: Type['SandboxHandle'],
         sandbox_id: str,
         instance: any,
         gcs_config: GCSConfig,
+        lock_factory: LockFactory,
         delete_callback: Optional[Callable[[str], None]] = None,
         ip_address: Optional[str] = None,
+        on_release_requested: Optional[Callable[[str], Awaitable[None]]] = None,
+        on_renewal_error: Optional[Callable[[str], Awaitable[None]]] = None,
         **kwargs
     ) -> 'SandboxHandle':
         """
@@ -171,7 +229,7 @@ class SandboxHandle:
         It reads the metadata.json, validates its contents against the current
         server configuration, and returns a fully initialized handle.
         """
-        metadata_path = os.path.join(gcs_config.metadata_mount_path, "sandboxes", sandbox_id, "metadata.json")
+        metadata_path = cls.build_metadata_path(gcs_config, sandbox_id)
         
         try:
             with open(metadata_path, "r") as f:
@@ -198,6 +256,18 @@ class SandboxHandle:
                     f"Mismatched checkpoint bucket for {sandbox_id}: "
                     f"metadata has '{checkpoint.bucket}', but server is configured for '{gcs_config.sandbox_checkpoint_bucket}'."
                 )
+        
+        lock = None
+        if metadata.enable_sandbox_handoff:
+            try:
+                lock = await _acquire_lock(
+                    lock_factory,
+                    sandbox_id,
+                    on_release_requested=on_release_requested,
+                    on_renewal_error=on_renewal_error,
+                )
+            except LockError as e:
+                raise SandboxRestoreError(f"Failed to acquire lock for sandbox {sandbox_id}") from e
 
         # Use the idle_timeout from the authoritative metadata file
         handle = cls(
@@ -207,22 +277,12 @@ class SandboxHandle:
             gcs_config=gcs_config,
             delete_callback=delete_callback,
             ip_address=ip_address,
+            lock=lock,
             **kwargs
         )
         # Overwrite the gcs_metadata that the constructor might have created
         handle.gcs_metadata = metadata
         return handle
-
-    def _create_new_directory(self, dir_path: Optional[str]):
-        """Helper to create a new directory, failing if it already exists."""
-        if dir_path:
-            try:
-                os.makedirs(dir_path, exist_ok=False)
-            except OSError as e:
-                # Re-raise as a more specific exception if it's a FileExistsError
-                if os.path.exists(dir_path):
-                    raise SandboxCreationError(f"Sandbox directory already exists at {dir_path}")
-                raise SandboxCreationError(f"Failed to create directory at {dir_path}: {e}")
 
     def _ensure_directory_exists(self, dir_path: Optional[str]):
         """Helper to ensure a directory exists, creating it if it doesn't."""
@@ -270,8 +330,13 @@ class SandboxHandle:
     @property
     def metadata_path(self) -> Optional[str]:
         """Constructs the full local path to the metadata.json file."""
-        if self.gcs_config and self.gcs_config.metadata_mount_path:
-            return os.path.join(self.gcs_config.metadata_mount_path, "sandboxes", self.sandbox_id, "metadata.json")
+        return self.build_metadata_path(self.gcs_config, self.sandbox_id)
+
+    @classmethod
+    def build_metadata_path(cls, gcs_config: GCSConfig, sandbox_id: str) -> Optional[str]:
+        """Constructs the full local path to the metadata.json file."""
+        if gcs_config and gcs_config.metadata_mount_path:
+            return os.path.join(gcs_config.metadata_mount_path, "sandboxes", sandbox_id, "metadata.json")
         return None
 
     @property
@@ -280,6 +345,11 @@ class SandboxHandle:
         if self.gcs_config and self.gcs_config.metadata_mount_path:
             return os.path.join(self.gcs_config.metadata_mount_path, "sandboxes", self.sandbox_id, "lock.json")
         return None
+
+    @classmethod
+    def build_lock_blob_name(cls, sandbox_id: str) -> str:
+        """Constructs the GCS blob name for a sandbox lock file."""
+        return f"sandboxes/{sandbox_id}/lock.json"
 
     def sandbox_checkpoint_dir_path(self) -> Optional[str]:
         """
