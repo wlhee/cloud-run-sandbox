@@ -212,7 +212,7 @@ class SandboxManager:
             handle.instance = sandbox_instance
             
             checkpoint_path = handle.latest_checkpoint_path
-            print("Restoring from checkpoint path:", checkpoint_path)
+            logger.info("Restoring from checkpoint path:", checkpoint_path)
             if not checkpoint_path or not os.path.exists(checkpoint_path):
                 raise SandboxRestoreError(f"Latest checkpoint not found for sandbox {sandbox_id}")
 
@@ -260,6 +260,9 @@ class SandboxManager:
         try:
             checkpoint_path = handle.sandbox_checkpoint_dir_path()
             await handle.instance.checkpoint(checkpoint_path, force=force)
+
+            # Verify that the checkpoint has been fully persisted to GCS.
+            await handle.verify_checkpoint_persisted()
 
             # The handle is now responsible for updating its own metadata
             handle.update_latest_checkpoint()

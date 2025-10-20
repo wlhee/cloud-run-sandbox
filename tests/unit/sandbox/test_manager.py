@@ -199,13 +199,17 @@ async def test_create_with_checkpoint_fails_if_not_configured(mock_create_instan
     with pytest.raises(SandboxCreationError, match="Checkpointing is not enabled on the server."):
         await mgr.create_sandbox(sandbox_id="test", enable_checkpoint=True)
 
+@patch('src.sandbox.handle.CheckpointVerifier')
 @patch('src.sandbox.factory.create_sandbox_instance')
-async def test_checkpoint_sandbox(mock_create_instance, tmp_path):
+async def test_checkpoint_sandbox(mock_create_instance, mock_verifier_class, tmp_path):
     """
     Tests that checkpointing a sandbox calls the instance's checkpoint method,
     updates the metadata, and deletes the local instance.
     """
     # Arrange
+    mock_verifier_instance = mock_verifier_class.return_value
+    mock_verifier_instance.verify = AsyncMock()
+
     sandbox = FakeSandbox("checkpoint-sandbox")
     mock_create_instance.return_value = sandbox
     gcs_config = GCSConfig(
@@ -214,13 +218,18 @@ async def test_checkpoint_sandbox(mock_create_instance, tmp_path):
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
-    mgr = SandboxManager(gcs_config=gcs_config)
+    mock_lock_factory = MagicMock(spec=LockFactory)
+    mock_lock_factory.create_lock.return_value = AsyncMock()
+    mgr = SandboxManager(gcs_config=gcs_config, lock_factory=mock_lock_factory)
     await mgr.create_sandbox(sandbox_id="checkpoint-sandbox", enable_checkpoint=True, idle_timeout=300)
     
     # Act
     await mgr.checkpoint_sandbox("checkpoint-sandbox")
     
     # Assert
+    mock_verifier_class.assert_called_once()
+    mock_verifier_instance.verify.assert_awaited_once()
+    
     metadata_path = tmp_path / "sandboxes" / "checkpoint-sandbox" / "metadata.json"
     with open(metadata_path, "r") as f:
         metadata = json.load(f)
@@ -265,7 +274,9 @@ async def test_restore_sandbox(mock_create_instance, tmp_path):
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
-    mgr = SandboxManager(gcs_config=gcs_config)
+    mock_lock_factory = MagicMock(spec=LockFactory)
+    mock_lock_factory.create_lock.return_value = AsyncMock()
+    mgr = SandboxManager(gcs_config=gcs_config, lock_factory=mock_lock_factory)
     
     # Act
     sandbox = await mgr.restore_sandbox(sandbox_id)
@@ -335,7 +346,9 @@ async def test_restore_sandbox_fails(mock_create_instance, tmp_path):
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
-    mgr = SandboxManager(gcs_config=gcs_config)
+    mock_lock_factory = MagicMock(spec=LockFactory)
+    mock_lock_factory.create_lock.return_value = AsyncMock()
+    mgr = SandboxManager(gcs_config=gcs_config, lock_factory=mock_lock_factory)
     
     # Act
     with pytest.raises(SandboxRestoreError, match="Failed to restore sandbox fail-restore"):
@@ -379,7 +392,9 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
-    mgr = SandboxManager(gcs_config=gcs_config)
+    mock_lock_factory = MagicMock(spec=LockFactory)
+    mock_lock_factory.create_lock.return_value = AsyncMock()
+    mgr = SandboxManager(gcs_config=gcs_config, lock_factory=mock_lock_factory)
     mgr.enable_idle_cleanup(cleanup_interval=0.1)
     delete_event = asyncio.Event()
     
@@ -390,12 +405,17 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     # Assert
     await asyncio.wait_for(delete_event.wait(), timeout=1)
     assert mgr.get_sandbox(sandbox_id) is None
+@patch('src.sandbox.handle.CheckpointVerifier')
 @patch('src.sandbox.factory.create_sandbox_instance')
-async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, tmp_path):
+async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, mock_verifier_class, tmp_path):
     """
     Tests the full lifecycle of checkpoint -> restore -> checkpoint -> restore
     to ensure multiple checkpoints are handled correctly.
     """
+    # Arrange
+    mock_verifier_instance = mock_verifier_class.return_value
+    mock_verifier_instance.verify = AsyncMock()
+
     sandbox_id = "multi-checkpoint-sandbox"
     gcs_config = GCSConfig(
         metadata_mount_path=str(tmp_path),
@@ -403,7 +423,9 @@ async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, tmp_p
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
-    mgr = SandboxManager(gcs_config=gcs_config)
+    mock_lock_factory = MagicMock(spec=LockFactory)
+    mock_lock_factory.create_lock.return_value = AsyncMock()
+    mgr = SandboxManager(gcs_config=gcs_config, lock_factory=mock_lock_factory)
 
     # --- Create and First Checkpoint ---
     mock_create_instance.return_value = FakeSandbox(sandbox_id)
@@ -675,9 +697,13 @@ class TestManagerLocking:
         assert len(self.mgr._ip_pool) == initial_ip_pool_size
         mock_lock.release.assert_awaited_once()
 
+    @patch('src.sandbox.handle.CheckpointVerifier')
     @patch('src.sandbox.factory.create_sandbox_instance')
-    async def test_on_release_requested_checkpoints_sandbox(self, mock_create_instance):
+    async def test_on_release_requested_checkpoints_sandbox(self, mock_create_instance, mock_verifier_class):
         # Arrange
+        mock_verifier_instance = mock_verifier_class.return_value
+        mock_verifier_instance.verify = AsyncMock()
+
         sandbox_id = "release-req-sandbox"
         mock_lock = AsyncMock()
         
@@ -738,4 +764,29 @@ class TestManagerLocking:
 
         # Assert
         self.mgr.delete_sandbox.assert_awaited_once_with(sandbox_id)
+
+
+@patch('src.sandbox.handle.SandboxHandle.verify_checkpoint_persisted', new_callable=AsyncMock)
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_checkpoint_sandbox_verifies_persistence(mock_create_instance, mock_verify, tmp_path):
+    """
+    Tests that checkpoint_sandbox calls the handle's verification method.
+    """
+    # Arrange
+    sandbox = FakeSandbox("verify-sandbox")
+    mock_create_instance.return_value = sandbox
+    gcs_config = GCSConfig(
+        metadata_mount_path=str(tmp_path),
+        metadata_bucket="test-bucket",
+        sandbox_checkpoint_mount_path=str(tmp_path),
+        sandbox_checkpoint_bucket="test-bucket"
+    )
+    mgr = SandboxManager(gcs_config=gcs_config)
+    await mgr.create_sandbox(sandbox_id="verify-sandbox", enable_checkpoint=True)
+
+    # Act
+    await mgr.checkpoint_sandbox("verify-sandbox")
+
+    # Assert
+    mock_verify.assert_awaited_once()
 

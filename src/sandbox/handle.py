@@ -7,10 +7,13 @@ import json
 import logging
 from functools import partial
 
+from google.cloud import storage
+
 from .config import GCSConfig
-from .interface import SandboxCreationError, SandboxRestoreError, SandboxOperationError, SandboxNotFoundError
+from .interface import SandboxCreationError, SandboxRestoreError, SandboxOperationError, SandboxNotFoundError, SandboxCheckpointError
 from .lock.interface import LockInterface, LockContentionError, LockTimeoutError, LockError
 from .lock.factory import LockFactory
+from .verifier import CheckpointVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -409,3 +412,21 @@ class SandboxHandle:
             return os.path.join(config.sandbox_checkpoint_mount_path, checkpoint.path)
         
         return None
+
+    async def verify_checkpoint_persisted(self, timeout_sec: int = 30):
+        """
+        Verifies that all local checkpoint files have been fully uploaded to GCS.
+        """
+        if not self.gcs_config or not self.gcs_config.sandbox_checkpoint_bucket:
+            raise SandboxOperationError("Cannot verify checkpoint persistence without GCS config.")
+
+        local_checkpoint_path = self.sandbox_checkpoint_dir_path()
+        gcs_prefix = os.path.relpath(local_checkpoint_path, self.gcs_config.sandbox_checkpoint_mount_path)
+
+        verifier = CheckpointVerifier(gcs_client=storage.Client())
+        await verifier.verify(
+            local_checkpoint_path=local_checkpoint_path,
+            gcs_bucket_name=self.gcs_config.sandbox_checkpoint_bucket,
+            gcs_prefix=gcs_prefix,
+            timeout_sec=timeout_sec,
+        )
