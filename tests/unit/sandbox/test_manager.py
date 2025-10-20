@@ -181,6 +181,10 @@ async def test_create_with_checkpoint_enabled(mock_create_instance, tmp_path):
     await mgr.create_sandbox(sandbox_id="checkpoint-sandbox", enable_checkpoint=True, idle_timeout=300)
     
     # Assert
+    _, kwargs = mock_create_instance.call_args
+    config = kwargs["config"]
+    assert config.checkpointable is True
+
     sandbox_dir = tmp_path / "sandboxes" / "checkpoint-sandbox"
     metadata_path = sandbox_dir / "metadata.json"
     assert metadata_path.is_file()
@@ -285,6 +289,11 @@ async def test_restore_sandbox(mock_create_instance, tmp_path):
     assert sandbox is restored_sandbox
     assert mgr.get_sandbox(sandbox_id) is restored_sandbox # Should be in memory now
     assert mgr._sandboxes[sandbox_id].idle_timeout == 180 # Check that idle_timeout was restored
+    
+    _, kwargs = mock_create_instance.call_args
+    config = kwargs["config"]
+    assert config.checkpointable is True
+
 
 @patch('src.sandbox.factory.create_sandbox_instance')
 async def test_checkpoint_sandbox_fails(mock_create_instance, tmp_path):

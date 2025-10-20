@@ -51,6 +51,8 @@ class GVisorConfig:
     debug_log_dir: str = "/tmp/runsc"
     # The path to the filesystem snapshot to create the sandbox from.
     filesystem_snapshot_path: Optional[str] = None
+    # Whether the sandbox should be configured for checkpointing.
+    checkpointable: bool = False
 
 class GVisorSandbox(SandboxInterface):
     """
@@ -248,6 +250,20 @@ class GVisorSandbox(SandboxInterface):
                 logger.warning(f"GVISOR ({self.sandbox_id}): Failed to run network cleanup command '{cmd_str}': {e}")
         self._network_cleanup_cmds = []
 
+    async def _log_cpu_features(self):
+        """Runs 'runsc cpu-features' and logs the output for debugging."""
+        try:
+            cmd = ["runsc", "cpu-features"]
+            if self._config.use_sudo:
+                cmd.insert(0, "sudo")
+            
+            stdout, stderr = await self._run_sync_command(cmd, check=False)
+            logger.info(f"GVISOR ({self.sandbox_id}): runsc cpu-features stdout: {stdout}")
+            if stderr:
+                logger.warning(f"GVISOR ({self.sandbox_id}): runsc cpu-features stderr: {stderr}")
+        except Exception as e:
+            logger.error(f"GVISOR ({self.sandbox_id}): Failed to run 'runsc cpu-features': {e}")
+
     async def _health_check(self) -> bool:
         """
         Checks if the container is in the 'running' state using 'runsc state'.
@@ -373,12 +389,18 @@ class GVisorSandbox(SandboxInterface):
                 "path": f"/var/run/netns/{self._sandbox_id}"
             })
 
+        config["annotations"] = {}
+        # Cloud Run instances can run on machines with different CPU feature sets.
+        # To ensure checkpoint and restore works across different machines, we need
+        # to set a common CPU feature set.
+        if self._config.checkpointable:
+            common_cpu_features = "3dnowprefetch,abm,adx,aes,apic,avx,avx2,avx512_bitalg,avx512_vbmi2,avx512_vnni,avx512_vpopcntdq,avx512bw,avx512cd,avx512dq,avx512f,avx512vbmi,avx512vl,bmi1,bmi2,clfushopt,clflush,clwb,cmov,cx16,cx8,de,erms,f16c,fma,fpu,fsgsbase,fsrm,fxsr,gfni,ht,hypervisor,invpcid,lahf_lm,lm,mca,mce,mmx,movbe,msr,mtrr,nx,osxsave,pae,pat,pcid,pclmulqdq,pdpe1gb,pge,pni,popcnt,pse,pse36,rdpid,rdrand,rdseed,rdtscp,sep,sha_ni,smap,smep,sse,sse2,sse4_1,sse4_2,ssse3,syscall,tsc,tsc_adjust,umip,vaes,vme,vpclmulqdq,x2apic,xgetbv1,xsave,xsavec,xsaveopt,xsaves"
+            config["annotations"]["dev.gvisor.internal.cpufeatures"] = common_cpu_features
+
         if self._config.filesystem_snapshot_path:
             if not os.path.exists(self._config.filesystem_snapshot_path):
                 raise SandboxCreationError(f"Filesystem snapshot not found at {self._config.filesystem_snapshot_path}")
-            config["annotations"] = {
-                "dev.gvisor.tar.rootfs.upper": self._config.filesystem_snapshot_path
-            }
+            config["annotations"]["dev.gvisor.tar.rootfs.upper"] = self._config.filesystem_snapshot_path
 
         config_path = os.path.join(self._bundle_dir, "config.json")
         logger.info(f"--- Writing config.json to {config_path} ---")
@@ -527,6 +549,8 @@ class GVisorSandbox(SandboxInterface):
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
 
+        await self._log_cpu_features()
+
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointing to {checkpoint_path}")
         if self._exec_process and self._exec_process.is_running:
             if not force:
@@ -548,6 +572,8 @@ class GVisorSandbox(SandboxInterface):
         """
         if self._state != SandboxState.INITIALIZED:
             raise SandboxOperationError(f"Cannot restore a sandbox that is not in the INITIALIZED state (current state: {self._state})")
+
+        await self._log_cpu_features()
 
         # A restored container is a new instance with a new ID.
         self._container_id = self._generate_container_id()

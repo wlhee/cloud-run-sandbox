@@ -114,6 +114,7 @@ class SandboxManager:
                 if not self.is_sandbox_checkpointing_enabled:
                     raise SandboxCreationError("Checkpointing is not enabled on the server.")
                 config.network = "sandbox"
+                config.checkpointable = True
 
             if config.network == "sandbox":
                 if not self._ip_pool:
@@ -200,6 +201,7 @@ class SandboxManager:
 
             config = factory.make_sandbox_config()
             config.network = "sandbox"
+            config.checkpointable = True
             
             if not self._ip_pool:
                 raise SandboxCreationError("No available IP addresses in the pool.")

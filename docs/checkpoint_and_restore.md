@@ -2,6 +2,8 @@
 
 This document outlines the checkpoint and restore functionality, enabling stateful sandboxes that can be persisted and handed off between server instances.
 
+> **Note:** When using checkpoint and restore in an environment like Cloud Run, where underlying hardware can vary, you may encounter an `incompatible FeatureSet` error during restore. This is due to differences in CPU features between the machine that created the checkpoint and the one restoring it. For a detailed solution, please see the [Troubleshooting](#troubleshooting) section at the end of this document.
+
 ## Server Configuration
 
 For the checkpoint and restore feature to be available, the server must be started with the following environment variables set:
@@ -32,6 +34,10 @@ When checkpointing is enabled for a sandbox, the following directory structure i
 -   **`latest`**: A simple text file that contains the filename of the most recent checkpoint (e.g., `checkpoint_1678886460000.img`). When a sandbox is restored, the server uses this file to identify which checkpoint to load.
 
 This structure allows for multiple checkpoints to be stored for each sandbox, with the `latest` file ensuring that the most recent checkpoint is always used for restoration.
+
+### CPU Feature Compatibility
+
+Cloud Run instances can run on machines with different CPU feature sets. To ensure that a sandbox checkpointed on one machine can be reliably restored on another, the server automatically determines a common set of CPU features. This set is then embedded into the sandbox's configuration using the `dev.gvisor.internal.cpufeatures` annotation. This process is handled transparently by the server whenever a checkpointable sandbox is created or restored.
 
 ## Overview
 
@@ -131,3 +137,16 @@ This occurs if the checkpoint files are present but corrupted, and the restore o
     4. Server sends `{"event": "status_update", "status": "SANDBOX_RESTORE_ERROR"}`.
     5. Server sends a descriptive error message: `{"event": "error", "message": "..."}`.
 - **Result**: The WebSocket connection is closed by the server with code `4000` (Application-specific error).
+
+## Troubleshooting
+
+### "Incompatible FeatureSet: missing features..."
+
+This error during a restore operation indicates a mismatch in CPU features between the machine where the checkpoint was created and the machine where it is being restored.
+
+-   **Cause**: Cloud Run may schedule the checkpoint and restore operations on different physical machines with slightly different CPU capabilities.
+-   **Solution**: To resolve this, you need to identify the common set of CPU features between the two environments and update the server's configuration.
+    1.  **Log CPU Features**: The server is already configured to log the output of `runsc cpu-features` at the start of both `checkpoint()` and `restore()` operations. Check the server logs for messages containing "runsc cpu-features stdout".
+    2.  **Identify Common Features**: Compare the feature lists from a checkpoint log and a restore log and find the intersection (the features present in both lists).
+    3.  **Update Configuration**: Open `src/sandbox/gvisor.py` and replace the contents of the `common_cpu_features` string with the new comma-separated list of common features you identified.
+    4.  **Redeploy**: Redeploy the server with the updated code.

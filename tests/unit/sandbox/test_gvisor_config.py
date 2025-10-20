@@ -140,3 +140,32 @@ def test_build_runsc_cmd_platform(sandbox):
     cmd = sandbox._build_runsc_cmd("run", "my-sandbox")
     assert "--platform" in cmd
     assert "kvm" in cmd
+
+def test_prepare_bundle_with_checkpointable_enabled(sandbox):
+    """
+    Tests that _prepare_bundle adds the cpufeatures annotation when checkpointable is True.
+    """
+    sandbox._config.checkpointable = True
+    
+    sandbox._prepare_bundle()
+    
+    config_path = os.path.join(sandbox._bundle_dir, "config.json")
+    with open(config_path, "r") as f:
+        config = json.load(f)
+        
+    assert "annotations" in config
+    assert "dev.gvisor.internal.cpufeatures" in config["annotations"]
+
+def test_prepare_bundle_with_checkpointable_disabled(sandbox):
+    """
+    Tests that _prepare_bundle does not add the cpufeatures annotation when checkpointable is False.
+    """
+    sandbox._config.checkpointable = False
+    
+    sandbox._prepare_bundle()
+    
+    config_path = os.path.join(sandbox._bundle_dir, "config.json")
+    with open(config_path, "r") as f:
+        config = json.load(f)
+        
+    assert "dev.gvisor.internal.cpufeatures" not in config["annotations"]
