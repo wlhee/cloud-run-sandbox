@@ -5,15 +5,34 @@ from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
 from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from src.sandbox.config import GCSConfig
-from src.handlers.websocket import sandbox_manager
+from src.handlers import websocket
+from src.sandbox.manager import SandboxManager
 from unittest.mock import patch
 from starlette.websockets import WebSocketDisconnect
 import asyncio
 
 client = TestClient(app)
 
+@pytest.fixture(autouse=True)
+def setup_manager(tmp_path):
+    """
+    Fixture to set up and tear down the manager for each test.
+    This ensures that each test runs in isolation.
+    """
+    gcs_config = GCSConfig(
+        metadata_mount_path=str(tmp_path),
+        metadata_bucket="test-bucket",
+        sandbox_checkpoint_mount_path=str(tmp_path),
+        sandbox_checkpoint_bucket="test-bucket",
+        filesystem_snapshot_mount_path=str(tmp_path),
+        filesystem_snapshot_bucket="test-bucket",
+    )
+    manager = SandboxManager(gcs_config=gcs_config)
+    websocket.manager = manager
+    yield manager
+
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_create_interactive_session_success(mock_create_sandbox):
     """
     Tests the successful creation of an interactive sandbox session,
@@ -57,10 +76,10 @@ async def test_create_interactive_session_success(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
     # Assert that the sandbox was created with the correct idle timeout
-    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False, filesystem_snapshot_name=None)
+    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False, enable_sandbox_handoff=False, filesystem_snapshot_name=None)
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
     """
     Tests that a sandbox can be created with a filesystem snapshot.
@@ -69,11 +88,6 @@ async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
     sandbox = FakeSandbox("snapshot-sandbox")
     await sandbox.create()
     mock_create_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = GCSConfig(
-        filesystem_snapshot_mount_path='/tmp/snapshots',
-        filesystem_snapshot_bucket="test-bucket",
-    )
-
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
@@ -86,12 +100,40 @@ async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
     mock_create_sandbox.assert_called_once_with(
         idle_timeout=300,
         enable_checkpoint=False,
+        enable_sandbox_handoff=False,
         filesystem_snapshot_name="my-snapshot"
     )
 
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+async def test_create_sandbox_with_handoff(mock_create_sandbox):
+    """
+    Tests that a sandbox can be created with handoff enabled.
+    """
+    # Arrange
+    sandbox = FakeSandbox("handoff-sandbox")
+    await sandbox.create()
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"enable_sandbox_handoff": True})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "handoff-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+    # Assert that create_sandbox was called with handoff enabled
+    mock_create_sandbox.assert_called_once_with(
+        idle_timeout=300,
+        enable_checkpoint=False,
+        enable_sandbox_handoff=True,
+        filesystem_snapshot_name=None
+    )
+
+
+@pytest.mark.asyncio
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_interactive_session_with_stdin(mock_create_sandbox):
     """
     Tests that stdin is correctly handled during an interactive session.
@@ -128,7 +170,7 @@ async def test_interactive_session_with_stdin(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "stdout", "data": "Hello from test\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 def test_create_sandbox_creation_error(mock_create_sandbox):
     """
     Tests that a sandbox creation error is handled gracefully.
@@ -150,8 +192,8 @@ def test_create_sandbox_creation_error(mock_create_sandbox):
             websocket.receive_json()
         assert e.value.code == 4000
 
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
-@patch('src.handlers.websocket.sandbox_manager.get_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.get_sandbox')
 def test_create_and_attach_session(mock_get_sandbox, mock_create_sandbox):
     """
     Tests that a client can create a sandbox, disconnect, and another client
@@ -174,7 +216,7 @@ def test_create_and_attach_session(mock_get_sandbox, mock_create_sandbox):
     with client.websocket_connect("/attach/test-sandbox") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
-@patch('src.handlers.websocket.sandbox_manager.get_sandbox')
+@patch('src.sandbox.manager.SandboxManager.get_sandbox')
 def test_attach_to_in_use_sandbox(mock_get_sandbox):
     """
     Tests that attaching to a sandbox that is already in use fails.
@@ -192,7 +234,7 @@ def test_attach_to_in_use_sandbox(mock_get_sandbox):
         assert e.value.code == 1011
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_sandbox_execution_error(mock_create_sandbox):
     """
     Tests that a sandbox operation error is handled gracefully.
@@ -231,7 +273,7 @@ async def test_sandbox_execution_error(mock_create_sandbox):
         # websocket.send_json({"language": "python", "code": "print('still open')"})
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_invalid_message_format(mock_create_sandbox):
     """
     Tests that the server handles an invalid message format gracefully.
@@ -276,7 +318,7 @@ async def test_invalid_message_format(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_unsupported_language(mock_create_sandbox):
     """
     Tests that the server handles an unsupported language gracefully.
@@ -320,8 +362,8 @@ async def test_unsupported_language(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "stdout", "data": "still open\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
-@patch('src.handlers.websocket.sandbox_manager.restore_sandbox')
-@patch('src.handlers.websocket.sandbox_manager.get_sandbox')
+@patch('src.sandbox.manager.SandboxManager.restore_sandbox')
+@patch('src.sandbox.manager.SandboxManager.get_sandbox')
 def test_attach_restore_sandbox(mock_get_sandbox, mock_restore_sandbox):
     """
     Tests that a client can attach to a sandbox that has been checkpointed,
@@ -331,24 +373,18 @@ def test_attach_restore_sandbox(mock_get_sandbox, mock_restore_sandbox):
     sandbox = FakeSandbox("test-sandbox")
     mock_get_sandbox.return_value = None # Simulate cache miss
     mock_restore_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = GCSConfig(
-        metadata_mount_path='/tmp',
-        metadata_bucket="test-bucket",
-        sandbox_checkpoint_mount_path='/tmp',
-        sandbox_checkpoint_bucket="test-bucket",
-    )
 
     # Act & Assert
     with client.websocket_connect("/attach/test-sandbox") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
-def test_create_with_checkpoint_fails_if_not_configured():
+def test_create_with_checkpoint_fails_if_not_configured(setup_manager):
     """
     Tests that creating a sandbox with checkpointing enabled fails if the
     manager is not configured with a persistence path.
     """
-    sandbox_manager.gcs_config = None
+    setup_manager.gcs_config = None
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"enable_checkpoint": True})
         
@@ -361,8 +397,8 @@ def test_create_with_checkpoint_fails_if_not_configured():
         assert e.value.code == 4000
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.checkpoint_sandbox')
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.checkpoint_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_sandbox_checkpoint(mock_create_sandbox, mock_checkpoint_sandbox):
     """
     Tests that the 'checkpoint' action is correctly handled.
@@ -370,12 +406,6 @@ async def test_sandbox_checkpoint(mock_create_sandbox, mock_checkpoint_sandbox):
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = GCSConfig(
-        metadata_mount_path='/tmp',
-        metadata_bucket="test-bucket",
-        sandbox_checkpoint_mount_path='/tmp',
-        sandbox_checkpoint_bucket="test-bucket",
-    )
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
@@ -391,8 +421,8 @@ async def test_sandbox_checkpoint(mock_create_sandbox, mock_checkpoint_sandbox):
         assert e.value.code == 1000
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.checkpoint_sandbox')
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.checkpoint_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_sandbox_checkpoint_failure(mock_create_sandbox, mock_checkpoint_sandbox):
     """
     Tests that a failure during checkpointing is handled gracefully.
@@ -401,12 +431,6 @@ async def test_sandbox_checkpoint_failure(mock_create_sandbox, mock_checkpoint_s
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
     mock_checkpoint_sandbox.side_effect = SandboxCheckpointError("Checkpoint failed")
-    sandbox_manager.gcs_config = GCSConfig(
-        metadata_mount_path='/tmp',
-        metadata_bucket="test-bucket",
-        sandbox_checkpoint_mount_path='/tmp',
-        sandbox_checkpoint_bucket="test-bucket",
-    )
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
@@ -422,19 +446,13 @@ async def test_sandbox_checkpoint_failure(mock_create_sandbox, mock_checkpoint_s
             websocket.receive_json()
         assert e.value.code == 4000
 
-@patch('src.handlers.websocket.sandbox_manager.restore_sandbox')
+@patch('src.sandbox.manager.SandboxManager.restore_sandbox')
 def test_attach_restore_sandbox_not_found(mock_restore_sandbox):
     """
     Tests that a failure to find a sandbox to restore is handled gracefully.
     """
     # Arrange
     mock_restore_sandbox.return_value = None
-    sandbox_manager.gcs_config = GCSConfig(
-        metadata_mount_path='/tmp',
-        metadata_bucket="test-bucket",
-        sandbox_checkpoint_mount_path='/tmp',
-        sandbox_checkpoint_bucket="test-bucket",
-    )
 
     # Act & Assert
     with client.websocket_connect("/attach/test-sandbox") as websocket:
@@ -444,19 +462,13 @@ def test_attach_restore_sandbox_not_found(mock_restore_sandbox):
             websocket.receive_json()
         assert e.value.code == 1011
 
-@patch('src.handlers.websocket.sandbox_manager.restore_sandbox')
+@patch('src.sandbox.manager.SandboxManager.restore_sandbox')
 def test_attach_restore_sandbox_failure(mock_restore_sandbox):
     """
     Tests that a failure during restore is handled gracefully.
     """
     # Arrange
     mock_restore_sandbox.side_effect = SandboxRestoreError("Restore failed")
-    sandbox_manager.gcs_config = GCSConfig(
-        metadata_mount_path='/tmp',
-        metadata_bucket="test-bucket",
-        sandbox_checkpoint_mount_path='/tmp',
-        sandbox_checkpoint_bucket="test-bucket",
-    )
 
     # Act & Assert
     with client.websocket_connect("/attach/test-sandbox") as websocket:
@@ -468,8 +480,8 @@ def test_attach_restore_sandbox_failure(mock_restore_sandbox):
         assert e.value.code == 4000
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.snapshot_filesystem')
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.snapshot_filesystem')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_snapshot_filesystem(mock_create_sandbox, mock_snapshot_filesystem):
     """
     Tests that the 'snapshot_filesystem' action is correctly handled.
@@ -477,10 +489,6 @@ async def test_snapshot_filesystem(mock_create_sandbox, mock_snapshot_filesystem
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = GCSConfig(
-        filesystem_snapshot_mount_path='/tmp/snapshots',
-        filesystem_snapshot_bucket="test-bucket",
-    )
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
@@ -496,15 +504,15 @@ async def test_snapshot_filesystem(mock_create_sandbox, mock_snapshot_filesystem
     mock_snapshot_filesystem.assert_called_once_with("test-sandbox", "my-snapshot")
 
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
-async def test_snapshot_filesystem_not_configured(mock_create_sandbox):
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+async def test_snapshot_filesystem_not_configured(mock_create_sandbox, setup_manager):
     """
     Tests that taking a filesystem snapshot fails if the feature is not configured.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
-    sandbox_manager.gcs_config = None
+    setup_manager.gcs_config = None
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
@@ -518,8 +526,8 @@ async def test_snapshot_filesystem_not_configured(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_ERROR"}
         assert websocket.receive_json() == {"event": "error", "message": "Failed to snapshot filesystem for sandbox test-sandbox: Filesystem snapshot is not enabled on the server."}
 @pytest.mark.asyncio
-@patch('src.handlers.websocket.sandbox_manager.snapshot_filesystem')
-@patch('src.handlers.websocket.sandbox_manager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.snapshot_filesystem')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
 async def test_snapshot_filesystem_error(mock_create_sandbox, mock_snapshot_filesystem):
     """
     Tests that an error during filesystem snapshotting is handled gracefully.
@@ -528,10 +536,6 @@ async def test_snapshot_filesystem_error(mock_create_sandbox, mock_snapshot_file
     sandbox = FakeSandbox("test-sandbox")
     mock_create_sandbox.return_value = sandbox
     mock_snapshot_filesystem.side_effect = SandboxOperationError("Snapshot failed")
-    sandbox_manager.gcs_config = GCSConfig(
-        filesystem_snapshot_mount_path='/tmp/snapshots',
-        filesystem_snapshot_bucket="test-bucket",
-    )
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:

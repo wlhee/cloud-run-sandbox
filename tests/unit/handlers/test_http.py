@@ -5,10 +5,24 @@ from unittest.mock import patch, AsyncMock
 from src.sandbox.fake import FakeSandbox, FakeSandboxConfig, ExecConfig
 from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, SandboxStateEvent
 from src.sandbox.interface import SandboxStreamClosed
-from src.handlers.http import execute_code_streaming
+from src.handlers import http
+from src.sandbox.manager import SandboxManager
 from fastapi import BackgroundTasks
 
 client = TestClient(app)
+
+@pytest.fixture(autouse=True)
+def setup_manager():
+    """
+    Fixture to set up and tear down the manager for each test.
+    This ensures that each test runs in isolation.
+    """
+    # Create a new manager for each test
+    manager = SandboxManager()
+    # Inject the manager into the http module
+    http.manager = manager
+    yield manager
+    # Teardown is handled by the test client's lifespan management
 
 @patch('src.handlers.http.list_containers')
 def test_list_containers_success(mock_list_containers):
@@ -19,8 +33,9 @@ def test_list_containers_success(mock_list_containers):
     assert response.status_code == 200
     assert response.json() == {"containers": "container1\ncontainer2"}
 
-@patch('src.handlers.http.sandbox_manager')
-def test_execute_code_streaming(mock_manager):
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.delete_sandbox')
+def test_execute_code_streaming(mock_delete_sandbox, mock_create_sandbox):
     """Tests the streaming execution of code."""
     # Arrange
     output_stream = [
@@ -33,9 +48,8 @@ def test_execute_code_streaming(mock_manager):
     sandbox = FakeSandbox("fake-sandbox-http", config=config)
     sandbox.execute = AsyncMock() # Mock the execute method
     
-    mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
-    mock_manager.delete_sandbox = AsyncMock()
-
+    mock_create_sandbox.return_value = sandbox
+    mock_delete_sandbox.return_value = None
 
     # Act
     response = client.post(
@@ -47,13 +61,14 @@ def test_execute_code_streaming(mock_manager):
     # Assert
     assert response.status_code == 200
     assert response.text == "line 1\nline 2\n"
-    mock_manager.create_sandbox.assert_called_once()
+    mock_create_sandbox.assert_called_once()
     sandbox.execute.assert_called_once_with(CodeLanguage.PYTHON, "print('hello')")
-    mock_manager.delete_sandbox.assert_called_once_with("fake-sandbox-http")
+    mock_delete_sandbox.assert_called_once_with("fake-sandbox-http")
 
 @pytest.mark.asyncio
-@patch('src.handlers.http.sandbox_manager')
-async def test_execute_code_streaming_handles_stream_closed(mock_manager):
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+@patch('src.sandbox.manager.SandboxManager.delete_sandbox')
+async def test_execute_code_streaming_handles_stream_closed(mock_delete_sandbox, mock_create_sandbox):
     """
     Tests that the execute_code_streaming generator handles SandboxStreamClosed gracefully.
     """
@@ -67,13 +82,13 @@ async def test_execute_code_streaming_handles_stream_closed(mock_manager):
 
     sandbox.stream_outputs = mock_stream_outputs
     
-    mock_manager.create_sandbox = AsyncMock(return_value=sandbox)
-    mock_manager.delete_sandbox = AsyncMock()
+    mock_create_sandbox.return_value = sandbox
+    mock_delete_sandbox.return_value = None
     
     background_tasks = BackgroundTasks()
 
     # Act
-    stream = [item async for item in execute_code_streaming(CodeLanguage.PYTHON, "test", background_tasks)]
+    stream = [item async for item in http.execute_code_streaming(CodeLanguage.PYTHON, "test", background_tasks)]
     
     # Manually run the background tasks
     for task in background_tasks.tasks:
@@ -82,4 +97,4 @@ async def test_execute_code_streaming_handles_stream_closed(mock_manager):
     # Assert
     assert len(stream) == 1
     assert stream[0] == b"line 1\n"
-    mock_manager.delete_sandbox.assert_called_once_with("fake-sandbox-stream-closed")
+    mock_delete_sandbox.assert_called_once_with("fake-sandbox-stream-closed")

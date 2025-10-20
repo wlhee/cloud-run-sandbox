@@ -45,6 +45,8 @@ class GCSLock(LockInterface):
         blob_name: str,
         owner_id: str,
         lease_sec: int = 60,
+        on_release_requested: Optional[Callable[[], Awaitable[None]]] = None,
+        on_renewal_error: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         """
         Initializes the GCSLock.
@@ -59,11 +61,12 @@ class GCSLock(LockInterface):
         self._blob_name = blob_name
         self._owner_id = owner_id
         self._lease_sec = lease_sec
-        self._release_handler: Optional[Callable[[],  Awaitable[None]]] = None
-        self._renewal_error_handler: Optional[Callable[[],  Awaitable[None]]] = None
+        self._release_handler = on_release_requested
+        self._renewal_error_handler = on_renewal_error
         self._renewal_error_signaled = False
         self._renew_task: Optional[asyncio.Task] = None
         self._waiter_check_task: Optional[asyncio.Task] = None
+        self._released = False
         self._handoff_signaled = False
         self._test_only_on_renew_callback: Optional[Callable[[], None]] = None
 
@@ -275,7 +278,7 @@ class GCSLock(LockInterface):
 
     async def _renew_loop(self) -> None:
         """The background task that periodically renews the lock lease."""
-        while True:
+        while not self._released:
             await asyncio.sleep(self._lease_sec / 2)
             await self._renew()
             # Not need to renew as renewal error was detected.
@@ -284,7 +287,7 @@ class GCSLock(LockInterface):
 
     async def _waiter_check_loop(self) -> None:
         """A fast background loop to check for a new waiter."""
-        while True:
+        while not self._released:
             await asyncio.sleep(2)  # Check every 2 seconds
             await self._check_for_waiter()
             # No need to check for waiter as handoff was already signaled.
@@ -356,7 +359,7 @@ class GCSLock(LockInterface):
         If an active waiter is present, this method will mark the lock as expired
         to signal a handoff. Otherwise, it will delete the lock object entirely.
         """
-        await self._cancel_background_tasks()
+        self._released = True
         # No need to release if renewal error was detected because the lock is lost.
         if self._renewal_error_signaled:
             return
@@ -403,23 +406,6 @@ class GCSLock(LockInterface):
         else:
             self._waiter_check_task = asyncio.create_task(self._waiter_check_loop())
 
-    async def _cancel_background_tasks(self) -> None:
-           """Cancels the background renewal and waiter check tasks."""
-           tasks = []
-           if self._renew_task and not self._renew_task.done():
-               self._renew_task.cancel()
-               tasks.append(self._renew_task)
-           if self._waiter_check_task and not self._waiter_check_task.done():
-               self._waiter_check_task.cancel()
-               tasks.append(self._waiter_check_task)
-   
-           if tasks:
-                try:
-                    await asyncio.gather(*tasks, return_exceptions=True)
-                    self._renew_task = None
-                    self._waiter_check_task = None
-                except asyncio.CancelledError:
-                    pass  # Expected cancellation
 
     def _test_only_register_renew_callback(self, callback: Callable[[], None]) -> None:
            """FOR TESTING: Registers a callback to be invoked after a renewal."""

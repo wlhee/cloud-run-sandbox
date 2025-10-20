@@ -5,9 +5,10 @@ import time
 import os
 import json
 import logging
+from functools import partial
 
 from .config import GCSConfig
-from .interface import SandboxCreationError, SandboxRestoreError, SandboxOperationError
+from .interface import SandboxCreationError, SandboxRestoreError, SandboxOperationError, SandboxNotFoundError
 from .lock.interface import LockInterface, LockContentionError, LockTimeoutError, LockError
 from .lock.factory import LockFactory
 
@@ -25,11 +26,17 @@ async def _acquire_lock(
         raise SandboxCreationError("Sandbox handoff is requested, but the server is not configured with a lock factory.")
 
     blob_name = SandboxHandle.build_lock_blob_name(sandbox_id)
+    
+    # Create partial functions to bind the sandbox_id to the callbacks.
+    # The lock classes expect a zero-argument callable.
+    release_callback = partial(on_release_requested, sandbox_id) if on_release_requested else None
+    renewal_callback = partial(on_renewal_error, sandbox_id) if on_renewal_error else None
+
     lock = lock_factory.create_lock(
         sandbox_id,
         blob_name,
-        on_release_requested=on_release_requested,
-        on_renewal_error=on_renewal_error,
+        on_release_requested=release_callback,
+        on_renewal_error=renewal_callback,
     )
     try:
         await lock.acquire()
@@ -85,7 +92,6 @@ class SandboxHandle:
 
     # In-memory runtime state
     last_activity: float = field(default_factory=time.time)
-    cleanup_task: asyncio.Task = None
     delete_callback: Optional[Callable[[str], None]] = None
     ip_address: Optional[str] = None
     lock: Optional[LockInterface] = None
@@ -229,6 +235,13 @@ class SandboxHandle:
         It reads the metadata.json, validates its contents against the current
         server configuration, and returns a fully initialized handle.
         """
+        lock = await _acquire_lock(
+            lock_factory,
+            sandbox_id,
+            on_release_requested=on_release_requested,
+            on_renewal_error=on_renewal_error,
+        )
+
         metadata_path = cls.build_metadata_path(gcs_config, sandbox_id)
         
         try:
@@ -238,10 +251,10 @@ class SandboxHandle:
             checkpoint_data = data.get("latest_sandbox_checkpoint")
             if checkpoint_data:
                 data["latest_sandbox_checkpoint"] = GCSArtifact(**checkpoint_data)
-
+            
             metadata = GCSSandboxMetadata(**data)
         except FileNotFoundError:
-            raise SandboxRestoreError(f"Metadata file not found for sandbox {sandbox_id} at {metadata_path}")
+            raise SandboxNotFoundError(f"Metadata file not found for sandbox {sandbox_id} at {metadata_path}")
         except (json.JSONDecodeError, TypeError) as e:
             raise SandboxRestoreError(f"Failed to parse or validate metadata for sandbox {sandbox_id}: {e}")
 
@@ -257,18 +270,6 @@ class SandboxHandle:
                     f"metadata has '{checkpoint.bucket}', but server is configured for '{gcs_config.sandbox_checkpoint_bucket}'."
                 )
         
-        lock = None
-        if metadata.enable_sandbox_handoff:
-            try:
-                lock = await _acquire_lock(
-                    lock_factory,
-                    sandbox_id,
-                    on_release_requested=on_release_requested,
-                    on_renewal_error=on_renewal_error,
-                )
-            except LockError as e:
-                raise SandboxRestoreError(f"Failed to acquire lock for sandbox {sandbox_id}") from e
-
         # Use the idle_timeout from the authoritative metadata file
         handle = cls(
             sandbox_id=sandbox_id,

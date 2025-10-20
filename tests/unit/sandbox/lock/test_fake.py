@@ -126,3 +126,40 @@ async def test_auto_renewal_triggers_release_request():
     await lock1.release()
     await acquire_task
     await lock2.release()
+
+@pytest.mark.asyncio
+async def test_constructor_callbacks():
+    release_requested = asyncio.Event()
+    renewal_error_called = asyncio.Event()
+
+    async def release_handler():
+        release_requested.set()
+
+    async def renewal_error_handler():
+        renewal_error_called.set()
+
+    lock1 = FakeLock(
+        "lock1",
+        "owner1",
+        lease_sec=0.2,
+        on_release_requested=release_handler,
+        on_renewal_error=renewal_error_handler,
+    )
+    await lock1.acquire()
+
+    # Test renewal error callback
+    lock1.force_renewal_error()
+    await asyncio.wait_for(renewal_error_called.wait(), timeout=1)
+    assert renewal_error_called.is_set()
+
+    # Test release requested callback
+    lock2 = FakeLock("lock1", "owner2")
+    acquire_task = asyncio.create_task(lock2.acquire())
+    await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(release_requested.wait(), timeout=1)
+    assert release_requested.is_set()
+
+    await lock1.release()
+    await acquire_task
+    await lock2.release()

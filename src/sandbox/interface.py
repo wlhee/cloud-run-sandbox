@@ -34,6 +34,10 @@ class SandboxRestoreError(SandboxOperationError):
     """Raised when a sandbox restore operation fails."""
     pass
 
+class SandboxNotFoundError(SandboxRestoreError):
+    """Raised when a sandbox to be restored is not found."""
+    pass
+
 class SandboxSnapshotFilesystemError(SandboxOperationError):
     """Raised when a sandbox filesystem snapshot operation fails."""
     pass
@@ -52,6 +56,11 @@ class SandboxInterface(ABC):
     @property
     @abstractmethod
     def sandbox_id(self):
+        pass
+
+    @property
+    @abstractmethod
+    def is_execution_running(self) -> bool:
         pass
 
     @property

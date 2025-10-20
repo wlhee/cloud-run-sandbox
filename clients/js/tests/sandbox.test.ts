@@ -45,6 +45,7 @@ describe('Sandbox', () => {
     expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: false,
+      enable_sandbox_handoff: false,
       filesystem_snapshot_name: undefined,
     }));
 
@@ -73,11 +74,67 @@ describe('Sandbox', () => {
     expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: true,
+      enable_sandbox_handoff: false,
       filesystem_snapshot_name: undefined,
     }));
 
     sandbox.terminate();
     expect(mockWsInstance.close).toHaveBeenCalled();
+  });
+
+  it('should create a sandbox with handoff enabled', async () => {
+    const createPromise = Sandbox.create('ws://test-url', { enableSandboxHandoff: true });
+    
+    mockWsInstance.emit('open');
+
+    mockWsInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.SANDBOX_ID,
+      [MessageKey.SANDBOX_ID]: 'test-id',
+    }));
+    mockWsInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+    }));
+
+    const sandbox = await createPromise;
+
+    expect(sandbox).toBeInstanceOf(Sandbox);
+    expect(sandbox.sandboxId).toBe('test-id');
+    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+      idle_timeout: 60,
+      enable_checkpoint: false,
+      enable_sandbox_handoff: true,
+      filesystem_snapshot_name: undefined,
+    }));
+
+    sandbox.terminate();
+    expect(mockWsInstance.close).toHaveBeenCalled();
+  });
+
+  it('should log debug messages with label when enabled', async () => {
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const createPromise = Sandbox.create('ws://test-url', { enableDebug: true, debugLabel: 'TestSandbox' });
+    
+    mockWsInstance.emit('open');
+
+    const sandboxIdMessage = {
+      [MessageKey.EVENT]: EventType.SANDBOX_ID,
+      [MessageKey.SANDBOX_ID]: 'test-id',
+    };
+    mockWsInstance.emit('message', JSON.stringify(sandboxIdMessage));
+    
+    const runningMessage = {
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+    };
+    mockWsInstance.emit('message', JSON.stringify(runningMessage));
+
+    await createPromise;
+
+    expect(consoleLogSpy).toHaveBeenCalledWith('[TestSandbox] [DEBUG] Received message:', sandboxIdMessage);
+    expect(consoleLogSpy).toHaveBeenCalledWith('[TestSandbox] [DEBUG] Received message:', runningMessage);
+
+    consoleLogSpy.mockRestore();
   });
 
   it('should create a sandbox with a filesystem snapshot', async () => {
@@ -101,6 +158,7 @@ describe('Sandbox', () => {
     expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: false,
+      enable_sandbox_handoff: false,
       filesystem_snapshot_name: 'my-snapshot',
     }));
 

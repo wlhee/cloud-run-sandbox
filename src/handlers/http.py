@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Body, BackgroundTasks
 from fastapi.responses import StreamingResponse, PlainTextResponse
-from typing import Annotated
-from src.sandbox.manager import manager as sandbox_manager
+from typing import Annotated, Optional
+from src.sandbox.manager import SandboxManager
 from src.sandbox.types import CodeLanguage, OutputType
 from src.sandbox.interface import SandboxStreamClosed
 import asyncio
@@ -9,6 +9,9 @@ import subprocess
 import os
 import json
 import uuid
+
+# This will be replaced by the configured manager instance at startup
+manager: Optional[SandboxManager] = None
 
 # ==============================================================================
 # Temporary gVisor Sandbox Logic
@@ -69,7 +72,7 @@ async def execute_code_streaming(language: CodeLanguage, code: str, background_t
     """
     sandbox = None
     try:
-        sandbox = await sandbox_manager.create_sandbox()
+        sandbox = await manager.create_sandbox()
         await sandbox.execute(language, code)
         
         async for event in sandbox.stream_outputs():
@@ -83,7 +86,7 @@ async def execute_code_streaming(language: CodeLanguage, code: str, background_t
         yield f"Server error: {e}\n".encode('utf-8')
     finally:
         if sandbox:
-            background_tasks.add_task(sandbox_manager.delete_sandbox, sandbox.sandbox_id)
+            background_tasks.add_task(manager.delete_sandbox, sandbox.sandbox_id)
 
 # ==============================================================================
 # FastAPI Route Handlers

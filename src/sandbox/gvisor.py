@@ -103,6 +103,10 @@ class GVisorSandbox(SandboxInterface):
         return self._sandbox_id
 
     @property
+    def is_execution_running(self) -> bool:
+        return self._exec_process is not None and self._exec_process.is_running
+
+    @property
     def is_attached(self) -> bool:
         return self._is_attached
 

@@ -12,9 +12,13 @@ export class Sandbox {
   private _creationError: Error | null = null;
   private activeProcess: SandboxProcess | null = null;
   private state: SandboxState = 'creating';
+  private _debugEnabled: boolean = false;
+  private _debugLabel: string = '';
 
-  private constructor(websocket: WebSocket) {
+  private constructor(websocket: WebSocket, debug: boolean = false, debugLabel: string = '') {
     this.ws = websocket;
+    this._debugEnabled = debug;
+    this._debugLabel = debugLabel;
     this.ws.on('message', this.handleMessage.bind(this));
     this.ws.on('close', this.handleClose.bind(this));
     this.ws.on('error', this.handleError.bind(this));
@@ -40,6 +44,10 @@ export class Sandbox {
         this.activeProcess.handleMessage(message);
       }
       return;
+    }
+
+    if (this._debugEnabled) {
+      console.log(`[${this._debugLabel}] [DEBUG] Received message:`, message);
     }
 
     // Handle sandbox lifecycle events
@@ -106,6 +114,9 @@ export class Sandbox {
   }
 
   private handleClose(code: number, reason: Buffer) {
+    if (this._debugEnabled) {
+      console.log(`[${this._debugLabel}] [DEBUG] Connection closed: code=${code}, reason=${reason.toString()}`);
+    }
     if (this.state === 'creating' || this.state === 'restoring') {
       this.state = 'failed';
       const err = new Error(`Connection closed during creation/restoration: code=${code}`);
@@ -121,6 +132,9 @@ export class Sandbox {
   }
 
   private handleError(err: Error) {
+    if (this._debugEnabled) {
+      console.error(`[${this._debugLabel}] [DEBUG] WebSocket error:`, err);
+    }
     if (this.state === 'creating' || this.state === 'restoring') {
       this.state = 'failed';
       this.eventEmitter.emit('failed', err);
@@ -134,17 +148,18 @@ export class Sandbox {
     // for the user to handle, e.g., this.eventEmitter.emit('error', err);
   }
 
-  static create(url: string, options: { idleTimeout?: number, enableSandboxCheckpoint?: boolean, filesystemSnapshotName?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
-    const { idleTimeout = 60, enableSandboxCheckpoint = false, filesystemSnapshotName, wsOptions } = options;
+  static create(url: string, options: { idleTimeout?: number, enableSandboxCheckpoint?: boolean, enableSandboxHandoff?: boolean, filesystemSnapshotName?: string, enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
+    const { idleTimeout = 60, enableSandboxCheckpoint = false, enableSandboxHandoff = false, filesystemSnapshotName, enableDebug = false, debugLabel = '', wsOptions } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     const ws = new WebSocket(`${sanitizedUrl}/create`, wsOptions);
-    const sandbox = new Sandbox(ws);
+    const sandbox = new Sandbox(ws, enableDebug, debugLabel);
 
     ws.on('open', () => {
       ws.send(JSON.stringify({
         idle_timeout: idleTimeout,
         enable_checkpoint: enableSandboxCheckpoint,
+        enable_sandbox_handoff: enableSandboxHandoff,
         filesystem_snapshot_name: filesystemSnapshotName,
       }));
     });
@@ -164,12 +179,12 @@ export class Sandbox {
     });
   }
 
-  static attach(url: string, sandboxId: string, options: { wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
-    const { wsOptions } = options;
+  static attach(url: string, sandboxId: string, options: { enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
+    const { enableDebug = false, debugLabel = '', wsOptions } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     const ws = new WebSocket(`${sanitizedUrl}/attach/${sandboxId}`, wsOptions);
-    const sandbox = new Sandbox(ws);
+    const sandbox = new Sandbox(ws, enableDebug, debugLabel);
     sandbox._sandboxId = sandboxId;
 
     return new Promise((resolve, reject) => {

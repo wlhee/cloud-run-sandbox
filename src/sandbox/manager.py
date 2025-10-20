@@ -11,7 +11,7 @@ import json
 
 from .handle import SandboxHandle
 from .config import GCSConfig
-from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxExecutionInProgressError, SandboxCheckpointError
+from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxExecutionInProgressError, SandboxCheckpointError, SandboxNotFoundError
 from .lock.factory import LockFactory
 
 logger = logging.getLogger(__name__)
@@ -20,12 +20,40 @@ class SandboxManager:
     """
     Manages the lifecycle of stateful sandbox instances.
     """
-    def __init__(self, lock_factory: Optional[LockFactory] = None):
+    def __init__(self, gcs_config: Optional[GCSConfig] = None, lock_factory: Optional[LockFactory] = None):
         self._sandboxes: dict[str, SandboxHandle] = {}
         self._ip_pool = {f"192.168.100.{i}" for i in range(2, 255)}
         self._ip_allocations: dict[str, str] = {}
-        self.gcs_config: Optional[GCSConfig] = None
+        self.gcs_config = gcs_config
         self.lock_factory = lock_factory
+        self._cleanup_task: Optional[asyncio.Task] = None
+
+    def enable_idle_cleanup(self, cleanup_interval: int = 10):
+        """Starts the background task that cleans up idle sandboxes."""
+        if self._cleanup_task is None:
+            self._cleanup_interval = cleanup_interval
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+    async def _cleanup_loop(self):
+        """A background task that periodically cleans up idle sandboxes."""
+        while True:
+            try:
+                await asyncio.sleep(self._cleanup_interval)
+                for sandbox_id in list(self._sandboxes.keys()):
+                    handle = self._sandboxes.get(sandbox_id)
+                    if not handle or not handle.idle_timeout:
+                        continue
+
+                    is_expired = time.time() - handle.last_activity > handle.idle_timeout
+                    if is_expired and not handle.instance.is_execution_running:
+                        logger.info(f"Sandbox {sandbox_id} has been idle for {handle.idle_timeout} seconds. Deleting.")
+                        await self.delete_sandbox(sandbox_id)
+            except asyncio.CancelledError:
+                logger.info("Sandbox cleanup loop cancelled.")
+                break
+            except Exception as e:
+                logger.error(f"Error in sandbox cleanup loop: {e}")
+
 
     @property
     def is_sandbox_checkpointing_enabled(self) -> bool:
@@ -121,9 +149,6 @@ class SandboxManager:
             await sandbox_instance.create()
             handle.instance = sandbox_instance
 
-            if idle_timeout:
-                handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, idle_timeout))
-
             self._sandboxes[sandbox_id] = handle
             logger.info(f"Sandbox manager created {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
             success = True
@@ -151,6 +176,7 @@ class SandboxManager:
     async def restore_sandbox(self, sandbox_id: str, delete_callback: Optional[Callable[[str], None]] = None):
         """
         Restores a sandbox from its checkpoint on the persistence volume.
+        Returns None if no checkpoint is found.
         """
         if self.get_sandbox(sandbox_id):
             raise SandboxOperationError(f"Sandbox {sandbox_id} is already in memory.")
@@ -186,6 +212,7 @@ class SandboxManager:
             handle.instance = sandbox_instance
             
             checkpoint_path = handle.latest_checkpoint_path
+            print("Restoring from checkpoint path:", checkpoint_path)
             if not checkpoint_path or not os.path.exists(checkpoint_path):
                 raise SandboxRestoreError(f"Latest checkpoint not found for sandbox {sandbox_id}")
 
@@ -197,12 +224,11 @@ class SandboxManager:
                 logger.error(f"Failed to restore sandbox {sandbox_id}: {e}")
                 raise SandboxRestoreError(f"Failed to restore sandbox {sandbox_id}") from e
 
-            if handle.idle_timeout:
-                handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, handle.idle_timeout))
-
             self._sandboxes[sandbox_id] = handle
             success = True
             return sandbox_instance
+        except SandboxNotFoundError:
+            return None
         finally:
             if not success:
                 if ip_address:
@@ -213,19 +239,12 @@ class SandboxManager:
 
     def reset_idle_timer(self, sandbox_id: str):
         """
-        Updates the last activity time for a sandbox, resetting its idle timer.
-        Returns the cancelled cleanup task.
+        Updates the last activity time for a sandbox.
         """
         handle = self._sandboxes.get(sandbox_id)
-        cancelled_task = None
         if handle and handle.idle_timeout:
             logger.debug(f"Updating activity for sandbox {sandbox_id}")
             handle.last_activity = time.time()
-            if handle.cleanup_task:
-                handle.cleanup_task.cancel()
-                cancelled_task = handle.cleanup_task
-            handle.cleanup_task = asyncio.create_task(self._idle_cleanup(sandbox_id, handle.idle_timeout))
-        return cancelled_task
 
     async def checkpoint_sandbox(self, sandbox_id: str, force: bool = False):
         """
@@ -271,14 +290,7 @@ class SandboxManager:
         await handle.instance.snapshot_filesystem(snapshot_path)
         logger.info(f"Sandbox {sandbox_id} filesystem snapshotted to {snapshot_path}")
 
-    async def _idle_cleanup(self, sandbox_id: str, timeout: int):
-        """A background task that waits for a timeout and then deletes the sandbox."""
-        try:
-            await asyncio.sleep(timeout)
-            logger.info(f"Sandbox {sandbox_id} has been idle for {timeout} seconds. Deleting.")
-            await self.delete_sandbox(sandbox_id)
-        except asyncio.CancelledError:
-            logger.debug(f"Idle cleanup task for {sandbox_id} was cancelled.")
+
 
     async def delete_sandbox(self, sandbox_id: str):
         """
@@ -287,8 +299,6 @@ class SandboxManager:
         logger.info(f"Sandbox manager deleting sandbox {sandbox_id}...")
         handle = self._sandboxes.pop(sandbox_id, None)
         if handle:
-            if handle.cleanup_task:
-                handle.cleanup_task.cancel()
             await handle.instance.delete()
             
             if handle.lock:
@@ -306,8 +316,16 @@ class SandboxManager:
 
     async def delete_all_sandboxes(self):
         """
-        Deletes all sandboxes managed by this instance.
+        Deletes all sandboxes managed by this instance and stops the cleanup loop.
         """
+        logger.info("Stopping sandbox cleanup loop...")
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                logger.info("Sandbox cleanup loop stopped successfully.")
+
         logger.info("Deleting all sandboxes...")
         
         # For integration testing: create a file to signal that this was called.
@@ -330,5 +348,6 @@ class SandboxManager:
         logger.error(f"Lock renewal failed for sandbox {sandbox_id}. Shutting down.")
         await self.delete_sandbox(sandbox_id)
 
-# Create a single, global instance of the manager that the application will use.
-manager = SandboxManager()
+# Create a placeholder for the single, global instance of the manager.
+# This will be replaced by a properly configured instance at startup.
+manager: Optional["SandboxManager"] = None

@@ -1,51 +1,58 @@
 /**
- * This example demonstrates the checkpoint and restore functionality of the Cloud Run Sandbox.
+ * This example demonstrates the checkpoint and restore functionality.
  *
  * It performs the following steps:
- * 1. Creates a new sandbox with checkpointing enabled.
- * 2. Executes a command to write a file to the sandbox's filesystem.
- * 3. Checkpoints the sandbox, persisting its state.
- * 4. Attaches to the previously checkpointed sandbox.
- * 5. Executes a command to read the file, verifying that the state was restored.
+ * 1. Creates a new sandbox on one server instance.
+ * 2. Executes a command to create a file in the sandbox.
+ * 3. Checkpoints the sandbox.
+ * 4. Attaches to the same sandbox ID from a different client, potentially
+ *    on a different server instance, which triggers a restore.
+ * 5. Executes a command to verify that the file exists.
  *
  * SERVER-SIDE REQUIREMENTS:
  * To run this example, the Cloud Run service must be deployed with a persistent
  * volume (e.g., a GCS bucket) and the `CHECKPOINT_AND_RESTORE_PATH` environment
  * variable set to the mount path of that volume.
  *
- * This script expects the URL of your deployed Cloud Run service to be
- * set in the `CLOUD_RUN_URL` environment variable.
+ * This script expects the URLs of your deployed Cloud Run services to be
+ * set in environment variables. For a local test, you can use the same URL for both.
  *
- * The WebSocket URL should be in the format: wss://<your-cloud-run-url>
+ * The WebSocket URLs should be in the format: wss://<your-cloud-run-url>
  *
  * To run this example:
  * 1. Make sure you have ts-node installed (`npm install -g ts-node`).
- * 2. Set the environment variable:
- *    `export CLOUD_RUN_URL="wss://your-service-url.run.app"
+ * 2. Set the environment variables:
+ *    `export CLOUD_RUN_URL_CHECKPOINT="wss://your-service-a-url.run.app"`
+ *    `export CLOUD_RUN_URL_RESTORE="wss://your-service-b-url.run.app"`
  * 3. Run the script from the root of the repository:
- *    `ts-node example/checkpoint.ts`
- *
- * Full command used for successful run:
- * `export CLOUD_RUN_URL="wss://sandbox-26651309217.us-central1.run.app" && npx ts-node example/checkpoint.ts`
+ *    `npx ts-node example/checkpoint.ts`
  */
 import { Sandbox } from '../clients/js/src/sandbox';
 
 async function main() {
-  const url = process.env.CLOUD_RUN_URL;
-  if (!url) {
-    console.error("Error: Please set the CLOUD_RUN_URL environment variable.");
-    console.error("Example: export CLOUD_RUN_URL=\"wss://your-service-url.run.app\"");
+  const urlCheckpoint = process.env.CLOUD_RUN_URL_CHECKPOINT;
+  const urlRestore = process.env.CLOUD_RUN_URL_RESTORE;
+
+  if (!urlCheckpoint || !urlRestore) {
+    console.error("Error: Please set the CLOUD_RUN_URL_CHECKPOINT and CLOUD_RUN_URL_RESTORE environment variables.");
+    console.error("Example: export CLOUD_RUN_URL_CHECKPOINT=\"wss://your-service-a-url.run.app\"");
+    console.error("         export CLOUD_RUN_URL_RESTORE=\"wss://your-service-b-url.run.app\"");
     return;
   }
 
-  console.log(`Connecting to sandbox at ${url}...`);
-  let sandbox: Sandbox | undefined;
+  console.log('--- Checkpoint and Restore Example ---');
+  console.log(`Using Checkpoint URL: ${urlCheckpoint}`);
+  console.log(`Using Restore URL: ${urlRestore}`);
+
+  let sandbox: Sandbox | null = null;
   let sandboxId: string | null = null;
 
   try {
-    // 1. Create a new sandbox with checkpointing enabled
-    console.log("Creating a new sandbox with checkpointing enabled...");
-    sandbox = await Sandbox.create(url, { enableSandboxCheckpoint: true });
+    // 1. Create a new sandbox
+    console.log('\n--- Step 1: Creating Sandbox ---');
+    sandbox = await Sandbox.create(urlCheckpoint, {
+      enableSandboxCheckpoint: true,
+    });
     sandboxId = sandbox.sandboxId;
     console.log(`Successfully created sandbox with ID: ${sandboxId}`);
 
@@ -67,7 +74,7 @@ async function main() {
 
     // 4. Attach to the checkpointed sandbox
     console.log(`\nAttaching to sandbox ${sandboxId}...`);
-    sandbox = await Sandbox.attach(url, sandboxId!); 
+    sandbox = await Sandbox.attach(urlRestore, sandboxId!);
     console.log("Successfully attached to the restored sandbox.");
 
     // 5. Verify the state by reading the file

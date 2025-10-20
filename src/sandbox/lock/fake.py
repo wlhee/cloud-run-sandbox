@@ -25,15 +25,22 @@ class FakeLock(LockInterface):
     """
     _locks: Dict[str, _LockState] = {}
 
-    def __init__(self, lock_id: str, owner_id: str, lease_sec: int = 10):
+    def __init__(
+        self,
+        lock_id: str,
+        owner_id: str,
+        lease_sec: int = 10,
+        on_release_requested: Optional[Callable[[], Awaitable[None]]] = None,
+        on_renewal_error: Optional[Callable[[], Awaitable[None]]] = None,
+    ):
         self._lock_id = lock_id
         self._owner_id = owner_id
         self._lease_sec = lease_sec
         if self._lock_id not in self._locks:
             self._locks[self._lock_id] = _LockState()
         self._state = self._locks[self._lock_id]
-        self._release_handler: Optional[Callable[[], Awaitable[None]]] = None
-        self._renewal_error_handler: Optional[Callable[[], Awaitable[None]]] = None
+        self._release_handler = on_release_requested
+        self._renewal_error_handler = on_renewal_error
         self._handoff_signaled = False
         self._renew_task: Optional[asyncio.Task] = None
         self._fail_next_renewal = False

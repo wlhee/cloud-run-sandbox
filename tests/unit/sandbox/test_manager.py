@@ -82,6 +82,7 @@ async def test_idle_cleanup(mock_create_instance):
     sandbox = FakeSandbox("idle-sandbox")
     mock_create_instance.return_value = sandbox
     mgr = SandboxManager()
+    mgr.enable_idle_cleanup(cleanup_interval=0.1)
     delete_event = asyncio.Event()
     
     # Act
@@ -108,6 +109,7 @@ async def test_reset_idle_timer(mock_create_instance):
     sandbox = FakeSandbox("active-sandbox")
     mock_create_instance.return_value = sandbox
     mgr = SandboxManager()
+    mgr.enable_idle_cleanup(cleanup_interval=0.1)
     delete_event = asyncio.Event()
 
     # Act
@@ -167,13 +169,14 @@ async def test_create_with_checkpoint_enabled(mock_create_instance, tmp_path):
     # Arrange
     sandbox = FakeSandbox("checkpoint-sandbox")
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(
+    gcs_config = GCSConfig(
         metadata_mount_path=str(tmp_path),
         metadata_bucket="test-bucket",
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
+    mgr = SandboxManager(gcs_config=gcs_config)
+    
     # Act
     await mgr.create_sandbox(sandbox_id="checkpoint-sandbox", enable_checkpoint=True, idle_timeout=300)
     
@@ -192,7 +195,7 @@ async def test_create_with_checkpoint_fails_if_not_configured(mock_create_instan
     Tests that creating a sandbox with checkpointing enabled fails if the
     manager is not configured with a persistence path.
     """
-    mgr = SandboxManager() # No checkpoint_and_restore_path
+    mgr = SandboxManager() # No gcs_config
     with pytest.raises(SandboxCreationError, match="Checkpointing is not enabled on the server."):
         await mgr.create_sandbox(sandbox_id="test", enable_checkpoint=True)
 
@@ -205,13 +208,13 @@ async def test_checkpoint_sandbox(mock_create_instance, tmp_path):
     # Arrange
     sandbox = FakeSandbox("checkpoint-sandbox")
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(
+    gcs_config = GCSConfig(
         metadata_mount_path=str(tmp_path),
         metadata_bucket="test-bucket",
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
+    mgr = SandboxManager(gcs_config=gcs_config)
     await mgr.create_sandbox(sandbox_id="checkpoint-sandbox", enable_checkpoint=True, idle_timeout=300)
     
     # Act
@@ -256,13 +259,13 @@ async def test_restore_sandbox(mock_create_instance, tmp_path):
     restored_sandbox = FakeSandbox(sandbox_id)
     mock_create_instance.return_value = restored_sandbox
     
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(
+    gcs_config = GCSConfig(
         metadata_mount_path=str(tmp_path),
         metadata_bucket="test-bucket",
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
+    mgr = SandboxManager(gcs_config=gcs_config)
     
     # Act
     sandbox = await mgr.restore_sandbox(sandbox_id)
@@ -281,13 +284,13 @@ async def test_checkpoint_sandbox_fails(mock_create_instance, tmp_path):
     config = FakeSandboxConfig(checkpoint_should_fail=True)
     sandbox = FakeSandbox("fail-sandbox", config=config)
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(
+    gcs_config = GCSConfig(
         metadata_mount_path=str(tmp_path),
         metadata_bucket="test-bucket",
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
+    mgr = SandboxManager(gcs_config=gcs_config)
     await mgr.create_sandbox(sandbox_id="fail-sandbox", enable_checkpoint=True)
     
     # Act & Assert
@@ -326,13 +329,13 @@ async def test_restore_sandbox_fails(mock_create_instance, tmp_path):
     sandbox_that_will_fail = FakeSandbox(sandbox_id, config=config)
     mock_create_instance.return_value = sandbox_that_will_fail
     
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(
+    gcs_config = GCSConfig(
         metadata_mount_path=str(tmp_path),
         metadata_bucket="test-bucket",
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
+    mgr = SandboxManager(gcs_config=gcs_config)
     
     # Act
     with pytest.raises(SandboxRestoreError, match="Failed to restore sandbox fail-restore"):
@@ -370,13 +373,14 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     restored_sandbox = FakeSandbox(sandbox_id)
     mock_create_instance.return_value = restored_sandbox
     
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(
+    gcs_config = GCSConfig(
         metadata_mount_path=str(tmp_path),
         metadata_bucket="test-bucket",
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
+    mgr = SandboxManager(gcs_config=gcs_config)
+    mgr.enable_idle_cleanup(cleanup_interval=0.1)
     delete_event = asyncio.Event()
     
     # Act
@@ -393,13 +397,13 @@ async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, tmp_p
     to ensure multiple checkpoints are handled correctly.
     """
     sandbox_id = "multi-checkpoint-sandbox"
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(
+    gcs_config = GCSConfig(
         metadata_mount_path=str(tmp_path),
         metadata_bucket="test-bucket",
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
+    mgr = SandboxManager(gcs_config=gcs_config)
 
     # --- Create and First Checkpoint ---
     mock_create_instance.return_value = FakeSandbox(sandbox_id)
@@ -448,8 +452,8 @@ async def test_create_with_filesystem_snapshot(mock_create_instance, tmp_path):
     # Arrange
     sandbox = FakeSandbox("snapshot-sandbox")
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(filesystem_snapshot_mount_path=str(tmp_path), filesystem_snapshot_bucket="test-bucket")
+    gcs_config = GCSConfig(filesystem_snapshot_mount_path=str(tmp_path), filesystem_snapshot_bucket="test-bucket")
+    mgr = SandboxManager(gcs_config=gcs_config)
     
     # Act
     await mgr.create_sandbox(sandbox_id="snapshot-sandbox", filesystem_snapshot_name="my-snapshot")
@@ -465,7 +469,7 @@ async def test_create_with_filesystem_snapshot_fails_if_not_configured(mock_crea
     Tests that creating a sandbox with a filesystem snapshot fails if the manager
     is not configured with a snapshot path.
     """
-    mgr = SandboxManager() # No filesystem_snapshot_path
+    mgr = SandboxManager() # No gcs_config
     with pytest.raises(SandboxCreationError, match="Filesystem snapshot is not enabled on the server."):
         await mgr.create_sandbox(sandbox_id="test", filesystem_snapshot_name="my-snapshot")
 
@@ -477,8 +481,8 @@ async def test_snapshot_filesystem(mock_create_instance, tmp_path):
     # Arrange
     sandbox = FakeSandbox("snapshot-sandbox")
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(filesystem_snapshot_mount_path=str(tmp_path), filesystem_snapshot_bucket="test-bucket")
+    gcs_config = GCSConfig(filesystem_snapshot_mount_path=str(tmp_path), filesystem_snapshot_bucket="test-bucket")
+    mgr = SandboxManager(gcs_config=gcs_config)
     await mgr.create_sandbox(sandbox_id="snapshot-sandbox")
     
     # Act
@@ -497,8 +501,8 @@ async def test_snapshot_filesystem_fails(mock_create_instance, tmp_path):
     config = FakeSandboxConfig(snapshot_filesystem_should_fail=True)
     sandbox = FakeSandbox("fail-snapshot-sandbox", config=config)
     mock_create_instance.return_value = sandbox
-    mgr = SandboxManager()
-    mgr.gcs_config = GCSConfig(filesystem_snapshot_mount_path=str(tmp_path), filesystem_snapshot_bucket="test-bucket")
+    gcs_config = GCSConfig(filesystem_snapshot_mount_path=str(tmp_path), filesystem_snapshot_bucket="test-bucket")
+    mgr = SandboxManager(gcs_config=gcs_config)
     await mgr.create_sandbox(sandbox_id="fail-snapshot-sandbox")
     
     # Act & Assert
@@ -513,13 +517,13 @@ class TestManagerLocking:
     def setup(self, tmp_path):
         self.tmp_path = tmp_path
         self.mock_lock_factory = MagicMock(spec=LockFactory)
-        self.mgr = SandboxManager(lock_factory=self.mock_lock_factory)
-        self.mgr.gcs_config = GCSConfig(
+        gcs_config = GCSConfig(
             metadata_mount_path=str(tmp_path),
             metadata_bucket="test-bucket",
             sandbox_checkpoint_mount_path=str(tmp_path),
             sandbox_checkpoint_bucket="test-bucket"
         )
+        self.mgr = SandboxManager(gcs_config=gcs_config, lock_factory=self.mock_lock_factory)
 
     @patch('src.sandbox.factory.create_sandbox_instance')
     async def test_create_with_handoff_acquires_lock(self, mock_create_instance):
@@ -539,8 +543,8 @@ class TestManagerLocking:
         self.mock_lock_factory.create_lock.assert_called_once_with(
             "handoff-sandbox",
             "sandboxes/handoff-sandbox/lock.json",
-            on_release_requested=self.mgr._on_release_requested,
-            on_renewal_error=self.mgr._on_renewal_error,
+            on_release_requested=ANY,
+            on_renewal_error=ANY,
         )
         mock_lock.acquire.assert_awaited_once()
         handle = self.mgr._sandboxes.get("handoff-sandbox")
@@ -622,8 +626,8 @@ class TestManagerLocking:
         self.mock_lock_factory.create_lock.assert_called_once_with(
             sandbox_id,
             f"sandboxes/{sandbox_id}/lock.json",
-            on_release_requested=self.mgr._on_release_requested,
-            on_renewal_error=self.mgr._on_renewal_error,
+            on_release_requested=ANY,
+            on_renewal_error=ANY,
         )
         mock_lock.acquire.assert_awaited_once()
         handle = self.mgr._sandboxes.get(sandbox_id)
@@ -698,7 +702,7 @@ class TestManagerLocking:
         assert on_release_requested_callback is not None
 
         # Act
-        await on_release_requested_callback(sandbox_id)
+        await on_release_requested_callback()
 
         # Assert
         self.mgr.checkpoint_sandbox.assert_awaited_once_with(sandbox_id, force=True)
@@ -730,7 +734,7 @@ class TestManagerLocking:
         assert on_renewal_error_callback is not None
 
         # Act
-        await on_renewal_error_callback(sandbox_id)
+        await on_renewal_error_callback()
 
         # Assert
         self.mgr.delete_sandbox.assert_awaited_once_with(sandbox_id)

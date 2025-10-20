@@ -5,8 +5,9 @@ import tempfile
 import os
 import time
 import asyncio
+from functools import partial
 
-from src.sandbox.handle import SandboxHandle, GCSArtifact, GCSSandboxMetadata
+from src.sandbox.handle import SandboxHandle, GCSArtifact, GCSSandboxMetadata, _acquire_lock
 from src.sandbox.config import GCSConfig
 from src.sandbox.interface import SandboxCreationError, SandboxRestoreError
 from src.sandbox.lock.factory import LockFactory
@@ -300,16 +301,18 @@ class TestAttachPersistentFactory(unittest.IsolatedAsyncioTestCase):
         self.temp_dir.cleanup()
 
     async def test_attach_persistent_success(self):
+        mock_lock_factory = MagicMock(spec=LockFactory)
+        mock_lock_factory.create_lock.return_value = AsyncMock()
         handle = await SandboxHandle.attach_persistent(
             sandbox_id=self.sandbox_id,
             instance=self.mock_instance,
             gcs_config=self.gcs_config,
-            lock_factory=MagicMock(),
+            lock_factory=mock_lock_factory,
         )
 
         self.assertIsNotNone(handle.gcs_metadata)
         self.assertEqual(handle.idle_timeout, 450)
-        self.assertIsNone(handle.lock)
+        self.assertIsNotNone(handle.lock)
 
     async def test_attach_persistent_with_handoff_acquires_lock(self):
         self.valid_metadata["enable_sandbox_handoff"] = True
@@ -338,12 +341,14 @@ class TestAttachPersistentFactory(unittest.IsolatedAsyncioTestCase):
 
     async def test_attach_persistent_fails_if_metadata_not_found(self):
         os.remove(self.metadata_path)
+        mock_lock_factory = MagicMock(spec=LockFactory)
+        mock_lock_factory.create_lock.return_value = AsyncMock()
         with self.assertRaises(SandboxRestoreError):
             await SandboxHandle.attach_persistent(
                 sandbox_id=self.sandbox_id,
                 instance=self.mock_instance,
                 gcs_config=self.gcs_config,
-                lock_factory=MagicMock(),
+                lock_factory=mock_lock_factory,
             )
 
     async def test_attach_persistent_fails_if_server_lacks_capabilities(self):
@@ -351,12 +356,14 @@ class TestAttachPersistentFactory(unittest.IsolatedAsyncioTestCase):
             metadata_mount_path=self.temp_dir.name,
             metadata_bucket="my-metadata-bucket",
         )
+        mock_lock_factory = MagicMock(spec=LockFactory)
+        mock_lock_factory.create_lock.return_value = AsyncMock()
         with self.assertRaisesRegex(SandboxRestoreError, "requires checkpointing"):
             await SandboxHandle.attach_persistent(
                 sandbox_id=self.sandbox_id,
                 instance=self.mock_instance,
                 gcs_config=invalid_gcs_config,
-                lock_factory=MagicMock(),
+                lock_factory=mock_lock_factory,
             )
 
     async def test_attach_persistent_fails_on_bucket_mismatch(self):
@@ -366,12 +373,14 @@ class TestAttachPersistentFactory(unittest.IsolatedAsyncioTestCase):
             sandbox_checkpoint_mount_path=self.temp_dir.name,
             sandbox_checkpoint_bucket="a-DIFFERENT-bucket-name",
         )
+        mock_lock_factory = MagicMock(spec=LockFactory)
+        mock_lock_factory.create_lock.return_value = AsyncMock()
         with self.assertRaisesRegex(SandboxRestoreError, "Mismatched checkpoint bucket"):
             await SandboxHandle.attach_persistent(
                 sandbox_id=self.sandbox_id,
                 instance=self.mock_instance,
                 gcs_config=mismatched_gcs_config,
-                lock_factory=MagicMock(),
+                lock_factory=mock_lock_factory,
             )
 
 
@@ -385,7 +394,7 @@ class TestAttachPersistentFactory(unittest.IsolatedAsyncioTestCase):
         mock_lock_factory = MagicMock(spec=LockFactory)
         mock_lock_factory.create_lock.return_value = mock_lock
 
-        with self.assertRaises(SandboxRestoreError):
+        with self.assertRaises(LockContentionError):
             await SandboxHandle.attach_persistent(
                 sandbox_id=self.sandbox_id,
                 instance=self.mock_instance,
@@ -467,5 +476,40 @@ class TestSandboxHandlePathBuilders(unittest.TestCase):
         self.assertEqual(handle.metadata_path, "/mnt/gcs/meta/sandboxes/my-sandbox/metadata.json")
 
 
-if __name__ == '__main__':
-    unittest.main()
+
+class TestAcquireLockHelper(unittest.IsolatedAsyncioTestCase):
+    async def test_acquire_lock_callback_binding(self):
+        """
+        Tests that _acquire_lock correctly binds the sandbox_id to the callbacks.
+        """
+        mock_lock_factory = MagicMock(spec=LockFactory)
+        mock_lock = AsyncMock()
+        mock_lock_factory.create_lock.return_value = mock_lock
+
+        on_release_requested = AsyncMock()
+        on_renewal_error = AsyncMock()
+
+        sandbox_id = "test-sandbox"
+        await _acquire_lock(
+            lock_factory=mock_lock_factory,
+            sandbox_id=sandbox_id,
+            on_release_requested=on_release_requested,
+            on_renewal_error=on_renewal_error,
+        )
+
+        # Get the partial functions that were passed to create_lock
+        _, kwargs = mock_lock_factory.create_lock.call_args
+        release_callback = kwargs["on_release_requested"]
+        renewal_callback = kwargs["on_renewal_error"]
+
+        # Ensure they are partial functions
+        self.assertIsInstance(release_callback, partial)
+        self.assertIsInstance(renewal_callback, partial)
+
+        # Call the partials and assert that the original functions were called with the sandbox_id
+        await release_callback()
+        on_release_requested.assert_awaited_once_with(sandbox_id)
+
+        await renewal_callback()
+        on_renewal_error.assert_awaited_once_with(sandbox_id)
+

@@ -86,7 +86,8 @@ class FakeSandbox(SandboxInterface):
 
         logger.info(f"Fake sandbox {self.sandbox_id}: EXECUTING ({self._exec_count + 1}).")
 
-    def _is_running_exec(self) -> bool:
+    @property
+    def is_execution_running(self) -> bool:
         # In the fake sandbox, an execution is "running" if it has been started
         # but the stream_outputs() stream has not yet been fully consumed.
         return self._get_current_exec() is not None
@@ -95,7 +96,7 @@ class FakeSandbox(SandboxInterface):
         """
         Yields the configured output messages for the current execution.
         """
-        if not self._is_running_exec():
+        if not self.is_execution_running:
             raise SandboxStreamClosed()
 
         current_exec_config = self._get_current_exec()
@@ -142,7 +143,7 @@ class FakeSandbox(SandboxInterface):
         """
         if self._state != SandboxState.RUNNING:
             raise SandboxOperationError(f"Cannot checkpoint a sandbox that is not in the RUNNING state (current state: {self._state})")
-        if self._is_running_exec() and not force:
+        if self.is_execution_running and not force:
             raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
         if self._config.checkpoint_should_fail:
             raise SandboxOperationError("Fake sandbox failed to checkpoint as configured.")

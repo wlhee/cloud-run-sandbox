@@ -1,13 +1,17 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException
-from src.sandbox.manager import manager as sandbox_manager
+from src.sandbox.manager import SandboxManager
 from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxError
 from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 import logging
 from functools import partial
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# This will be replaced by the configured manager instance at startup
+manager: Optional[SandboxManager] = None
 
 class WebsocketHandler:
     def __init__(self, websocket: WebSocket):
@@ -46,19 +50,21 @@ class WebsocketHandler:
             init_message = await self.websocket.receive_json()
             idle_timeout = init_message.get("idle_timeout", 300)
             enable_checkpoint = init_message.get("enable_checkpoint", False)
+            enable_sandbox_handoff = init_message.get("enable_sandbox_handoff", False)
             filesystem_snapshot_name = init_message.get("filesystem_snapshot_name")
 
             await self.send_status(SandboxStateEvent.SANDBOX_CREATING)
 
-            if enable_checkpoint and not sandbox_manager.is_sandbox_checkpointing_enabled:
+            if enable_checkpoint and not manager.is_sandbox_checkpointing_enabled:
                 raise SandboxCreationError("Checkpointing is not enabled on the server.")
-            
-            if filesystem_snapshot_name and not sandbox_manager.is_filesystem_snapshotting_enabled:
+
+            if filesystem_snapshot_name and not manager.is_filesystem_snapshotting_enabled:
                 raise SandboxCreationError("Filesystem snapshot is not enabled on the server.")
 
-            self.sandbox = await sandbox_manager.create_sandbox(
+            self.sandbox = await manager.create_sandbox(
                 idle_timeout=idle_timeout,
                 enable_checkpoint=enable_checkpoint,
+                enable_sandbox_handoff=enable_sandbox_handoff,
                 filesystem_snapshot_name=filesystem_snapshot_name,
             )
             self.sandbox.is_attached = True
@@ -75,16 +81,17 @@ class WebsocketHandler:
     async def _setup_attach(self, sandbox_id: str):
         """Sets up the handler for an existing sandbox."""
         try:
-            sandbox = sandbox_manager.get_sandbox(sandbox_id)
-            if not sandbox and sandbox_manager.is_sandbox_checkpointing_enabled:
-                await self.send_status(SandboxStateEvent.SANDBOX_RESTORING)
-                sandbox = await sandbox_manager.restore_sandbox(sandbox_id)
-
+            sandbox = manager.get_sandbox(sandbox_id)
             if not sandbox:
-                await self.send_status(SandboxStateEvent.SANDBOX_NOT_FOUND)
-                await self.websocket.close(code=1011)
-                return False  # Indicates failure
-            
+                if manager.is_sandbox_checkpointing_enabled:
+                    await self.send_status(SandboxStateEvent.SANDBOX_RESTORING)
+                    sandbox = await manager.restore_sandbox(sandbox_id)
+                
+                if not sandbox:
+                    await self.send_status(SandboxStateEvent.SANDBOX_NOT_FOUND)
+                    await self.websocket.close(code=1011)
+                    return False  # Indicates failure
+
             if sandbox.is_attached:
                 await self.send_status(SandboxStateEvent.SANDBOX_IN_USE)
                 await self.websocket.close(code=1011)
@@ -136,7 +143,7 @@ class WebsocketHandler:
         """Handles a checkpoint request from the client."""
         try:
             await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTING)
-            await sandbox_manager.checkpoint_sandbox(self.sandbox.sandbox_id)
+            await manager.checkpoint_sandbox(self.sandbox.sandbox_id)
             await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
             await self.websocket.close(code=1000)
         except SandboxExecutionInProgressError as e:
@@ -149,12 +156,12 @@ class WebsocketHandler:
         """Handles a snapshot filesystem request from the client."""
         try:
             await self.send_status(SandboxStateEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATING)
-            if not sandbox_manager.is_filesystem_snapshotting_enabled:
+            if not manager.is_filesystem_snapshotting_enabled:
                 logger.error(f"Filesystem snapshot rejected for sandbox {self.sandbox.sandbox_id}: feature is not enabled on the server.")
                 raise SandboxOperationError("Filesystem snapshot is not enabled on the server.")
 
             snapshot_name = message['name']
-            await sandbox_manager.snapshot_filesystem(self.sandbox.sandbox_id, snapshot_name)
+            await manager.snapshot_filesystem(self.sandbox.sandbox_id, snapshot_name)
             await self.send_status(SandboxStateEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATED)
         except (SandboxOperationError, SandboxSnapshotFilesystemError) as e:
             e = SandboxSnapshotFilesystemError(f"Failed to snapshot filesystem for sandbox {self.sandbox.sandbox_id}: {e}")
