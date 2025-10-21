@@ -203,9 +203,10 @@ async def test_create_with_checkpoint_fails_if_not_configured(mock_create_instan
     with pytest.raises(SandboxCreationError, match="Checkpointing is not enabled on the server."):
         await mgr.create_sandbox(sandbox_id="test", enable_checkpoint=True)
 
+@patch('google.cloud.storage.Client')
 @patch('src.sandbox.handle.CheckpointVerifier')
 @patch('src.sandbox.factory.create_sandbox_instance')
-async def test_checkpoint_sandbox(mock_create_instance, mock_verifier_class, tmp_path):
+async def test_checkpoint_sandbox(mock_create_instance, mock_verifier_class, mock_storage_client, tmp_path):
     """
     Tests that checkpointing a sandbox calls the instance's checkpoint method,
     updates the metadata, and deletes the local instance.
@@ -414,9 +415,10 @@ async def test_restore_sandbox_starts_idle_timer(mock_create_instance, tmp_path)
     # Assert
     await asyncio.wait_for(delete_event.wait(), timeout=1)
     assert mgr.get_sandbox(sandbox_id) is None
+@patch('google.cloud.storage.Client')
 @patch('src.sandbox.handle.CheckpointVerifier')
 @patch('src.sandbox.factory.create_sandbox_instance')
-async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, mock_verifier_class, tmp_path):
+async def test_checkpoint_restore_checkpoint_restore(mock_create_instance, mock_verifier_class, mock_storage_client, tmp_path):
     """
     Tests the full lifecycle of checkpoint -> restore -> checkpoint -> restore
     to ensure multiple checkpoints are handled correctly.
@@ -706,9 +708,10 @@ class TestManagerLocking:
         assert len(self.mgr._ip_pool) == initial_ip_pool_size
         mock_lock.release.assert_awaited_once()
 
+    @patch('google.cloud.storage.Client')
     @patch('src.sandbox.handle.CheckpointVerifier')
     @patch('src.sandbox.factory.create_sandbox_instance')
-    async def test_on_release_requested_checkpoints_sandbox(self, mock_create_instance, mock_verifier_class):
+    async def test_on_release_requested_checkpoints_sandbox(self, mock_create_instance, mock_verifier_class, mock_storage_client):
         # Arrange
         mock_verifier_instance = mock_verifier_class.return_value
         mock_verifier_instance.verify = AsyncMock()

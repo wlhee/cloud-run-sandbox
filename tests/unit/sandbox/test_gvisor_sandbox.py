@@ -612,7 +612,10 @@ async def test_gvisor_sandbox_force_checkpoint_while_running():
     Tests that a forced checkpoint terminates a running execution.
     """
     sandbox_id = "gvisor-test-force-checkpoint"
-    sandbox = create_sandbox_instance(sandbox_id)
+    config = make_sandbox_config()
+    config.network = "sandbox"
+    config.ip_address = _allocate_ip_address()
+    sandbox = create_sandbox_instance(sandbox_id, config=config)
     checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
 
     try:

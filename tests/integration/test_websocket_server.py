@@ -216,6 +216,8 @@ async def test_websocket_checkpoint_and_restore_success(tmp_path):
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETED"}
 
     # 4. Attach to the sandbox, which should trigger a restore
     with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
@@ -250,6 +252,8 @@ async def test_websocket_multi_checkpoint_and_restore():
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETED"}
 
     # 4. First restore and verify
     with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
@@ -269,6 +273,8 @@ async def test_websocket_multi_checkpoint_and_restore():
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETED"}
 
     # 7. Second restore and verify
     with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
