@@ -10,10 +10,11 @@ from functools import partial
 from google.cloud import storage
 
 from .config import GCSConfig
-from .interface import SandboxCreationError, SandboxRestoreError, SandboxOperationError, SandboxNotFoundError, SandboxCheckpointError
+from .interface import SandboxCreationError, SandboxRestoreError, SandboxOperationError, SandboxNotFoundError, SandboxCheckpointError, StatusNotifier
 from .lock.interface import LockInterface, LockContentionError, LockTimeoutError, LockError
 from .lock.factory import LockFactory
 from .verifier import CheckpointVerifier
+from .types import SandboxStateEvent
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ class SandboxHandle:
             delete_callback: Optional[Callable[[str], None]] = None,
             ip_address: Optional[str] = None,
             lock: Optional[LockInterface] = None,
+            status_notifier: Optional[StatusNotifier] = None,
             **kwargs):
         """
         Basic constructor for a SandboxHandle. Should not be called directly.
@@ -125,6 +127,7 @@ class SandboxHandle:
         self.last_activity = time.time()
         self.lock = lock
         self._checkpoint_id: Optional[str] = None
+        self.status_notifier = status_notifier
 
     @classmethod
     def create_ephemeral(
@@ -160,6 +163,7 @@ class SandboxHandle:
         enable_sandbox_handoff: bool = False,
         on_release_requested: Optional[Callable[[str], Awaitable[None]]] = None,
         on_renewal_error: Optional[Callable[[str], Awaitable[None]]] = None,
+        status_notifier: Optional[StatusNotifier] = None,
         **kwargs
     ) -> 'SandboxHandle':
         """
@@ -193,17 +197,21 @@ class SandboxHandle:
         lock = None
         if enable_sandbox_handoff:
             try:
+                if status_notifier:
+                    await status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_ACUIRING)
                 lock = await _acquire_lock(
                     lock_factory,
                     sandbox_id,
                     on_release_requested=on_release_requested,
                     on_renewal_error=on_renewal_error,
                 )
+                if status_notifier:
+                    await status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_ACQUIRED)
             except LockError as e:
                 raise SandboxCreationError(f"Failed to acquire lock for sandbox {sandbox_id}") from e
 
         # 4. Instantiate Handle
-        handle = cls(sandbox_id, instance, idle_timeout, gcs_config=gcs_config, delete_callback=delete_callback, ip_address=ip_address, lock=lock, **kwargs)
+        handle = cls(sandbox_id, instance, idle_timeout, gcs_config=gcs_config, delete_callback=delete_callback, ip_address=ip_address, lock=lock, status_notifier=status_notifier, **kwargs)
 
         # 5. Create and Write Metadata
         handle.gcs_metadata = GCSSandboxMetadata(
@@ -247,6 +255,7 @@ class SandboxHandle:
         ip_address: Optional[str] = None,
         on_release_requested: Optional[Callable[[str], Awaitable[None]]] = None,
         on_renewal_error: Optional[Callable[[str], Awaitable[None]]] = None,
+        status_notifier: Optional[StatusNotifier] = None,
         **kwargs
     ) -> 'SandboxHandle':
         """
@@ -259,12 +268,16 @@ class SandboxHandle:
         metadata = cls._read_metadata_from_gcs(gcs_config, sandbox_id)
         lock = None
         if metadata.enable_sandbox_handoff:
+            if status_notifier:
+                await status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_ACUIRING)
             lock = await _acquire_lock(
                 lock_factory,
                 sandbox_id,
                 on_release_requested=on_release_requested,
                 on_renewal_error=on_renewal_error,
             )
+            if status_notifier:
+                await status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_ACQUIRED)
             # Re-read metadata after acquiring lock to get the latest state
             metadata = cls._read_metadata_from_gcs(gcs_config, sandbox_id)
 
@@ -289,6 +302,7 @@ class SandboxHandle:
             delete_callback=delete_callback,
             ip_address=ip_address,
             lock=lock,
+            status_notifier=status_notifier,
             **kwargs
         )
         # Overwrite the gcs_metadata that the constructor might have created

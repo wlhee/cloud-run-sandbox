@@ -11,8 +11,9 @@ import json
 
 from .handle import SandboxHandle
 from .config import GCSConfig
-from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxExecutionInProgressError, SandboxCheckpointError, SandboxNotFoundError
+from .interface import SandboxCreationError, SandboxOperationError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxExecutionInProgressError, SandboxCheckpointError, SandboxNotFoundError, StatusNotifier
 from .lock.factory import LockFactory
+from .types import SandboxStateEvent
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,7 @@ class SandboxManager:
         enable_checkpoint: bool = False,
         filesystem_snapshot_name: str = None,
         enable_sandbox_handoff: bool = False,
+        status_notifier: Optional[StatusNotifier] = None,
     ):
         """
         Creates and initializes a new sandbox instance using the factory.
@@ -135,6 +137,7 @@ class SandboxManager:
                     enable_sandbox_handoff=enable_sandbox_handoff,
                     on_release_requested=self._on_release_requested,
                     on_renewal_error=self._on_renewal_error,
+                    status_notifier=status_notifier,
                 )
             else:
                 handle = SandboxHandle.create_ephemeral(
@@ -160,7 +163,11 @@ class SandboxManager:
                     self._ip_pool.add(ip_address)
                     del self._ip_allocations[sandbox_id]
                 if handle and handle.lock:
+                    if handle.status_notifier:
+                        await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RELEASING)
                     await handle.lock.release()
+                    if handle.status_notifier:
+                        await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RELEASED)
 
     def get_sandbox(self, sandbox_id):
         """
@@ -174,7 +181,12 @@ class SandboxManager:
             return handle.instance
         return None
 
-    async def restore_sandbox(self, sandbox_id: str, delete_callback: Optional[Callable[[str], None]] = None):
+    async def restore_sandbox(
+            self,
+            sandbox_id: str,
+            delete_callback: Optional[Callable[[str], None]] = None,
+            status_notifier: Optional[StatusNotifier] = None,
+        ):
         """
         Restores a sandbox from its checkpoint on the persistence volume.
         Returns None if no checkpoint is found.
@@ -197,6 +209,7 @@ class SandboxManager:
                 delete_callback=delete_callback,
                 on_release_requested=self._on_release_requested,
                 on_renewal_error=self._on_renewal_error,
+                status_notifier=status_notifier,
             )
 
             config = factory.make_sandbox_config()
@@ -293,8 +306,6 @@ class SandboxManager:
         await handle.instance.snapshot_filesystem(snapshot_path)
         logger.info(f"Sandbox {sandbox_id} filesystem snapshotted to {snapshot_path}")
 
-
-
     async def delete_sandbox(self, sandbox_id: str):
         """
         Deletes a sandbox and removes it from the manager.
@@ -302,6 +313,8 @@ class SandboxManager:
         logger.info(f"Sandbox manager deleting sandbox {sandbox_id}...")
         handle = self._sandboxes.pop(sandbox_id, None)
         if handle:
+            if handle.status_notifier:
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_DELETING)
             await handle.instance.delete()
             
             if handle.lock:
@@ -314,6 +327,9 @@ class SandboxManager:
 
             if handle.delete_callback:
                 handle.delete_callback(sandbox_id)
+            
+            if handle.status_notifier:
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_DELETED)
 
             logger.info(f"Sandbox manager deleted {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
 
@@ -344,11 +360,17 @@ class SandboxManager:
     async def _on_release_requested(self, sandbox_id: str):
         """Callback for when another process wants to take over the sandbox."""
         logger.warning(f"Lock release requested for sandbox {sandbox_id}. Checkpointing and shutting down.")
+        handle = self._sandboxes.get(sandbox_id)
+        if handle and handle.status_notifier:
+            await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RELEASE_REQUESTED) 
         await self.checkpoint_sandbox(sandbox_id, force=True)
 
     async def _on_renewal_error(self, sandbox_id: str):
         """Callback for when the lock renewal fails."""
         logger.error(f"Lock renewal failed for sandbox {sandbox_id}. Shutting down.")
+        handle = self._sandboxes.get(sandbox_id)
+        if handle and handle.status_notifier:
+            await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RENEWAL_ERROR)
         await self.delete_sandbox(sandbox_id)
 
 # Create a placeholder for the single, global instance of the manager.

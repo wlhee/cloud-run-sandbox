@@ -1,6 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException
 from src.sandbox.manager import SandboxManager
-from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxError
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxError, StatusNotifier
 from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 import logging
@@ -13,11 +13,27 @@ router = APIRouter()
 # This will be replaced by the configured manager instance at startup
 manager: Optional[SandboxManager] = None
 
+
+class WebSocketStatusNotifier(StatusNotifier):
+    """
+    An implementation of the StatusNotifier that sends status updates over a WebSocket.
+    """
+    def __init__(self, websocket: WebSocket):
+        self._websocket = websocket
+
+    async def send_status(self, status: SandboxStateEvent):
+        """Sends a status event to the client."""
+        try:
+            await self._websocket.send_json({"event": "status_update", "status": status.value})
+        except Exception as e:
+            logger.warning(f"Failed to send status update to client: {e}")
+
 class WebsocketHandler:
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
         self.sandbox = None
         self.active_tasks = set()
+        self.status_notifier = WebSocketStatusNotifier(websocket)
 
     async def _websocket_lifecycle(self, setup_coro):
         """
@@ -66,6 +82,7 @@ class WebsocketHandler:
                 enable_checkpoint=enable_checkpoint,
                 enable_sandbox_handoff=enable_sandbox_handoff,
                 filesystem_snapshot_name=filesystem_snapshot_name,
+                status_notifier=self.status_notifier
             )
             self.sandbox.is_attached = True
             await self.websocket.send_json({"event": "sandbox_id", "sandbox_id": self.sandbox.sandbox_id})
@@ -85,7 +102,7 @@ class WebsocketHandler:
             if not sandbox:
                 if manager.is_sandbox_checkpointing_enabled:
                     await self.send_status(SandboxStateEvent.SANDBOX_RESTORING)
-                    sandbox = await manager.restore_sandbox(sandbox_id)
+                    sandbox = await manager.restore_sandbox(sandbox_id, status_notifier=self.status_notifier)
                 
                 if not sandbox:
                     await self.send_status(SandboxStateEvent.SANDBOX_NOT_FOUND)

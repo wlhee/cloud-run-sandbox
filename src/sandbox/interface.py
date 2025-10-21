@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from .types import SandboxOutputEvent, CodeLanguage
+from .types import SandboxOutputEvent, CodeLanguage, SandboxStateEvent
 
 class SandboxState(str, Enum):
     """Represents the lifecycle state of a sandbox."""
@@ -49,6 +49,15 @@ class SandboxExecutionError(SandboxOperationError):
 class SandboxStreamClosed(SandboxError):
     """Raised by the stream_outputs() generator when the output stream is closed."""
     pass
+
+class StatusNotifier(ABC):
+    """
+    An interface for sending status updates from the sandbox back to the client.
+    """
+    @abstractmethod
+    async def send_status(self, status: SandboxStateEvent):
+        """Sends a status event to the client."""
+        pass
 
 class SandboxInterface(ABC):
     """Defines the interface for all sandbox implementations."""

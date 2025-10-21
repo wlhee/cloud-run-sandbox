@@ -7,7 +7,7 @@ from src.sandbox.types import SandboxOutputEvent, OutputType, CodeLanguage, Sand
 from src.sandbox.config import GCSConfig
 from src.handlers import websocket
 from src.sandbox.manager import SandboxManager
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock, MagicMock
 from starlette.websockets import WebSocketDisconnect
 import asyncio
 
@@ -76,7 +76,7 @@ async def test_create_interactive_session_success(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
     # Assert that the sandbox was created with the correct idle timeout
-    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False, enable_sandbox_handoff=False, filesystem_snapshot_name=None)
+    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False, enable_sandbox_handoff=False, filesystem_snapshot_name=None, status_notifier=None)
 
 @pytest.mark.asyncio
 @patch('src.sandbox.manager.SandboxManager.create_sandbox')
@@ -101,7 +101,8 @@ async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
         idle_timeout=300,
         enable_checkpoint=False,
         enable_sandbox_handoff=False,
-        filesystem_snapshot_name="my-snapshot"
+        filesystem_snapshot_name="my-snapshot",
+        status_notifier=None,
     )
 
 
@@ -128,7 +129,8 @@ async def test_create_sandbox_with_handoff(mock_create_sandbox):
         idle_timeout=300,
         enable_checkpoint=False,
         enable_sandbox_handoff=True,
-        filesystem_snapshot_name=None
+        filesystem_snapshot_name=None,
+        status_notifier=None,
     )
 
 
@@ -548,3 +550,23 @@ async def test_snapshot_filesystem_error(mock_create_sandbox, mock_snapshot_file
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_CREATING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_ERROR"}
         assert websocket.receive_json() == {"event": "error", "message": "Failed to snapshot filesystem for sandbox test-sandbox: Snapshot failed"}
+
+@pytest.mark.asyncio
+async def test_websocket_status_notifier():
+    """
+    Tests that the WebSocketStatusNotifier correctly sends a status update.
+    """
+    # Arrange
+    mock_websocket = MagicMock()
+    mock_websocket.send_json = AsyncMock()
+    
+    notifier = websocket.WebSocketStatusNotifier(mock_websocket)
+    
+    # Act
+    await notifier.send_status(SandboxStateEvent.SANDBOX_RUNNING)
+    
+    # Assert
+    mock_websocket.send_json.assert_awaited_once_with({
+        "event": "status_update",
+        "status": "SANDBOX_RUNNING"
+    })

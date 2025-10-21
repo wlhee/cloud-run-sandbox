@@ -1,0 +1,35 @@
+$ CLOUD_RUN_URL="wss://sandbox-handoff-123456.us-central1.run.app" CLOUD_RUN_URL_HANDOFF="wss://sandbox-handoff-123456.us-central1.run.app" npx ts-node example/handoff.ts
+--- Sandbox Handoff Example ---
+Using URL A: wss://sandbox-handoff-123456.us-central1.run.app
+Using URL B (Handoff): wss://sandbox-handoff-123456.us-central1.run.app
+
+--- Step 1: Creating Sandbox A ---
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_CREATING' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_ACQUIRING' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_ACQUIRED' }
+[SandboxA] [DEBUG] Received message: { event: 'sandbox_id', sandbox_id: 'sandbox-093e' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_RUNNING' }
+[SandboxA] Created with ID: sandbox-093e
+[SandboxA] Starting a long-running process...
+[SandboxA] stdout: Process A running...
+
+--- Step 2: Attaching as Sandbox B to trigger handoff ---
+[SandboxB] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_RESTORING' }
+[SandboxB] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_ACQUIRING' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_RELEASE_REQUESTED' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_DELETING' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_DELETED' }
+[SandboxB] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_ACQUIRED' }
+[SandboxB] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_RUNNING' }
+[SandboxB] Successfully attached to sandbox sandbox-093e. Handoff complete.
+
+--- Step 3: Verifying Sandbox B is operational ---
+[SandboxB] stdout: Hello from Sandbox B!
+[SandboxB] Execution finished.
+
+✅ Handoff successful!
+[SandboxA] Terminated.
+[SandboxB] Terminated.
+[SandboxB] [DEBUG] Connection closed: code=1005, reason=
+[SandboxA] [DEBUG] Connection closed: code=1005, reason=
+[SandboxA] Connection closed with code: 1005. This is expected during handoff.
