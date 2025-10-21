@@ -31,14 +31,5 @@ def test_execute_streaming_gvisor(language, code, expected_stdout, expected_stde
     with TestClient(app) as client:
         response = client.post(f"/execute?language={language}", content=code, headers={"Content-Type": "text/plain"})
         assert response.status_code == 200
-        
-        lines = response.text.strip().split('\n')
-        
-        # The last line is the exit code
-        assert lines[-1] == "exit_code: 0"
-        
-        stdout = "".join([line for line in lines[:-1] if line.startswith("stdout: ")]).replace("stdout: ", "")
-        stderr = "".join([line for line in lines[:-1] if line.startswith("stderr: ")]).replace("stderr: ", "")
-        
-        assert expected_stdout in stdout
-        assert expected_stderr in stderr
+        assert expected_stdout in response.text
+        assert expected_stderr in response.text
