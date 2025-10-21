@@ -272,8 +272,6 @@ class SandboxManager:
 
         try:
             checkpoint_path = handle.sandbox_checkpoint_dir_path()
-            if handle.status_notifier:
-                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTING)
             await handle.instance.checkpoint(checkpoint_path, force=force)
 
             # Verify that the checkpoint has been fully persisted to GCS.
@@ -281,8 +279,6 @@ class SandboxManager:
 
             # The handle is now responsible for updating its own metadata
             handle.update_latest_checkpoint()
-            if handle.status_notifier:
-                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
             logger.info(f"Sandbox {sandbox_id} checkpointed to {checkpoint_path}")
             # After checkpointing, the local instance is no longer valid.
             await self.delete_sandbox(sandbox_id)
@@ -366,7 +362,14 @@ class SandboxManager:
         handle = self._sandboxes.get(sandbox_id)
         if handle and handle.status_notifier:
             await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RELEASE_REQUESTED) 
-        await self.checkpoint_sandbox(sandbox_id, force=True)
+            await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTING)
+        try:
+            await self.checkpoint_sandbox(sandbox_id, force=True)
+        except Exception as e:
+            await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR)
+            raise
+        finally:
+            await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
 
     async def _on_renewal_error(self, sandbox_id: str):
         """Callback for when the lock renewal fails."""
