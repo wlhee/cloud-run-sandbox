@@ -7,9 +7,9 @@ Using URL B (Handoff): wss://sandbox-handoff-123456.us-central1.run.app
 [SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_CREATING' }
 [SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_ACQUIRING' }
 [SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_ACQUIRED' }
-[SandboxA] [DEBUG] Received message: { event: 'sandbox_id', sandbox_id: 'sandbox-093e' }
+[SandboxA] [DEBUG] Received message: { event: 'sandbox_id', sandbox_id: 'sandbox-e76d' }
 [SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_RUNNING' }
-[SandboxA] Created with ID: sandbox-093e
+[SandboxA] Created with ID: sandbox-e76d
 [SandboxA] Starting a long-running process...
 [SandboxA] stdout: Process A running...
 
@@ -17,11 +17,15 @@ Using URL B (Handoff): wss://sandbox-handoff-123456.us-central1.run.app
 [SandboxB] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_RESTORING' }
 [SandboxB] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_ACQUIRING' }
 [SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_RELEASE_REQUESTED' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }
 [SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_DELETING' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_RELEASING' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_RELEASED' }
 [SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_DELETED' }
+[SandboxA] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_CHECKPOINTED' }
 [SandboxB] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_LOCK_ACQUIRED' }
 [SandboxB] [DEBUG] Received message: { event: 'status_update', status: 'SANDBOX_RUNNING' }
-[SandboxB] Successfully attached to sandbox sandbox-093e. Handoff complete.
+[SandboxB] Successfully attached to sandbox sandbox-e76d. Handoff complete.
 
 --- Step 3: Verifying Sandbox B is operational ---
 [SandboxB] stdout: Hello from Sandbox B!
@@ -30,6 +34,6 @@ Using URL B (Handoff): wss://sandbox-handoff-123456.us-central1.run.app
 ✅ Handoff successful!
 [SandboxA] Terminated.
 [SandboxB] Terminated.
-[SandboxB] [DEBUG] Connection closed: code=1005, reason=
-[SandboxA] [DEBUG] Connection closed: code=1005, reason=
-[SandboxA] Connection closed with code: 1005. This is expected during handoff.
+[SandboxB] [DEBUG] Connection closed: code=1006, reason=
+[SandboxA] [DEBUG] Connection closed: code=1006, reason=
+[SandboxA] Connection closed with code: 1006. This is expected during handoff.
