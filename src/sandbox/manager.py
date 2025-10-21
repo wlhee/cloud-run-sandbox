@@ -163,11 +163,7 @@ class SandboxManager:
                     self._ip_pool.add(ip_address)
                     del self._ip_allocations[sandbox_id]
                 if handle and handle.lock:
-                    if handle.status_notifier:
-                        await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RELEASING)
-                    await handle.lock.release()
-                    if handle.status_notifier:
-                        await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RELEASED)
+                    await handle.release_lock()
 
     def get_sandbox(self, sandbox_id):
         """
@@ -248,7 +244,7 @@ class SandboxManager:
                     self._ip_pool.add(ip_address)
                     del self._ip_allocations[sandbox_id]
                 if handle and handle.lock:
-                    await handle.lock.release()
+                    await handle.release_lock()
 
     def reset_idle_timer(self, sandbox_id: str):
         """
@@ -318,7 +314,7 @@ class SandboxManager:
             await handle.instance.delete()
             
             if handle.lock:
-                await handle.lock.release()
+                await handle.release_lock()
 
             # Release the IP address back to the pool.
             if handle.ip_address:

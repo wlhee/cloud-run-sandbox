@@ -355,6 +355,8 @@ async def test_websocket_restore_failure(tmp_path):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETING"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETED"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
 
     # 2. Corrupt the checkpoint by deleting the checkpoint directory

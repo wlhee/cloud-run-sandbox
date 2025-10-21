@@ -327,6 +327,16 @@ class SandboxHandle:
                 json.dump(asdict(self.gcs_metadata), f, indent=2)
         except (IOError, TypeError) as e:
             raise SandboxOperationError(f"Failed to write metadata for sandbox {self.sandbox_id}: {e}")
+        
+    async def release_lock(self):
+        """Releases the sandbox lock, if held."""
+        if self.lock:
+            if self.status_notifier:
+                await self.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RELEASING)
+            await self.lock.release()
+            if self.status_notifier:
+                await self.status_notifier.send_status(SandboxStateEvent.SANDBOX_LOCK_RELEASED)
+            self.lock = None
 
     @property
     def is_sandbox_checkpointable(self) -> bool:
