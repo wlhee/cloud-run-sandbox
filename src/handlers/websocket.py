@@ -159,9 +159,7 @@ class WebsocketHandler:
     async def handle_checkpoint(self):
         """Handles a checkpoint request from the client."""
         try:
-            await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTING)
             await manager.checkpoint_sandbox(self.sandbox.sandbox_id)
-            await self.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
             await self.websocket.close(code=1000)
         except SandboxExecutionInProgressError as e:
             await self.handle_error(e, close_connection=False)

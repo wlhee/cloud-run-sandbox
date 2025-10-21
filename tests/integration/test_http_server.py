@@ -29,7 +29,7 @@ def test_execute_streaming_gvisor(language, code, expected_stdout, expected_stde
     This is an integration test that requires 'runsc' to be in the PATH.
     """
     with TestClient(app) as client:
-        response = client.post(f"/execute?language={language}", content=code)
+        response = client.post(f"/execute?language={language}", content=code, headers={"Content-Type": "text/plain"})
         assert response.status_code == 200
         
         lines = response.text.strip().split('\n')

@@ -94,9 +94,9 @@ async def execute_code_streaming(language: CodeLanguage, code: str, background_t
 
 router = APIRouter()
 
-@router.get("/status", response_class=PlainTextResponse)
+@router.get("/status")
 async def get_status():
-    return PlainTextResponse("Server is running")
+    return {"status": "ok"}
 
 @router.get("/list")
 async def list_all_containers():
