@@ -166,6 +166,7 @@ class WebsocketHandler:
         except SandboxExecutionInProgressError as e:
             await self.handle_error(e, close_connection=False)
         except Exception as e:
+            logger.error(f"Checkpoint failed for sandbox {self.sandbox.sandbox_id}", exc_info=e)
             e = SandboxCheckpointError(f"Failed to checkpoint sandbox {self.sandbox.sandbox_id}: {e}")
             await self.handle_error(e, close_connection=True)
 

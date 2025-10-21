@@ -366,10 +366,12 @@ class SandboxManager:
         try:
             await self.checkpoint_sandbox(sandbox_id, force=True)
         except Exception as e:
-            await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR)
+            if handle and handle.status_notifier:
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINT_ERROR)
             raise
         finally:
-            await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
+            if handle and handle.status_notifier:
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
 
     async def _on_renewal_error(self, sandbox_id: str):
         """Callback for when the lock renewal fails."""

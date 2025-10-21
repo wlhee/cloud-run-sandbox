@@ -35,7 +35,7 @@ jobs:
       env:
         RUNSC_IGNORE_CGROUPS: 'true'
       run: |
-        sudo $(which python) -u -m pytest -vv -s -rA tests/
+        sudo $(which python) -u -m pytest --log-cli-level=INFO -vv -s -rA tests/
 
     - name: Run Python Client Tests
       run: |
