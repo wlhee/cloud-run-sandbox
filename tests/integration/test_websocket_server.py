@@ -215,9 +215,10 @@ async def test_websocket_checkpoint_and_restore_success(tmp_path):
         # 3. Checkpoint the sandbox
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_DELETED"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
+
 
     # 4. Attach to the sandbox, which should trigger a restore
     with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
@@ -338,6 +339,7 @@ async def test_websocket_create_from_filesystem_snapshot_not_found():
         with pytest.raises(WebSocketDisconnect) as e:
             websocket.receive_json()
         assert e.value.code == 4000
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_websocket_restore_failure(tmp_path):

@@ -52,6 +52,8 @@ async function main() {
     console.log('\n--- Step 1: Creating Sandbox ---');
     sandbox = await Sandbox.create(urlCheckpoint, {
       enableSandboxCheckpoint: true,
+      enableDebug: true,
+      debugLabel: 'SandboxA',
     });
     sandboxId = sandbox.sandboxId;
     console.log(`Successfully created sandbox with ID: ${sandboxId}`);
@@ -74,7 +76,10 @@ async function main() {
 
     // 4. Attach to the checkpointed sandbox
     console.log(`\nAttaching to sandbox ${sandboxId}...`);
-    sandbox = await Sandbox.attach(urlRestore, sandboxId!);
+    sandbox = await Sandbox.attach(urlRestore, sandboxId!, {
+        enableDebug: true,
+        debugLabel: 'SandboxB',
+    });
     console.log("Successfully attached to the restored sandbox.");
 
     // 5. Verify the state by reading the file
