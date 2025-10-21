@@ -218,6 +218,24 @@ class SandboxHandle:
         # 6. Return Handle
         return handle
 
+    @staticmethod
+    def _read_metadata_from_gcs(gcs_config: GCSConfig, sandbox_id: str) -> GCSSandboxMetadata:
+        """Reads and parses the metadata.json file from the local GCS mount."""
+        metadata_path = SandboxHandle.build_metadata_path(gcs_config, sandbox_id)
+        try:
+            with open(metadata_path, "r") as f:
+                data = json.load(f)
+            print(data)
+            checkpoint_data = data.get("latest_sandbox_checkpoint")
+            if checkpoint_data:
+                data["latest_sandbox_checkpoint"] = GCSArtifact(**checkpoint_data)
+            
+            return GCSSandboxMetadata(**data)
+        except FileNotFoundError:
+            raise SandboxNotFoundError(f"Metadata file not found for sandbox {sandbox_id} at {metadata_path}")
+        except (json.JSONDecodeError, TypeError) as e:
+            raise SandboxRestoreError(f"Failed to parse or validate metadata for sandbox {sandbox_id}: {e}")
+
     @classmethod
     async def attach_persistent(
         cls: Type['SandboxHandle'],
@@ -238,28 +256,17 @@ class SandboxHandle:
         It reads the metadata.json, validates its contents against the current
         server configuration, and returns a fully initialized handle.
         """
-        lock = await _acquire_lock(
-            lock_factory,
-            sandbox_id,
-            on_release_requested=on_release_requested,
-            on_renewal_error=on_renewal_error,
-        )
-
-        metadata_path = cls.build_metadata_path(gcs_config, sandbox_id)
-        
-        try:
-            with open(metadata_path, "r") as f:
-                data = json.load(f)
-            
-            checkpoint_data = data.get("latest_sandbox_checkpoint")
-            if checkpoint_data:
-                data["latest_sandbox_checkpoint"] = GCSArtifact(**checkpoint_data)
-            
-            metadata = GCSSandboxMetadata(**data)
-        except FileNotFoundError:
-            raise SandboxNotFoundError(f"Metadata file not found for sandbox {sandbox_id} at {metadata_path}")
-        except (json.JSONDecodeError, TypeError) as e:
-            raise SandboxRestoreError(f"Failed to parse or validate metadata for sandbox {sandbox_id}: {e}")
+        metadata = cls._read_metadata_from_gcs(gcs_config, sandbox_id)
+        lock = None
+        if metadata.enable_sandbox_handoff:
+            lock = await _acquire_lock(
+                lock_factory,
+                sandbox_id,
+                on_release_requested=on_release_requested,
+                on_renewal_error=on_renewal_error,
+            )
+            # Re-read metadata after acquiring lock to get the latest state
+            metadata = cls._read_metadata_from_gcs(gcs_config, sandbox_id)
 
         # --- Validation ---
         if metadata.enable_sandbox_checkpoint and not gcs_config.sandbox_checkpoint_mount_path:

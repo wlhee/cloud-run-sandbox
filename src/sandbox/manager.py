@@ -214,10 +214,8 @@ class SandboxManager:
             handle.instance = sandbox_instance
             
             checkpoint_path = handle.latest_checkpoint_path
-            logger.info("Restoring from checkpoint path:", checkpoint_path)
             if not checkpoint_path or not os.path.exists(checkpoint_path):
                 raise SandboxRestoreError(f"Latest checkpoint not found for sandbox {sandbox_id}")
-
             logger.info(f"Restoring sandbox {sandbox_id} from {checkpoint_path}")
             
             try:

@@ -76,8 +76,8 @@ gcloud run deploy sandbox --source . \
   --allow-unauthenticated \
   --execution-environment=gen2 \
   --concurrency=1 \
-  --add-volume=name=gcs-volume,type=cloud-storage,bucket=${BUCKET_NAME} \
-  --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs \
+  --add-volume=name=gcs-volume,type=cloud-storage,mount-options="metadata-cache-ttl-secs=0",bucket=${BUCKET_NAME} \
+  --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs\
   --set-env-vars='SANDBOX_METADATA_MOUNT_PATH=/mnt/gcs' \
   --set-env-vars='SANDBOX_METADATA_BUCKET=${BUCKET_NAME}' \
   --set-env-vars='SANDBOX_CHECKPOINT_MOUNT_PATH=/mnt/gcs' \
@@ -129,7 +129,7 @@ gcloud run deploy sandbox --source . \
   --allow-unauthenticated \
   --execution-environment=gen2 \
   --concurrency=1 \
-  --add-volume=name=gcs-volume,type=cloud-storage,bucket=${BUCKET_NAME} \
+  --add-volume=name=gcs-volume,type=cloud-storage,mount-options="metadata-cache-ttl-secs=0",bucket=${BUCKET_NAME} \
   --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs \
   --set-env-vars='FILESYSTEM_SNAPSHOT_MOUNT_PATH=/mnt/gcs' \
   --set-env-vars='FILESYSTEM_SNAPSHOT_BUCKET=${BUCKET_NAME}'

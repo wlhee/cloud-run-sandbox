@@ -75,15 +75,18 @@ def test_server_sigterm_shutdown_deletes_sandboxes():
             os.remove(signal_file_path)
 
 @pytest.mark.asyncio
-@patch('src.server.sandbox_manager.delete_all_sandboxes', new_callable=AsyncMock)
-async def test_lifespan_shutdown_hook(mock_delete_all):
+@patch('src.server.SandboxManager', autospec=True)
+async def test_lifespan_shutdown_hook(MockSandboxManager):
     """
     Directly tests that the lifespan shutdown hook correctly calls the sandbox
     manager. This verifies the application logic without a full server process.
     """
+    mock_manager_instance = MockSandboxManager.return_value
+    mock_manager_instance.delete_all_sandboxes = AsyncMock()
+
     async with lifespan(app):
         # Simulate the app running
-        mock_delete_all.assert_not_awaited()
+        mock_manager_instance.delete_all_sandboxes.assert_not_awaited()
 
     # When the context exits, the shutdown hook should be called.
-    mock_delete_all.assert_awaited_once()
+    mock_manager_instance.delete_all_sandboxes.assert_awaited_once()

@@ -312,7 +312,7 @@ class TestAttachPersistentFactory(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(handle.gcs_metadata)
         self.assertEqual(handle.idle_timeout, 450)
-        self.assertIsNotNone(handle.lock)
+        self.assertIsNone(handle.lock)
 
     async def test_attach_persistent_with_handoff_acquires_lock(self):
         self.valid_metadata["enable_sandbox_handoff"] = True

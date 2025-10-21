@@ -13,6 +13,14 @@ For the checkpoint and restore feature to be available, the server must be start
 
 Both of these variables are required. If either is not set, the server will reject any client requests to enable checkpointing and will not attempt to restore sandboxes from disk.
 
+### Disabling Metadata Caching
+
+When deploying the service with a GCS volume mount, it is critical to disable metadata caching to ensure consistency and prevent race conditions in a multi-instance environment. This is achieved by adding the following option to the volume mount configuration:
+
+`--add-volume=...,mount-options="metadata-cache-ttl-secs=0s"`
+
+The GCS FUSE layer caches file metadata by default. In a distributed system like Cloud Run, this can lead to severe issues where one server instance sees stale information about the state of a lock file or the latest checkpoint created by another instance. Disabling the cache ensures that every file operation directly queries GCS, guaranteeing that each server instance has an up-to-date view of the shared state. Without this setting, sandbox handoff and restore operations may fail intermittently and unpredictably.
+
 ## Filesystem Structure
 
 When checkpointing is enabled for a sandbox, the following directory structure is created within the path specified by the `SANDBOX_CHECKPOINT_MOUNT_PATH` environment variable:
