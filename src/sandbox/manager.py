@@ -274,8 +274,9 @@ class SandboxManager:
             checkpoint_path = handle.sandbox_checkpoint_dir_path()
             await handle.instance.checkpoint(checkpoint_path, force=force)
 
-            # Verify that the checkpoint has been fully persisted to GCS.
-            await handle.verify_checkpoint_persisted()
+            # Verify that the checkpoint has been fully persisted to GCS if handoff is enabled.
+            if handle.is_sandbox_handoff_enabled:
+                await handle.verify_checkpoint_persisted()
 
             # The handle is now responsible for updating its own metadata
             handle.update_latest_checkpoint()

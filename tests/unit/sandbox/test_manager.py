@@ -226,7 +226,12 @@ async def test_checkpoint_sandbox(mock_create_instance, mock_verifier_class, moc
     mock_lock_factory = MagicMock(spec=LockFactory)
     mock_lock_factory.create_lock.return_value = AsyncMock()
     mgr = SandboxManager(gcs_config=gcs_config, lock_factory=mock_lock_factory)
-    await mgr.create_sandbox(sandbox_id="checkpoint-sandbox", enable_checkpoint=True, idle_timeout=300)
+    await mgr.create_sandbox(
+        sandbox_id="checkpoint-sandbox",
+        enable_checkpoint=True,
+        enable_sandbox_handoff=True,
+        idle_timeout=300
+    )
     
     # Act
     await mgr.checkpoint_sandbox("checkpoint-sandbox")
@@ -793,12 +798,20 @@ async def test_checkpoint_sandbox_verifies_persistence(mock_create_instance, moc
         sandbox_checkpoint_mount_path=str(tmp_path),
         sandbox_checkpoint_bucket="test-bucket"
     )
-    mgr = SandboxManager(gcs_config=gcs_config)
-    await mgr.create_sandbox(sandbox_id="verify-sandbox", enable_checkpoint=True)
+    mock_lock_factory = MagicMock(spec=LockFactory)
+    mock_lock_factory.create_lock.return_value = AsyncMock()
+    mgr = SandboxManager(gcs_config=gcs_config, lock_factory=mock_lock_factory)
+    await mgr.create_sandbox(
+        sandbox_id="verify-sandbox",
+        enable_checkpoint=True,
+        enable_sandbox_handoff=True,
+    )
 
     # Act
     await mgr.checkpoint_sandbox("verify-sandbox")
 
     # Assert
     mock_verify.assert_awaited_once()
+
+
 

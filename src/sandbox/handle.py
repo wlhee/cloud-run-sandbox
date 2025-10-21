@@ -332,6 +332,11 @@ class SandboxHandle:
     def is_sandbox_checkpointable(self) -> bool:
         """Checks if the sandbox is configured to allow checkpointing."""
         return self.gcs_metadata is not None and self.gcs_metadata.enable_sandbox_checkpoint
+    
+    @property
+    def is_sandbox_handoff_enabled(self) -> bool:
+        """Checks if the sandbox is configured to allow handoff."""
+        return self.gcs_metadata is not None and self.gcs_metadata.enable_sandbox_handoff
 
     def update_latest_checkpoint(self):
         """
