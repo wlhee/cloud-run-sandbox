@@ -17,7 +17,7 @@ Both of these variables are required. If either is not set, the server will reje
 
 When deploying the service with a GCS volume mount, it is critical to disable metadata caching to ensure consistency and prevent race conditions in a multi-instance environment. This is achieved by adding the following option to the volume mount configuration:
 
-`--add-volume=...,mount-options="metadata-cache-ttl-secs=0s"`
+`--add-volume=...,mount-options="metadata-cache-ttl-secs=0"`
 
 The GCS FUSE layer caches file metadata by default. In a distributed system like Cloud Run, this can lead to severe issues where one server instance sees stale information about the state of a lock file or the latest checkpoint created by another instance. Disabling the cache ensures that every file operation directly queries GCS, guaranteeing that each server instance has an up-to-date view of the shared state. Without this setting, sandbox handoff and restore operations may fail intermittently and unpredictably.
 
@@ -81,6 +81,18 @@ A checkpoint is a terminal operation for the current WebSocket session. Once ini
     {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
     ```
     The WebSocket will then be closed with code `1000` (Normal Closure).
+
+### Forced Checkpoints
+
+In certain scenarios, such as a sandbox handoff, the server may need to checkpoint a sandbox while an execution is in progress. Simply terminating the host-side `runsc exec` process is not sufficient, as it can leave the sandboxed process in an orphaned or inconsistent state. This can lead to a corrupted checkpoint, which will fail to restore with an error such as `failed to load kernel: runtime error: invalid memory address or nil pointer dereference`.
+
+To ensure a clean and reliable checkpoint, the server implements a more robust, two-step termination process:
+
+1.  **Capturing the Sandboxed PID**: When a process is started with `runsc exec`, the server uses the `--internal-pid-file` flag. This flag instructs `runsc` to write the process ID (PID) as it appears *inside* the sandbox to a temporary file.
+
+2.  **Targeted `SIGKILL`**: When a forced checkpoint is required, the server reads this captured PID and uses `runsc exec <container_id> kill -9 <pid>` to send a `SIGKILL` signal directly to the sandboxed process.
+
+This method ensures that the executed script is forcefully and cleanly terminated from within the sandbox, leaving the container in a stable, quiescent state before the checkpoint is created. This makes the handoff process seamless and robust.
 
 ## The Restore Flow
 

@@ -644,6 +644,58 @@ async def test_gvisor_sandbox_force_checkpoint_while_running():
             shutil.rmtree(checkpoint_dir)
 
 
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_force_checkpoint_and_restore():
+    """
+    Tests that a forced checkpoint terminates a running execution and results in a usable checkpoint.
+    """
+    sandbox_id = "gvisor-test-force-checkpoint-restore"
+    checkpoint_dir = f"/tmp/checkpoint_{sandbox_id}"
+    
+    config = make_sandbox_config()
+    config.network = "sandbox"
+    config.ip_address = _allocate_ip_address()
+
+    # 1. Create a sandbox and start a long-running process
+    sandbox1 = create_sandbox_instance(sandbox_id, config=config)
+    try:
+        await sandbox1.create()
+        
+        long_running_code = "import time; print('start'); time.sleep(10); print('end')"
+        await sandbox1.execute(CodeLanguage.PYTHON, long_running_code)
+
+        # Give the process a moment to start running
+        await asyncio.sleep(0.2)
+        assert sandbox1.is_execution_running
+
+        # 2. Force a checkpoint
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        await sandbox1.checkpoint(checkpoint_dir, force=True)
+
+        # 3. Verify the execution was stopped
+        assert not sandbox1.is_execution_running
+    finally:
+        await sandbox1.delete()
+
+    # 4. Restore the sandbox and verify it's in a clean state
+    sandbox2 = create_sandbox_instance(f"{sandbox_id}-restored", config=config)
+    sandbox2._bundle_dir = sandbox1._bundle_dir 
+
+    try:
+        await sandbox2.restore(checkpoint_dir)
+        
+        # 5. Verify the state by running a simple command
+        await sandbox2.execute(CodeLanguage.BASH, "echo 'hello after restore'")
+        events = [event async for event in sandbox2.stream_outputs()]
+        stdout = "".join([e["data"] for e in events if e.get("type") == OutputType.STDOUT])
+        assert "hello after restore" in stdout
+    finally:
+        await sandbox2.delete()
+        if os.path.exists(checkpoint_dir):
+            shutil.rmtree(checkpoint_dir)
+
+
 # --- State Machine Behavioral Tests ---
 
 @pytest.mark.asyncio

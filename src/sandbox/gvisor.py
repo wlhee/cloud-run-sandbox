@@ -90,6 +90,7 @@ class GVisorSandbox(SandboxInterface):
         self._root_dir = os.path.join(config.root_dir_base, f"runsc_root_{sandbox_id}")
         self._main_process: Process = None
         self._exec_process: Process = None
+        self._exec_pid: Optional[str] = None
         self._drain_tasks = []
         self._is_attached = False
         self._state = SandboxState.INITIALIZED
@@ -447,6 +448,7 @@ class GVisorSandbox(SandboxInterface):
             raise SandboxOperationError("An execution is already in progress.")
 
         self._exec_process = None
+        self._exec_pid = None
 
         if language == CodeLanguage.PYTHON:
             code_filename = "main.py"
@@ -461,13 +463,42 @@ class GVisorSandbox(SandboxInterface):
         with open(code_path_host, "w") as f:
             f.write(code)
 
-        exec_cmd_list = ["exec", "--cap", "CAP_NET_RAW", "--cwd", "/", self._container_id]
+        internal_pid_file_path = os.path.join(self._bundle_dir, "exec.internal.pid")
+
+        exec_cmd_list = [
+            "exec",
+            f"--internal-pid-file={internal_pid_file_path}",
+            "--cap", "CAP_NET_RAW",
+            "--cwd", "/",
+            self._container_id
+        ]
         exec_cmd_list.extend(exec_args)
         exec_cmd = self._build_runsc_cmd(*exec_cmd_list)
         
         logger.info(f"GVISOR: Starting execution process for sandbox_id: {self.sandbox_id}")
         self._exec_process = Process(exec_cmd)
         await self._exec_process.start()
+
+        self._exec_pid = await self._read_pid_from_file(internal_pid_file_path)
+
+    async def _read_pid_from_file(self, pid_file_path: str, timeout: float = 1.0) -> Optional[str]:
+        """Polls for a PID file, reads its content, and returns the PID."""
+        start_time = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start_time < timeout:
+            if os.path.exists(pid_file_path):
+                try:
+                    with open(pid_file_path, "r") as f:
+                        pid = f.read().strip()
+                        if pid:
+                            logger.info(f"GVISOR ({self.sandbox_id}): Captured internal exec PID: {pid}")
+                            return pid
+                except Exception as e:
+                    logger.error(f"GVISOR ({self.sandbox_id}): Error reading PID file at {pid_file_path}: {e}")
+                    return None # Exit loop on read error
+            await asyncio.sleep(0.01)
+
+        logger.error(f"GVISOR ({self.sandbox_id}): Timed out waiting for PID file at {pid_file_path}.")
+        return None
 
     async def stream_outputs(self):
         """
@@ -557,14 +588,34 @@ class GVisorSandbox(SandboxInterface):
                 raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
             else:
                 logger.warning(f"GVISOR ({self.sandbox_id}): Forcing checkpoint with a running process. Terminating execution.")
-                await self._exec_process.stop()
-                await self._exec_process.wait()
-                self._exec_process = None
+                await self._kill_exec_process()
 
         cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self._container_id)
         await self._run_sync_command(cmd)
         self._state = SandboxState.CHECKPOINTED
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointed successfully.")
+
+    async def _kill_exec_process(self):
+        """
+        Forcefully terminates the running exec process inside the sandbox using the captured PID.
+        """
+        if not self._exec_process or not self._exec_process.is_running:
+            return
+
+        if self._exec_pid:
+            try:
+                logger.info(f"GVISOR ({self.sandbox_id}): Killing internal PID {self._exec_pid} with SIGKILL.")
+                kill_cmd = self._build_runsc_cmd("exec", self._container_id, "kill", "-9", self._exec_pid)
+                await self._run_sync_command(kill_cmd, check=False)
+            except Exception as e:
+                logger.error(f"GVISOR ({self.sandbox_id}): Error while trying to kill exec process with PID {self._exec_pid}: {e}")
+
+        # Wait for the original host-side `runsc exec` process to terminate.
+        logger.warning(f"GVISOR ({self.sandbox_id}): No internal PID was captured for the exec process. Falling back to host-side termination.")
+        await self._exec_process.stop()
+        await self._exec_process.wait()
+        self._exec_process = None
+        self._exec_pid = None
 
     async def restore(self, checkpoint_path: str) -> None:
         """
