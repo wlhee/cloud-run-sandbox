@@ -1,6 +1,6 @@
-$ CLOUD_RUN_URL="wss://sandbox-handoff-123456.us-central1.run.app" CLOUD_RUN_URL_HANDOFF="wss://sandbox-handoff-123456.us-central1.run.app" npx ts-node example/handoff.ts
+$ CLOUD_RUN_URL="wss://sandbox-123456.us-central1.run.app" CLOUD_RUN_URL_HANDOFF="wss://sandbox-handoff-123456.us-central1.run.app" npx ts-node example/handoff.ts
 --- Sandbox Handoff Example ---
-Using URL A: wss://sandbox-handoff-123456.us-central1.run.app
+Using URL A: wss://sandbox-123456.us-central1.run.app
 Using URL B (Handoff): wss://sandbox-handoff-123456.us-central1.run.app
 
 --- Step 1: Creating Sandbox A ---
