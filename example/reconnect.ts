@@ -26,6 +26,12 @@
  * 5. The client will detect the disconnection and automatically reconnect to the sandbox.
  * 6. You can observe the reconnection process in the debug logs, and the script's output will continue uninterrupted.
  *
+ * Session Affinity:
+ * This example also demonstrates the session affinity feature. When the client first connects to the Cloud Run service,
+ * the service returns a `GAESA` cookie. The client automatically captures this cookie and includes it in all subsequent
+ * requests, ensuring that reconnection attempts are routed to the same Cloud Run instance. This is crucial for
+ * maintaining the sandbox session. You can observe the cookie being received and used in the debug logs.
+ *
  * To run this example:
  * 1. Make sure you have ts-node installed (`npm install -g ts-node`).
  * 2. Set the environment variable for your Cloud Run service URL:
@@ -49,7 +55,9 @@ async function main() {
   let sandbox: Sandbox | undefined;
 
   try {
-    // Create a new sandbox session with debug logging enabled.
+    // Create a new sandbox session with debug logging and auto-reconnect enabled.
+    // The `enableDebug` and `debugLabel` options provide verbose logging for the connection
+    // and sandbox lifecycle, which is useful for observing the reconnection and session affinity features.
     sandbox = await Sandbox.create(url, { enableDebug: true, debugLabel: 'ReconnectExample', enableAutoReconnect: true });
 
     console.log(`Successfully created sandbox with ID: ${sandbox.sandboxId}`);

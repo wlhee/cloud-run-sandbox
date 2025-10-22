@@ -4,7 +4,11 @@ This project provides a web server for executing arbitrary code (such as Python 
 
 ## 1. Deployment
 
-To deploy this application to Cloud Run, you will need to have the `gcloud` CLI installed and authenticated. Then, run the following command from the root of the project directory:
+To deploy this application to Cloud Run, you will need to have the `gcloud` CLI installed and authenticated. Then, run the following command from the root of the project directory.
+
+Concurrency is set to 1 for scaling up new sandboxes.
+
+Session-affinity is enabled to improve sandbox session affinity for the client.
 
 ```bash
 gcloud run deploy sandbox --source . \
@@ -12,7 +16,8 @@ gcloud run deploy sandbox --source . \
   --region=us-central1 \
   --allow-unauthenticated \
   --execution-environment=gen2 \
-  --concurrency=1 
+  --concurrency=1 \
+  --session-affinity
 ```
 
 Replace `<YOUR_PROJECT_ID>` with your Google Cloud project ID.
@@ -76,6 +81,7 @@ gcloud run deploy sandbox --source . \
   --allow-unauthenticated \
   --execution-environment=gen2 \
   --concurrency=1 \
+  --session-affinity \
   --add-volume=name=gcs-volume,type=cloud-storage,mount-options="metadata-cache-ttl-secs=0",bucket=${BUCKET_NAME} \
   --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs\
   --set-env-vars='SANDBOX_METADATA_MOUNT_PATH=/mnt/gcs' \
@@ -129,6 +135,7 @@ gcloud run deploy sandbox --source . \
   --allow-unauthenticated \
   --execution-environment=gen2 \
   --concurrency=1 \
+  --session-affinity \
   --add-volume=name=gcs-volume,type=cloud-storage,mount-options="metadata-cache-ttl-secs=0",bucket=${BUCKET_NAME} \
   --add-volume-mount=volume=gcs-volume,mount-path=/mnt/gcs \
   --set-env-vars='FILESYSTEM_SNAPSHOT_MOUNT_PATH=/mnt/gcs' \

@@ -233,6 +233,8 @@ export class Sandbox {
       (code, reason) => sandbox.shouldReconnect(code, reason),
       () => sandbox.getReconnectInfo(),
       wsOptions,
+      enableDebug,
+      debugLabel,
     );
     sandbox = new Sandbox(connection, enableDebug, debugLabel, enableAutoReconnect);
     sandbox._url = url;
@@ -270,6 +272,8 @@ export class Sandbox {
       (code, reason) => sandbox.shouldReconnect(code, reason),
       () => sandbox.getReconnectInfo(),
       wsOptions,
+      enableDebug,
+      debugLabel,
     );
     sandbox = new Sandbox(connection, enableDebug, debugLabel, enableAutoReconnect);
     sandbox._url = url;
@@ -360,7 +364,9 @@ export class Sandbox {
       throw new Error(`Sandbox is not in a running state. Current state: ${this.state}`);
     }
 
-    const process = new SandboxProcess(this.sendMessage.bind(this));
+    const process = new SandboxProcess(
+      this.sendMessage.bind(this),
+    );
     this.activeProcess = process;
     
     process['eventEmitter'].once('done', () => {

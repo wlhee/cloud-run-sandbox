@@ -163,4 +163,31 @@ describe('Connection', () => {
       expect(errorListener.mock.calls[0][0].message).toBe('WebSocket is not open. Cannot send data.');
     });
   });
+
+  describe('session affinity', () => {
+    it('should capture the set-cookie header on upgrade and use it for reconnect', () => {
+      new Connection(MOCK_URL, shouldReconnectCallback, getReconnectInfoCallback);
+      const upgradeCallback = (mockWsInstance.on as jest.Mock).mock.calls.find(call => call[0] === 'upgrade')[1];
+
+      const mockResponse = {
+        headers: {
+          'set-cookie': ['GAESA=test-cookie;'],
+        },
+      };
+
+      upgradeCallback(mockResponse);
+
+      // To verify the cookie is stored, we'll check if it's sent on reconnect
+      shouldReconnectCallback.mockReturnValue(true);
+      const closeCallback = (mockWsInstance.on as jest.Mock).mock.calls.find(call => call[0] === 'close')[1];
+      closeCallback(1006, Buffer.from('Abnormal closure'));
+
+      expect(MockWebSocket).toHaveBeenCalledTimes(2);
+      expect(MockWebSocket).toHaveBeenLastCalledWith(MOCK_URL, {
+        headers: {
+          Cookie: 'GAESA=test-cookie;',
+        },
+      });
+    });
+  });
 });

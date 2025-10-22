@@ -45,6 +45,9 @@ export class Connection extends EventEmitter {
   private shouldReconnect: ShouldReconnectCallback;
   private getReconnectInfo: GetReconnectInfoCallback;
   private isReconnecting: boolean = false;
+  private cookie: string | null = null;
+  private _debugEnabled: boolean = false;
+  private _debugLabel: string = '';
 
   /**
    * A flag to indicate if the connection was closed intentionally by the user calling `close()`.
@@ -64,12 +67,16 @@ export class Connection extends EventEmitter {
     shouldReconnect: ShouldReconnectCallback,
     getReconnectInfo: GetReconnectInfoCallback,
     wsOptions?: WebSocket.ClientOptions,
+    debug: boolean = false,
+    debugLabel: string = '',
   ) {
     super();
     this.url = url;
     this.shouldReconnect = shouldReconnect;
     this.getReconnectInfo = getReconnectInfo;
     this.wsOptions = wsOptions;
+    this._debugEnabled = debug;
+    this._debugLabel = debugLabel;
     this.connect();
   }
 
@@ -78,7 +85,29 @@ export class Connection extends EventEmitter {
    * This method is called initially and for every reconnection attempt.
    */
   private connect() {
+    if (this.cookie) {
+      if (this._debugEnabled) {
+        console.log(`[${this._debugLabel}] [DEBUG] Using cookie for connection:`, this.cookie);
+      }
+      this.wsOptions = {
+        ...this.wsOptions,
+        headers: {
+          ...this.wsOptions?.headers,
+          Cookie: this.cookie,
+        },
+      };
+    }
     this.ws = new WebSocket(this.url, this.wsOptions);
+
+    this.ws.on('upgrade', (response) => {
+      const cookie = response.headers['set-cookie'];
+      if (cookie) {
+        if (this._debugEnabled) {
+          console.log(`[${this._debugLabel}] [DEBUG] Received cookie:`, cookie[0]);
+        }
+        this.cookie = cookie[0];
+      }
+    });
 
     this.ws.on('open', () => {
       if (this.isReconnecting) {

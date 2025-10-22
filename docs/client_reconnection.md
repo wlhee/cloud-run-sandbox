@@ -6,6 +6,18 @@ This document describes the client reconnection feature, which allows a client t
 
 The client reconnection feature is designed to improve the resilience of the sandbox sessions. If a client's WebSocket connection is dropped due to a network issue or other transient failure, the client will attempt to automatically reconnect to the same sandbox session, preserving the state of the sandbox and any running processes. This feature is controlled by the `enableAutoReconnect` option in the `Sandbox.create` and `Sandbox.attach` methods.
 
+## Session Affinity
+
+For the reconnection feature to work reliably, it is crucial that the client reconnects to the same Cloud Run instance that is managing the sandbox session. This is achieved through session affinity, which is a feature of Cloud Run that routes requests from the same client to the same container instance.
+
+When a client first connects to a Cloud Run service with session affinity enabled, the service returns a `GAESA` cookie. The Cloud Run Sandbox client automatically captures this cookie and includes it in all subsequent requests. This ensures that if the connection is dropped and the client needs to reconnect, the reconnection request will be routed to the correct Cloud Run instance, allowing the client to resume its session.
+
+To enable session affinity for your Cloud Run service, use the `--session-affinity` flag when deploying your service:
+
+```bash
+gcloud run deploy YOUR_SERVICE_NAME --source . --session-affinity
+```
+
 ## The `Connection` Class
 
 The `Connection` class in `clients/js/src/connection.ts` is a wrapper around the `ws` WebSocket library that provides the core reconnection logic. It handles the following:
