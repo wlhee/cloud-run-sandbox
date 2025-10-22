@@ -570,3 +570,38 @@ async def test_websocket_status_notifier():
         "event": "status_update",
         "status": "SANDBOX_RUNNING"
     })
+
+@pytest.mark.asyncio
+@patch('src.sandbox.manager.SandboxManager.get_sandbox')
+async def test_reconnect_and_stream(mock_get_sandbox):
+    """
+    Tests that a client can reconnect to a sandbox and continue streaming outputs.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_get_sandbox.return_value = sandbox
+
+    output_stream = [
+        {"type": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"},
+        {"type": OutputType.STDOUT, "data": "output1"},
+        {"type": OutputType.STDERR, "data": "error1"},
+        {"type": "status_update", "status": "SANDBOX_EXECUTION_DONE"},
+    ]
+
+    async def stream_outputs():
+        for item in output_stream:
+            yield item
+
+    sandbox.stream_outputs = stream_outputs
+
+    # Act & Assert
+    with client.websocket_connect("/attach/test-sandbox") as websocket:
+        # Initial attach message
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+        
+        # Send reconnect and verify stream
+        websocket.send_json({"action": "reconnect"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
+        assert websocket.receive_json() == {"event": "stdout", "data": "output1"}
+        assert websocket.receive_json() == {"event": "stderr", "data": "error1"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}

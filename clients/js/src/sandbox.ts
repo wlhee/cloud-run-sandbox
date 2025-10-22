@@ -2,11 +2,12 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import { MessageKey, EventType, SandboxEvent, WebSocketMessage } from './types';
 import { SandboxProcess } from './process';
+import { Connection, ShouldReconnectCallback, ReconnectInfo } from './connection';
 
-type SandboxState = 'creating' | 'running' | 'closed' | 'failed' | 'checkpointing' | 'checkpointed' | 'restoring' | 'filesystem_snapshotting';
+type SandboxState = 'creating' | 'running' | 'closed' | 'failed' | 'checkpointing' | 'checkpointed' | 'restoring' | 'filesystem_snapshotting' | 'reconnecting';
 
 export class Sandbox {
-  private ws: WebSocket;
+  private connection: Connection;
   private eventEmitter = new EventEmitter();
   private _sandboxId: string | null = null;
   private _creationError: Error | null = null;
@@ -14,14 +15,19 @@ export class Sandbox {
   private state: SandboxState = 'creating';
   private _debugEnabled: boolean = false;
   private _debugLabel: string = '';
+  private _shouldReconnect: boolean = false;
+  private _url: string = '';
+  private _wsOptions?: WebSocket.ClientOptions;
+  private stdinBuffer: string[] = [];
 
-  private constructor(websocket: WebSocket, debug: boolean = false, debugLabel: string = '') {
-    this.ws = websocket;
+  private constructor(connection: Connection, debug: boolean = false, debugLabel: string = '') {
+    this.connection = connection;
     this._debugEnabled = debug;
     this._debugLabel = debugLabel;
-    this.ws.on('message', this.handleMessage.bind(this));
-    this.ws.on('close', this.handleClose.bind(this));
-    this.ws.on('error', this.handleError.bind(this));
+    this.connection.on('message', this.handleMessage.bind(this));
+    this.connection.on('close', this.handleClose.bind(this));
+    this.connection.on('error', this.handleError.bind(this));
+    this.connection.on('reopen', this.handleReopen.bind(this));
   }
 
   public get sandboxId(): string | null {
@@ -59,7 +65,11 @@ export class Sandbox {
     if (message.event === EventType.STATUS_UPDATE) {
       switch (message.status) {
         case SandboxEvent.SANDBOX_RUNNING:
+          if (this.state === 'reconnecting') {
+            this.flushStdinBuffer();
+          }
           this.state = 'running';
+          this._shouldReconnect = true;
           this.eventEmitter.emit('created', this);
           break;
         case SandboxEvent.SANDBOX_CREATION_ERROR:
@@ -148,15 +158,50 @@ export class Sandbox {
     // for the user to handle, e.g., this.eventEmitter.emit('error', err);
   }
 
+  private handleReopen() {
+    if (this._debugEnabled) {
+      console.log(`[${this._debugLabel}] [DEBUG] Reconnected. Sending reconnect action.`);
+    }
+    this.connection.send(JSON.stringify({ action: 'reconnect' }));
+  }
+
+  public shouldReconnect(code: number, reason: Buffer): boolean {
+    const decision = this._shouldReconnect;
+    if (this._debugEnabled) {
+      console.log(`[${this._debugLabel}] [DEBUG] Checking if should reconnect: code=${code}, reason=${reason.toString()}, decision=${decision}`);
+    }
+    if (decision) {
+      this.state = 'reconnecting';
+    }
+    return decision;
+  }
+
+  private getReconnectInfo(): ReconnectInfo {
+    if (!this._sandboxId) {
+      throw new Error('Cannot reconnect without a sandbox ID.');
+    }
+    const sanitizedUrl = this._url.replace(/\/$/, '');
+    const reconnectUrl = `${sanitizedUrl}/attach/${this._sandboxId}`;
+    return { url: reconnectUrl, wsOptions: this._wsOptions };
+  }
+
   static create(url: string, options: { idleTimeout?: number, enableSandboxCheckpoint?: boolean, enableSandboxHandoff?: boolean, filesystemSnapshotName?: string, enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
     const { idleTimeout = 60, enableSandboxCheckpoint = false, enableSandboxHandoff = false, filesystemSnapshotName, enableDebug = false, debugLabel = '', wsOptions } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
-    const ws = new WebSocket(`${sanitizedUrl}/create`, wsOptions);
-    const sandbox = new Sandbox(ws, enableDebug, debugLabel);
+    let sandbox: Sandbox;
+    const connection = new Connection(
+      `${sanitizedUrl}/create`,
+      (code, reason) => sandbox.shouldReconnect(code, reason),
+      () => sandbox.getReconnectInfo(),
+      wsOptions,
+    );
+    sandbox = new Sandbox(connection, enableDebug, debugLabel);
+    sandbox._url = url;
+    sandbox._wsOptions = wsOptions;
 
-    ws.on('open', () => {
-      ws.send(JSON.stringify({
+    connection.once('open', () => {
+      connection.send(JSON.stringify({
         idle_timeout: idleTimeout,
         enable_checkpoint: enableSandboxCheckpoint,
         enable_sandbox_handoff: enableSandboxHandoff,
@@ -171,9 +216,7 @@ export class Sandbox {
       
       sandbox.eventEmitter.once('failed', (err) => {
         // On failure, ensure the socket is completely destroyed.
-        if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
-          ws.terminate();
-        }
+        connection.close();
         reject(err);
       });
     });
@@ -183,8 +226,16 @@ export class Sandbox {
     const { enableDebug = false, debugLabel = '', wsOptions } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
-    const ws = new WebSocket(`${sanitizedUrl}/attach/${sandboxId}`, wsOptions);
-    const sandbox = new Sandbox(ws, enableDebug, debugLabel);
+    let sandbox: Sandbox;
+    const connection = new Connection(
+      `${sanitizedUrl}/attach/${sandboxId}`,
+      (code, reason) => sandbox.shouldReconnect(code, reason),
+      () => sandbox.getReconnectInfo(),
+      wsOptions,
+    );
+    sandbox = new Sandbox(connection, enableDebug, debugLabel);
+    sandbox._url = url;
+    sandbox._wsOptions = wsOptions;
     sandbox._sandboxId = sandboxId;
 
     return new Promise((resolve, reject) => {
@@ -194,9 +245,7 @@ export class Sandbox {
       
       sandbox.eventEmitter.once('failed', (err) => {
         // On failure, ensure the socket is completely destroyed.
-        if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
-          ws.terminate();
-        }
+        connection.close();
         reject(err);
       });
     });
@@ -207,7 +256,7 @@ export class Sandbox {
       return Promise.reject(new Error(`Sandbox is not in a running state. Current state: ${this.state}`));
     }
 
-    this.ws.send(JSON.stringify({ action: 'checkpoint' }));
+    this.connection.send(JSON.stringify({ action: 'checkpoint' }));
 
     return new Promise((resolve, reject) => {
       this.eventEmitter.once('checkpointed', () => {
@@ -224,7 +273,7 @@ export class Sandbox {
       return Promise.reject(new Error(`Sandbox is not in a running state. Current state: ${this.state}`));
     }
 
-    this.ws.send(JSON.stringify({ action: 'snapshot_filesystem', name }));
+    this.connection.send(JSON.stringify({ action: 'snapshot_filesystem', name }));
 
     return new Promise((resolve, reject) => {
       this.eventEmitter.once('filesystem_snapshot_created', () => {
@@ -236,6 +285,35 @@ export class Sandbox {
     });
   }
 
+  private flushStdinBuffer() {
+    if (this._debugEnabled) {
+      console.log(`[${this._debugLabel}] [DEBUG] Flushing stdin buffer (${this.stdinBuffer.length} messages).`);
+    }
+    for (const data of this.stdinBuffer) {
+      this.connection.send(data);
+    }
+    this.stdinBuffer = [];
+  }
+
+  private sendMessage(data: string) {
+    if (this.state === 'reconnecting') {
+      try {
+        const message = JSON.parse(data);
+        if (message.event === 'stdin') {
+          if (this._debugEnabled) {
+            console.log(`[${this._debugLabel}] [DEBUG] Buffering stdin message while reconnecting:`, message.data);
+          }
+          this.stdinBuffer.push(data);
+          return;
+        }
+      } catch (e) {
+        // Not a JSON message, or doesn't have an event property.
+        // Let it pass through. This shouldn't happen for stdin.
+      }
+    }
+    this.connection.send(data);
+  }
+
   public async exec(language: string, code: string): Promise<SandboxProcess> {
     if (this.activeProcess) {
       throw new Error('Another process is already running in this sandbox.');
@@ -244,7 +322,7 @@ export class Sandbox {
       throw new Error(`Sandbox is not in a running state. Current state: ${this.state}`);
     }
 
-    const process = new SandboxProcess(this.ws);
+    const process = new SandboxProcess(this.sendMessage.bind(this));
     this.activeProcess = process;
     
     process['eventEmitter'].once('done', () => {
@@ -256,8 +334,6 @@ export class Sandbox {
   }
 
   public terminate() {
-    if (this.ws.readyState === WebSocket.OPEN) {
-      this.ws.close();
-    }
+    this.connection.close();
   }
 }

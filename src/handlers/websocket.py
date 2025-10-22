@@ -147,6 +147,8 @@ class WebsocketHandler:
                     task = asyncio.create_task(self.handle_snapshot_filesystem(message))
                 elif message.get("event") == "stdin":
                     task = asyncio.create_task(self.handle_stdin(message))
+                elif message.get("action") == "reconnect":
+                    task = asyncio.create_task(self.reconnect_and_stream(message))
                 else:
                     task = asyncio.create_task(self.run_and_stream(message))
                 
@@ -209,6 +211,29 @@ class WebsocketHandler:
 
             await self.sandbox.execute(language, code=code)
             
+            async for event in self.sandbox.stream_outputs():
+                if event["type"] == "status_update":
+                    await self.send_status(SandboxStateEvent(event["status"]))
+                else:
+                    await self.websocket.send_json({
+                        "event": event["type"].value,
+                        "data": event["data"]
+                    })
+
+        except SandboxStreamClosed:
+            # This is the expected end of a stream, not an error.
+            pass
+        except (SandboxOperationError, KeyError, ValueError) as e:
+            await self.handle_error(e, close_connection=False, message=message)
+        except Exception as e:
+            logger.error(f"Unexpected error during execution: {e}")
+            await self.handle_error(e, close_connection=True, message=message)
+
+    async def reconnect_and_stream(self, message: dict):
+        """
+        Handles a reconnect request, including streaming the output.
+        """
+        try:
             async for event in self.sandbox.stream_outputs():
                 if event["type"] == "status_update":
                     await self.send_status(SandboxStateEvent(event["status"]))
