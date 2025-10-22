@@ -16,14 +16,16 @@ export class Sandbox {
   private _debugEnabled: boolean = false;
   private _debugLabel: string = '';
   private _shouldReconnect: boolean = false;
+  private _autoReconnectEnabled: boolean = false;
   private _url: string = '';
   private _wsOptions?: WebSocket.ClientOptions;
   private stdinBuffer: string[] = [];
 
-  private constructor(connection: Connection, debug: boolean = false, debugLabel: string = '') {
+  private constructor(connection: Connection, debug: boolean = false, debugLabel: string = '', autoReconnectEnabled: boolean = false) {
     this.connection = connection;
     this._debugEnabled = debug;
     this._debugLabel = debugLabel;
+    this._autoReconnectEnabled = autoReconnectEnabled;
     this.connection.on('message', this.handleMessage.bind(this));
     this.connection.on('close', this.handleClose.bind(this));
     this.connection.on('error', this.handleError.bind(this));
@@ -69,7 +71,7 @@ export class Sandbox {
             this.flushStdinBuffer();
           }
           this.state = 'running';
-          this._shouldReconnect = true;
+          this._shouldReconnect = this._autoReconnectEnabled;
           this.eventEmitter.emit('created', this);
           break;
         case SandboxEvent.SANDBOX_CREATION_ERROR:
@@ -185,8 +187,8 @@ export class Sandbox {
     return { url: reconnectUrl, wsOptions: this._wsOptions };
   }
 
-  static create(url: string, options: { idleTimeout?: number, enableSandboxCheckpoint?: boolean, enableSandboxHandoff?: boolean, filesystemSnapshotName?: string, enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
-    const { idleTimeout = 60, enableSandboxCheckpoint = false, enableSandboxHandoff = false, filesystemSnapshotName, enableDebug = false, debugLabel = '', wsOptions } = options;
+  static create(url: string, options: { idleTimeout?: number, enableSandboxCheckpoint?: boolean, enableSandboxHandoff?: boolean, filesystemSnapshotName?: string, enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions, enableAutoReconnect?: boolean } = {}): Promise<Sandbox> {
+    const { idleTimeout = 60, enableSandboxCheckpoint = false, enableSandboxHandoff = false, filesystemSnapshotName, enableDebug = false, debugLabel = '', wsOptions, enableAutoReconnect = false } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     let sandbox: Sandbox;
@@ -196,7 +198,7 @@ export class Sandbox {
       () => sandbox.getReconnectInfo(),
       wsOptions,
     );
-    sandbox = new Sandbox(connection, enableDebug, debugLabel);
+    sandbox = new Sandbox(connection, enableDebug, debugLabel, enableAutoReconnect);
     sandbox._url = url;
     sandbox._wsOptions = wsOptions;
 
@@ -222,8 +224,8 @@ export class Sandbox {
     });
   }
 
-  static attach(url: string, sandboxId: string, options: { enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions } = {}): Promise<Sandbox> {
-    const { enableDebug = false, debugLabel = '', wsOptions } = options;
+  static attach(url: string, sandboxId: string, options: { enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions, enableAutoReconnect?: boolean } = {}): Promise<Sandbox> {
+    const { enableDebug = false, debugLabel = '', wsOptions, enableAutoReconnect = false } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     let sandbox: Sandbox;
@@ -233,7 +235,7 @@ export class Sandbox {
       () => sandbox.getReconnectInfo(),
       wsOptions,
     );
-    sandbox = new Sandbox(connection, enableDebug, debugLabel);
+    sandbox = new Sandbox(connection, enableDebug, debugLabel, enableAutoReconnect);
     sandbox._url = url;
     sandbox._wsOptions = wsOptions;
     sandbox._sandboxId = sandboxId;

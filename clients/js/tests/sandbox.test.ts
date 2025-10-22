@@ -454,7 +454,7 @@ describe('Sandbox', () => {
 
   describe('reconnection', () => {
     it('should enable reconnection after sandbox is running', async () => {
-      const createPromise = Sandbox.create('ws://test-url');
+      const createPromise = Sandbox.create('ws://test-url', { enableAutoReconnect: true });
       mockConnectionInstance.emit('open');
       mockConnectionInstance.emit('message', JSON.stringify({
         [MessageKey.EVENT]: EventType.SANDBOX_ID,
@@ -472,7 +472,7 @@ describe('Sandbox', () => {
     });
 
     it('should change state to reconnecting on connection close', async () => {
-      const createPromise = Sandbox.create('ws://test-url');
+      const createPromise = Sandbox.create('ws://test-url', { enableAutoReconnect: true });
       mockConnectionInstance.emit('open');
       mockConnectionInstance.emit('message', JSON.stringify({
         [MessageKey.EVENT]: EventType.SANDBOX_ID,
@@ -491,7 +491,7 @@ describe('Sandbox', () => {
     });
 
     it('should provide correct reconnect info', async () => {
-      const createPromise = Sandbox.create('ws://test-url', { wsOptions: { headers: { 'X-Test': 'true' } } });
+      const createPromise = Sandbox.create('ws://test-url', { wsOptions: { headers: { 'X-Test': 'true' } }, enableAutoReconnect: true });
       mockConnectionInstance.emit('open');
       mockConnectionInstance.emit('message', JSON.stringify({
         [MessageKey.EVENT]: EventType.SANDBOX_ID,
@@ -511,7 +511,7 @@ describe('Sandbox', () => {
     });
 
     it('should buffer and flush stdin during reconnection', async () => {
-      const createPromise = Sandbox.create('ws://test-url');
+      const createPromise = Sandbox.create('ws://test-url', { enableAutoReconnect: true });
       mockConnectionInstance.emit('open');
       mockConnectionInstance.emit('message', JSON.stringify({
         [MessageKey.EVENT]: EventType.SANDBOX_ID,

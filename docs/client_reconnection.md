@@ -4,7 +4,7 @@ This document describes the client reconnection feature, which allows a client t
 
 ## Overview
 
-The client reconnection feature is designed to improve the resilience of the sandbox sessions. If a client's WebSocket connection is dropped due to a network issue or other transient failure, the client will attempt to automatically reconnect to the same sandbox session, preserving the state of the sandbox and any running processes.
+The client reconnection feature is designed to improve the resilience of the sandbox sessions. If a client's WebSocket connection is dropped due to a network issue or other transient failure, the client will attempt to automatically reconnect to the same sandbox session, preserving the state of the sandbox and any running processes. This feature is controlled by the `enableAutoReconnect` option in the `Sandbox.create` and `Sandbox.attach` methods.
 
 ## The `Connection` Class
 
@@ -17,6 +17,10 @@ The `Connection` class in `clients/js/src/connection.ts` is a wrapper around the
 ## The `Sandbox` Class
 
 The `Sandbox` class in `clients/js/src/sandbox.ts` is updated to use the `Connection` class and manage the reconnection state.
+
+### `enableAutoReconnect` Option
+
+The `enableAutoReconnect` option in the `Sandbox.create` and `Sandbox.attach` methods is a boolean flag that controls whether the client should automatically reconnect to the sandbox session if the connection is dropped. When this option is set to `true`, the `_shouldReconnect` property of the `Sandbox` instance is set to `true` when the sandbox is in the `running` state.
 
 ### `reconnecting` State
 

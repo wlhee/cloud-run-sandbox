@@ -34,7 +34,7 @@ async function main() {
 
   try {
     // Create a new sandbox session with debug logging enabled.
-    sandbox = await Sandbox.create(url, { enableDebug: true, debugLabel: 'ReconnectExample' });
+    sandbox = await Sandbox.create(url, { enableDebug: true, debugLabel: 'ReconnectExample', enableAutoReconnect: true });
 
     console.log(`Successfully created sandbox with ID: ${sandbox.sandboxId}`);
     console.log("\nExecuting a long-running script to trigger the server's 5-second stream timeout...");
