@@ -568,5 +568,60 @@ describe('Sandbox', () => {
         data: 'buffered message',
       }));
     });
+    it('should not reconnect after intentional checkpoint', async () => {
+      const createPromise = Sandbox.create('ws://test-url', { enableAutoReconnect: true });
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.SANDBOX_ID,
+        [MessageKey.SANDBOX_ID]: 'test-id',
+      }));
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+
+      // Intentionally checkpoint
+      const checkpointPromise = sandbox.checkpoint();
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_CHECKPOINTED,
+      }));
+      await checkpointPromise;
+
+      const decision = sandbox.shouldReconnect(1000, Buffer.from('Normal closure'));
+      expect(decision).toBe(false);
+    });
+
+    it.each([
+      [SandboxEvent.SANDBOX_ERROR],
+      [SandboxEvent.SANDBOX_NOT_FOUND],
+      [SandboxEvent.SANDBOX_CREATION_ERROR],
+      [SandboxEvent.SANDBOX_CHECKPOINT_ERROR],
+      [SandboxEvent.SANDBOX_RESTORE_ERROR],
+      [SandboxEvent.SANDBOX_DELETED],
+      [SandboxEvent.SANDBOX_LOCK_RENEWAL_ERROR],
+    ])('should not reconnect after a fatal error: %s', async (errorStatus) => {
+      const createPromise = Sandbox.create('ws://test-url', { enableAutoReconnect: true });
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+
+      // Ensure reconnect is initially true
+      expect((sandbox as any)._shouldReconnect).toBe(true);
+
+      // Simulate a fatal error
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: errorStatus,
+      }));
+
+      // The decision should now be false
+      const decision = sandbox.shouldReconnect(1006, Buffer.from('Abnormal closure'));
+      expect(decision).toBe(false);
+    });
   });
 });

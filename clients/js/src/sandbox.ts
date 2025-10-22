@@ -33,6 +33,7 @@ export class Sandbox {
   private _debugLabel: string = '';
   private _shouldReconnect: boolean = false;
   private _autoReconnectEnabled: boolean = false;
+  private _isCheckpointIntentionally: boolean = false;
   private _url: string = '';
   private _wsOptions?: WebSocket.ClientOptions;
   private stdinBuffer: string[] = [];
@@ -50,6 +51,24 @@ export class Sandbox {
 
   public get sandboxId(): string | null {
     return this._sandboxId;
+  }
+
+  private _updateShouldReconnect(status: SandboxEvent) {
+    const isFatalError = [
+      SandboxEvent.SANDBOX_ERROR,
+      SandboxEvent.SANDBOX_NOT_FOUND,
+      SandboxEvent.SANDBOX_CREATION_ERROR,
+      SandboxEvent.SANDBOX_CHECKPOINT_ERROR,
+      SandboxEvent.SANDBOX_RESTORE_ERROR,
+      SandboxEvent.SANDBOX_DELETED,
+      SandboxEvent.SANDBOX_LOCK_RENEWAL_ERROR,
+    ].includes(status);
+
+    if (isFatalError) {
+      this._shouldReconnect = false;
+    } else if (status === SandboxEvent.SANDBOX_RUNNING) {
+      this._shouldReconnect = this._autoReconnectEnabled;
+    }
   }
 
   private handleMessage(data: WebSocket.Data) {
@@ -81,13 +100,14 @@ export class Sandbox {
     }
 
     if (message.event === EventType.STATUS_UPDATE) {
+      this._updateShouldReconnect(message.status);
+
       switch (message.status) {
         case SandboxEvent.SANDBOX_RUNNING:
           if (this.state === 'reconnecting') {
             this.flushStdinBuffer();
           }
           this.state = 'running';
-          this._shouldReconnect = this._autoReconnectEnabled;
           this.eventEmitter.emit('created', this);
           break;
         case SandboxEvent.SANDBOX_CREATION_ERROR:
@@ -184,7 +204,7 @@ export class Sandbox {
   }
 
   public shouldReconnect(code: number, reason: Buffer): boolean {
-    const decision = this._shouldReconnect;
+    const decision = this._shouldReconnect && !this._isCheckpointIntentionally;
     if (this._debugEnabled) {
       console.log(`[${this._debugLabel}] [DEBUG] Checking if should reconnect: code=${code}, reason=${reason.toString()}, decision=${decision}`);
     }
@@ -273,7 +293,7 @@ export class Sandbox {
     if (this.state !== 'running') {
       return Promise.reject(new Error(`Sandbox is not in a running state. Current state: ${this.state}`));
     }
-
+    this._isCheckpointIntentionally = true;
     this.connection.send(JSON.stringify({ action: 'checkpoint' }));
 
     return new Promise((resolve, reject) => {
