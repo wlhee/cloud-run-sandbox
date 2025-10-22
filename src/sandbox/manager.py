@@ -281,6 +281,8 @@ class SandboxManager:
             raise SandboxOperationError(f"Sandbox {sandbox_id} is not configured for checkpointing.")
 
         try:
+            if force and handle.instance.is_execution_running and handle.status_notifier:
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_EXECUTION_FORCE_TERMINATED)
             checkpoint_path = handle.sandbox_checkpoint_dir_path()
             await handle.instance.checkpoint(checkpoint_path, force=force)
 

@@ -46,6 +46,7 @@ The TypeScript client can be used to interact with the server. See `example/clie
     ```bash
     pytest
     ```
+*   **Git:** Do not use command substitution using `$( )`, `` ` `` , `<( )`, or `>( )` in git commit messages.
 
 ## Key Files
 

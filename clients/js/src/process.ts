@@ -74,7 +74,10 @@ export class SandboxProcess {
         } else if (message.status === SandboxEvent.SANDBOX_EXECUTION_ERROR) {
           this._startError = new Error(message.message || 'Sandbox execution failed');
           this.eventEmitter.emit('started');
-        } else if (message.status === SandboxEvent.SANDBOX_EXECUTION_DONE) {
+        } else if (
+          message.status === SandboxEvent.SANDBOX_EXECUTION_DONE ||
+          message.status === SandboxEvent.SANDBOX_EXECUTION_FORCE_TERMINATED
+        ) {
           this._isDone = true;
           this.cleanup();
           this.eventEmitter.emit('done');

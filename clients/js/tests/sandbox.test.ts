@@ -624,4 +624,43 @@ describe('Sandbox', () => {
       expect(decision).toBe(false);
     });
   });
+  
+  it('should terminate the active process on force-terminate event', async () => {
+    const createPromise = Sandbox.create('ws://test-url');
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.SANDBOX_ID,
+      [MessageKey.SANDBOX_ID]: 'test-id',
+    }));
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+    }));
+    const sandbox = await createPromise;
+
+    // Start a process
+    const processPromise = sandbox.exec('bash', 'sleep 10');
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
+    }));
+    const process = await processPromise;
+    
+    // Verify process is active
+    expect((sandbox as any).activeProcess).not.toBeNull();
+
+    const waitPromise = process.wait();
+
+    // Simulate the force-terminate event
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_FORCE_TERMINATED,
+    }));
+
+    // Assert that the process is now done
+    await expect(waitPromise).resolves.toBeUndefined();
+    
+    // Assert that the sandbox has no active process
+    expect((sandbox as any).activeProcess).toBeNull();
+  });
 });

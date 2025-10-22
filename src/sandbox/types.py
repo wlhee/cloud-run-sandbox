@@ -55,6 +55,8 @@ class SandboxStateEvent(Enum):
     SANDBOX_IN_USE = "SANDBOX_IN_USE"
     # An error occurred while writing to stdin.
     SANDBOX_STDIN_ERROR = "SANDBOX_STDIN_ERROR"
+    # A running process was forcefully terminated.
+    SANDBOX_EXECUTION_FORCE_TERMINATED = "SANDBOX_EXECUTION_FORCE_TERMINATED"
     # The sandbox is being checkpointed.
     SANDBOX_CHECKPOINTING = "SANDBOX_CHECKPOINTING"
     # The sandbox has been successfully checkpointed.

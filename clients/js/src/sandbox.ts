@@ -53,6 +53,12 @@ export class Sandbox {
     return this._sandboxId;
   }
 
+  private logDebugMessage(message: string, ...args: any[]) {
+    if (this._debugEnabled) {
+      console.log(`[${this._debugLabel}] [DEBUG] ${message}`, ...args);
+    }
+  }
+
   private _updateShouldReconnect(status: SandboxEvent) {
     const isFatalError = [
       SandboxEvent.SANDBOX_ERROR,
@@ -74,6 +80,10 @@ export class Sandbox {
   private handleMessage(data: WebSocket.Data) {
     const message: WebSocketMessage = JSON.parse(data.toString());
 
+    if (message.event != EventType.STDOUT && message.event != EventType.STDERR) {
+      this.logDebugMessage('Received message:', message);
+    }
+
     // Process-specific events are always forwarded
     if (
       message.event === EventType.STDOUT ||
@@ -87,10 +97,6 @@ export class Sandbox {
         this.activeProcess.handleMessage(message);
       }
       return;
-    }
-
-    if (this._debugEnabled) {
-      console.log(`[${this._debugLabel}] [DEBUG] Received message:`, message);
     }
 
     // Handle sandbox lifecycle events
@@ -162,9 +168,7 @@ export class Sandbox {
   }
 
   private handleClose(code: number, reason: Buffer) {
-    if (this._debugEnabled) {
-      console.log(`[${this._debugLabel}] [DEBUG] Connection closed: code=${code}, reason=${reason.toString()}`);
-    }
+    this.logDebugMessage(`Connection closed: code=${code}, reason=${reason ? reason.toString() : 'No reason'}`);
     if (this.state === 'creating' || this.state === 'restoring') {
       this.state = 'failed';
       const err = new Error(`Connection closed during creation/restoration: code=${code}`);
@@ -197,17 +201,13 @@ export class Sandbox {
   }
 
   private handleReopen() {
-    if (this._debugEnabled) {
-      console.log(`[${this._debugLabel}] [DEBUG] Reconnected. Sending reconnect action.`);
-    }
+    this.logDebugMessage('Reconnected. Sending reconnect action.');
     this.connection.send(JSON.stringify({ action: 'reconnect' }));
   }
 
   public shouldReconnect(code: number, reason: Buffer): boolean {
     const decision = this._shouldReconnect && !this._isCheckpointIntentionally;
-    if (this._debugEnabled) {
-      console.log(`[${this._debugLabel}] [DEBUG] Checking if should reconnect: code=${code}, reason=${reason.toString()}, decision=${decision}`);
-    }
+    this.logDebugMessage(`Checking if should reconnect: code=${code}, reason=${reason.toString()}, decision=${decision}`);
     if (decision) {
       this.state = 'reconnecting';
     }
@@ -328,9 +328,7 @@ export class Sandbox {
   }
 
   private flushStdinBuffer() {
-    if (this._debugEnabled) {
-      console.log(`[${this._debugLabel}] [DEBUG] Flushing stdin buffer (${this.stdinBuffer.length} messages).`);
-    }
+    this.logDebugMessage(`Flushing stdin buffer (${this.stdinBuffer.length} messages).`);
     for (const data of this.stdinBuffer) {
       this.connection.send(data);
     }
@@ -342,9 +340,7 @@ export class Sandbox {
       try {
         const message = JSON.parse(data);
         if (message.event === 'stdin') {
-          if (this._debugEnabled) {
-            console.log(`[${this._debugLabel}] [DEBUG] Buffering stdin message while reconnecting:`, message.data);
-          }
+          this.logDebugMessage('Buffering stdin message while reconnecting:', message.data);
           this.stdinBuffer.push(data);
           return;
         }

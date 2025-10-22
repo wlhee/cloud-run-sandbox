@@ -82,7 +82,7 @@ async function main() {
     }
 
     // Add a listener to see when Sandbox A's connection is closed
-    sandboxA['ws'].on('close', (code: number) => {
+    sandboxA['connection'].on('close', (code: number) => {
       console.log(`[SandboxA] Connection closed with code: ${code}. This is expected during handoff.`);
     });
 
@@ -131,11 +131,11 @@ async function main() {
     console.error('\n❌ An error occurred during the handoff process:', error);
   } finally {
     // Cleanup: ensure both sandbox connections are terminated
-    if (sandboxA && sandboxA['ws'].readyState < 2) {
+    if (sandboxA) {
       sandboxA.terminate();
       console.log('[SandboxA] Terminated.');
     }
-    if (sandboxB && sandboxB['ws'].readyState < 2) {
+    if (sandboxB) {
       sandboxB.terminate();
       console.log('[SandboxB] Terminated.');
     }
