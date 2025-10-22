@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import { Readable } from 'stream';
 import { MessageKey, EventType, SandboxEvent, WebSocketMessage } from './types';
+
+type SendMessageCallback = (data: string) => void;
 
 class SandboxStream extends Readable {
   // This is a push-based stream. Data is pushed into it from an external
@@ -39,7 +40,7 @@ class SandboxStream extends Readable {
 }
 
 export class SandboxProcess {
-  private ws: WebSocket;
+  private send: SendMessageCallback;
   private eventEmitter = new EventEmitter();
   private _startError: Error | null = null;
   private _isDone: boolean = false;
@@ -47,8 +48,8 @@ export class SandboxProcess {
   public readonly stdout: SandboxStream;
   public readonly stderr: SandboxStream;
 
-  constructor(websocket: WebSocket) {
-    this.ws = websocket;
+  constructor(send: SendMessageCallback) {
+    this.send = send;
     this.stdout = new SandboxStream();
     this.stderr = new SandboxStream();
   }
@@ -92,7 +93,7 @@ export class SandboxProcess {
         }
       });
 
-      this.ws.send(JSON.stringify({
+      this.send(JSON.stringify({
         language,
         code,
       }));
@@ -115,7 +116,7 @@ export class SandboxProcess {
     if (this._isDone) {
       throw new Error("Process has already completed.");
     }
-    this.ws.send(JSON.stringify({
+    this.send(JSON.stringify({
       event: 'stdin',
       data,
     }));

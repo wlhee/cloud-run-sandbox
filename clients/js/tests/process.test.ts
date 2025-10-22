@@ -22,15 +22,14 @@ import { MessageKey, EventType, SandboxEvent, WebSocketMessage } from '../src/ty
  * A test helper to simulate the server side of the WebSocket connection.
  */
 class MockServer {
-  public readonly ws: EventEmitter & { send: jest.Mock };
+  public readonly send: jest.Mock;
   private process: SandboxProcess | null = null;
 
   constructor() {
-    this.ws = new EventEmitter() as any;
-    this.ws.send = jest.fn();
+    this.send = jest.fn();
   }
 
-  connect(process: SandboxProcess) {
+  setProcess(process: SandboxProcess) {
     this.process = process;
   }
 
@@ -82,8 +81,8 @@ describe('SandboxProcess', () => {
 
   it('sends the correct execution request to the server', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
 
     // Act
     const execPromise = process.exec('python', 'print("hello")');
@@ -91,7 +90,7 @@ describe('SandboxProcess', () => {
     await execPromise;
 
     // Assert
-    expect(server.ws.send).toHaveBeenCalledWith(JSON.stringify({
+    expect(server.send).toHaveBeenCalledWith(JSON.stringify({
       language: 'python',
       code: 'print("hello")',
     }));
@@ -99,8 +98,8 @@ describe('SandboxProcess', () => {
 
   it('resolves the wait promise when called before the done message', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
     const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
@@ -115,8 +114,8 @@ describe('SandboxProcess', () => {
 
   it('resolves the wait promise when called after the done message', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
     const execPromise = process.exec('bash', 'test');
     server.sendRunning();
     await execPromise;
@@ -131,8 +130,8 @@ describe('SandboxProcess', () => {
 
   it('streams stdout and stderr chunks correctly using full read', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
 
     // Act
     const execPromise = process.exec('bash', 'test');
@@ -160,8 +159,8 @@ describe('SandboxProcess', () => {
 
   it('streams stdout and stderr chunks correctly using iterative read', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
 
@@ -221,8 +220,8 @@ describe('SandboxProcess', () => {
 
   it('rejects the exec promise when the server sends an execution error', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
 
     // Act
     const execPromise = process.exec('python', 'bad code');
@@ -234,8 +233,8 @@ describe('SandboxProcess', () => {
 
   it('does not hang if stdout is fully consumed before wait() is called', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
 
     // Act
     const execPromise = process.exec('bash', 'test');
@@ -254,8 +253,8 @@ describe('SandboxProcess', () => {
 
   it('sends stdin to the server', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
 
     // Act
     const execPromise = process.exec('bash', 'test');
@@ -265,7 +264,7 @@ describe('SandboxProcess', () => {
     process.writeToStdin('hello');
 
     // Assert
-    expect(server.ws.send).toHaveBeenCalledWith(JSON.stringify({
+    expect(server.send).toHaveBeenCalledWith(JSON.stringify({
       event: 'stdin',
       data: 'hello',
     }));
@@ -273,8 +272,8 @@ describe('SandboxProcess', () => {
 
   it('terminates the process', async () => {
     // Arrange
-    const process = new SandboxProcess(server.ws as any);
-    server.connect(process);
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
 
     // Act
     const execPromise = process.exec('bash', 'test');

@@ -15,41 +15,40 @@
  */
 
 import { Sandbox } from '../src/sandbox';
-import WebSocket from 'ws';
+import { Connection } from '../src/connection';
 import { EventEmitter } from 'events';
 import { jest } from '@jest/globals';
 import { MessageKey, EventType, SandboxEvent } from '../src/types';
 
-// Mock the WebSocket class
-jest.mock('ws');
+// Mock the Connection class
+jest.mock('../src/connection');
 
-const MockWebSocket = WebSocket as jest.MockedClass<typeof WebSocket>;
+const MockConnection = Connection as jest.MockedClass<typeof Connection>;
 
 describe('Sandbox', () => {
-  let mockWsInstance: EventEmitter & { send: jest.Mock; close: jest.Mock; terminate: jest.Mock; readyState: number; };
+  let mockConnectionInstance: EventEmitter & { send: jest.Mock; close: jest.Mock; };
 
   beforeEach(() => {
     // Create a fresh mock instance for each test
-    mockWsInstance = new EventEmitter() as any;
-    mockWsInstance.send = jest.fn();
-    mockWsInstance.close = jest.fn();
-    mockWsInstance.terminate = jest.fn();
-    mockWsInstance.readyState = 1; // WebSocket.OPEN
+    mockConnectionInstance = new EventEmitter() as any;
+    mockConnectionInstance.send = jest.fn();
+    mockConnectionInstance.close = jest.fn();
 
     // Make the constructor return our mock instance
-    MockWebSocket.mockImplementation(() => mockWsInstance as any);
+    MockConnection.mockImplementation(() => mockConnectionInstance as any);
+    MockConnection.mockClear();
   });
 
   it('should create and terminate a sandbox successfully', async () => {
     const createPromise = Sandbox.create('ws://test-url');
     
-    mockWsInstance.emit('open');
+    mockConnectionInstance.emit('open');
 
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.SANDBOX_ID,
       [MessageKey.SANDBOX_ID]: 'test-id',
     }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
     }));
@@ -58,7 +57,7 @@ describe('Sandbox', () => {
 
     expect(sandbox).toBeInstanceOf(Sandbox);
     expect(sandbox.sandboxId).toBe('test-id');
-    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+    expect(mockConnectionInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: false,
       enable_sandbox_handoff: false,
@@ -66,19 +65,19 @@ describe('Sandbox', () => {
     }));
 
     sandbox.terminate();
-    expect(mockWsInstance.close).toHaveBeenCalled();
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
   it('should create a sandbox with checkpointing enabled', async () => {
     const createPromise = Sandbox.create('ws://test-url', { enableSandboxCheckpoint: true });
     
-    mockWsInstance.emit('open');
+    mockConnectionInstance.emit('open');
 
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.SANDBOX_ID,
       [MessageKey.SANDBOX_ID]: 'test-id',
     }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
     }));
@@ -87,7 +86,7 @@ describe('Sandbox', () => {
 
     expect(sandbox).toBeInstanceOf(Sandbox);
     expect(sandbox.sandboxId).toBe('test-id');
-    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+    expect(mockConnectionInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: true,
       enable_sandbox_handoff: false,
@@ -95,19 +94,19 @@ describe('Sandbox', () => {
     }));
 
     sandbox.terminate();
-    expect(mockWsInstance.close).toHaveBeenCalled();
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
   it('should create a sandbox with handoff enabled', async () => {
     const createPromise = Sandbox.create('ws://test-url', { enableSandboxHandoff: true });
     
-    mockWsInstance.emit('open');
+    mockConnectionInstance.emit('open');
 
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.SANDBOX_ID,
       [MessageKey.SANDBOX_ID]: 'test-id',
     }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
     }));
@@ -116,7 +115,7 @@ describe('Sandbox', () => {
 
     expect(sandbox).toBeInstanceOf(Sandbox);
     expect(sandbox.sandboxId).toBe('test-id');
-    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+    expect(mockConnectionInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: false,
       enable_sandbox_handoff: true,
@@ -124,26 +123,26 @@ describe('Sandbox', () => {
     }));
 
     sandbox.terminate();
-    expect(mockWsInstance.close).toHaveBeenCalled();
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
   it('should log debug messages with label when enabled', async () => {
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const createPromise = Sandbox.create('ws://test-url', { enableDebug: true, debugLabel: 'TestSandbox' });
     
-    mockWsInstance.emit('open');
+    mockConnectionInstance.emit('open');
 
     const sandboxIdMessage = {
       [MessageKey.EVENT]: EventType.SANDBOX_ID,
       [MessageKey.SANDBOX_ID]: 'test-id',
     };
-    mockWsInstance.emit('message', JSON.stringify(sandboxIdMessage));
+    mockConnectionInstance.emit('message', JSON.stringify(sandboxIdMessage));
     
     const runningMessage = {
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
     };
-    mockWsInstance.emit('message', JSON.stringify(runningMessage));
+    mockConnectionInstance.emit('message', JSON.stringify(runningMessage));
 
     await createPromise;
 
@@ -156,13 +155,13 @@ describe('Sandbox', () => {
   it('should create a sandbox with a filesystem snapshot', async () => {
     const createPromise = Sandbox.create('ws://test-url', { filesystemSnapshotName: 'my-snapshot' });
     
-    mockWsInstance.emit('open');
+    mockConnectionInstance.emit('open');
 
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.SANDBOX_ID,
       [MessageKey.SANDBOX_ID]: 'test-id',
     }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
     }));
@@ -171,7 +170,7 @@ describe('Sandbox', () => {
 
     expect(sandbox).toBeInstanceOf(Sandbox);
     expect(sandbox.sandboxId).toBe('test-id');
-    expect(mockWsInstance.send).toHaveBeenCalledWith(JSON.stringify({
+    expect(mockConnectionInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: false,
       enable_sandbox_handoff: false,
@@ -179,21 +178,21 @@ describe('Sandbox', () => {
     }));
 
     sandbox.terminate();
-    expect(mockWsInstance.close).toHaveBeenCalled();
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
   it('should successfully checkpoint a sandbox and prevent further execution', async () => {
     const createPromise = Sandbox.create('ws://test-url', { enableSandboxCheckpoint: true });
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
     const sandbox = await createPromise;
 
     const checkpointPromise = sandbox.checkpoint();
 
     // Simulate server responses
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTED' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTED' }));
 
     await expect(checkpointPromise).resolves.toBeUndefined();
 
@@ -203,34 +202,34 @@ describe('Sandbox', () => {
 
   it('should reject creation on server error and terminate the socket', async () => {
     const createPromise = Sandbox.create('ws://test-url');
-    mockWsInstance.emit('open');
+    mockConnectionInstance.emit('open');
 
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_CREATION_ERROR,
       [MessageKey.MESSAGE]: 'Creation failed',
     }));
 
     await expect(createPromise).rejects.toThrow('Creation failed');
-    expect(mockWsInstance.terminate).toHaveBeenCalled();
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
   it('should reject creation on connection error and terminate the socket', async () => {
     const createPromise = Sandbox.create('ws://test-url');
     const error = new Error('Connection error');
-    mockWsInstance.emit('error', error);
+    mockConnectionInstance.emit('error', error);
 
     await expect(createPromise).rejects.toThrow('Connection error');
-    expect(mockWsInstance.terminate).toHaveBeenCalled();
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
   it('should reject creation if connection closes prematurely and terminate the socket', async () => {
     const createPromise = Sandbox.create('ws://test-url');
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('close');
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('close');
 
     await expect(createPromise).rejects.toThrow('Connection closed during creation/restoration: code=undefined');
-    expect(mockWsInstance.terminate).toHaveBeenCalled();
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
   it('should reject only once and terminate if error and close are both emitted', async () => {
@@ -238,23 +237,23 @@ describe('Sandbox', () => {
     const error = new Error('Connection error');
     
     // Simulate the race condition
-    mockWsInstance.emit('error', error);
+    mockConnectionInstance.emit('error', error);
 
     // The promise should reject with the first error.
     await expect(createPromise).rejects.toThrow('Connection error');
     
-    mockWsInstance.emit('close');
-    expect(mockWsInstance.terminate).toHaveBeenCalledTimes(1);
+    mockConnectionInstance.emit('close');
+    expect(mockConnectionInstance.close).toHaveBeenCalledTimes(1);
   });
 
   it('should run a process, wait for output, and run another process', async () => {
     const createPromise = Sandbox.create('ws://test-url');
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.SANDBOX_ID,
       [MessageKey.SANDBOX_ID]: 'test-id',
     }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
     }));
@@ -262,7 +261,7 @@ describe('Sandbox', () => {
 
     // Run first process
     const process1Promise = sandbox.exec('bash', 'echo "hello"');
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
     }));
@@ -272,14 +271,14 @@ describe('Sandbox', () => {
       process1.stdout.on('data', (data) => resolve(data.toString()));
     });
 
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STDOUT,
       [MessageKey.DATA]: 'hello\n',
     }));
     
     expect(await stdoutPromise1).toBe('hello\n');
 
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_DONE,
     }));
@@ -287,7 +286,7 @@ describe('Sandbox', () => {
 
     // Run second process
     const process2Promise = sandbox.exec('bash', 'echo "world"');
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
     }));
@@ -297,7 +296,7 @@ describe('Sandbox', () => {
       process2.stdout.on('data', (data) => resolve(data.toString()));
     });
 
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STDOUT,
       [MessageKey.DATA]: 'world\n',
     }));
@@ -307,19 +306,19 @@ describe('Sandbox', () => {
 
   it('should unblock stream consumers when the sandbox is terminated', async () => {
     const createPromise = Sandbox.create('ws://test-url');
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.SANDBOX_ID,
       [MessageKey.SANDBOX_ID]: 'test-id',
     }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
     }));
     const sandbox = await createPromise;
 
     const processPromise = sandbox.exec('bash', 'sleep 10');
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
       [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
     }));
@@ -329,7 +328,7 @@ describe('Sandbox', () => {
     const stderrPromise = process.stderr.readAll();
 
     sandbox.terminate();
-    mockWsInstance.emit('close');
+    mockConnectionInstance.emit('close');
 
     // The streams should end, and the promises should resolve with empty strings.
     await expect(stdoutPromise).resolves.toBe('');
@@ -339,10 +338,10 @@ describe('Sandbox', () => {
     const attachPromise = Sandbox.attach('ws://test-url', 'test-id');
 
     // Simulate server responses for restoring
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RESTORING' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RESTORING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
 
     const sandbox = await attachPromise;
     expect(sandbox).toBeInstanceOf(Sandbox);
@@ -350,7 +349,7 @@ describe('Sandbox', () => {
 
     // Verify that exec works after attaching
     const execPromise = sandbox.exec('bash', 'echo "hello"');
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({
       "event": "status_update",
       "status": "SANDBOX_EXECUTION_RUNNING"
     }));
@@ -359,16 +358,16 @@ describe('Sandbox', () => {
 
   it('should handle a fatal checkpoint error', async () => {
     const createPromise = Sandbox.create('ws://test-url', { enableSandboxCheckpoint: true });
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
     const sandbox = await createPromise;
 
     const checkpointPromise = sandbox.checkpoint();
 
     // Simulate server responses for a failed checkpoint
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({
       event: 'status_update',
       status: 'SANDBOX_CHECKPOINT_ERROR',
       message: 'Fatal checkpoint failure',
@@ -382,16 +381,16 @@ describe('Sandbox', () => {
 
   it('should handle a recoverable checkpoint error', async () => {
     const createPromise = Sandbox.create('ws://test-url', { enableSandboxCheckpoint: true });
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
     const sandbox = await createPromise;
 
     const checkpointPromise = sandbox.checkpoint();
 
     // Simulate server responses for a recoverable error
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({
       event: 'status_update',
       status: 'SANDBOX_EXECUTION_IN_PROGRESS_ERROR',
       message: 'Execution in progress',
@@ -407,9 +406,9 @@ describe('Sandbox', () => {
     const attachPromise = Sandbox.attach('ws://test-url', testId);
 
     // Simulate the server connection and successful restoration
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RESTORING' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RESTORING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
 
     const sandbox = await attachPromise;
     
@@ -419,32 +418,32 @@ describe('Sandbox', () => {
 
   it('should successfully create a filesystem snapshot', async () => {
     const createPromise = Sandbox.create('ws://test-url');
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
     const sandbox = await createPromise;
 
     const snapshotPromise = sandbox.snapshotFilesystem('my-snapshot');
 
     // Simulate server responses
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATED' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATED' }));
 
     await expect(snapshotPromise).resolves.toBeUndefined();
   });
 
   it('should handle a filesystem snapshot error', async () => {
     const createPromise = Sandbox.create('ws://test-url');
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
     const sandbox = await createPromise;
 
     const snapshotPromise = sandbox.snapshotFilesystem('my-snapshot');
 
     // Simulate server responses for a failed snapshot
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
-    mockWsInstance.emit('message', JSON.stringify({
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({
       event: 'status_update',
       status: 'SANDBOX_FILESYSTEM_SNAPSHOT_ERROR',
       message: 'Snapshot failed',
@@ -455,17 +454,119 @@ describe('Sandbox', () => {
 
   it('should reject snapshot if another snapshot is in progress', async () => {
     const createPromise = Sandbox.create('ws://test-url');
-    mockWsInstance.emit('open');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
     const sandbox = await createPromise;
 
     const snapshotPromise1 = sandbox.snapshotFilesystem('my-snapshot-1');
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATING' }));
 
     await expect(sandbox.snapshotFilesystem('my-snapshot-2')).rejects.toThrow('Sandbox is not in a running state. Current state: filesystem_snapshotting');
 
-    mockWsInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATED' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_FILESYSTEM_SNAPSHOT_CREATED' }));
     await expect(snapshotPromise1).resolves.toBeUndefined();
+  });
+
+  describe('reconnection', () => {
+    it('should enable reconnection after sandbox is running', async () => {
+      const createPromise = Sandbox.create('ws://test-url');
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.SANDBOX_ID,
+        [MessageKey.SANDBOX_ID]: 'test-id',
+      }));
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+
+      const sandbox = await createPromise;
+
+      // After running, should be true
+      expect((sandbox as any)._shouldReconnect).toBe(true);
+    });
+
+    it('should change state to reconnecting on connection close', async () => {
+      const createPromise = Sandbox.create('ws://test-url');
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.SANDBOX_ID,
+        [MessageKey.SANDBOX_ID]: 'test-id',
+      }));
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+
+      const decision = sandbox.shouldReconnect(1006, Buffer.from('Abnormal closure'));
+
+      expect(decision).toBe(true);
+      expect((sandbox as any).state).toBe('reconnecting');
+    });
+
+    it('should provide correct reconnect info', async () => {
+      const createPromise = Sandbox.create('ws://test-url', { wsOptions: { headers: { 'X-Test': 'true' } } });
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.SANDBOX_ID,
+        [MessageKey.SANDBOX_ID]: 'test-id-reconnect',
+      }));
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+
+      const getReconnectInfo = MockConnection.mock.calls[0][2];
+      const info = getReconnectInfo();
+
+      expect(info.url).toBe('ws://test-url/attach/test-id-reconnect');
+      expect(info.wsOptions).toEqual({ headers: { 'X-Test': 'true' } });
+    });
+
+    it('should buffer and flush stdin during reconnection', async () => {
+      const createPromise = Sandbox.create('ws://test-url');
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.SANDBOX_ID,
+        [MessageKey.SANDBOX_ID]: 'test-id',
+      }));
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+
+      const processPromise = sandbox.exec('python', 'input()');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_RUNNING,
+      }));
+      const process = await processPromise;
+
+      // Trigger reconnection
+      sandbox.shouldReconnect(1006, Buffer.from('Abnormal closure'));
+      expect((sandbox as any).state).toBe('reconnecting');
+
+      // Send stdin while reconnecting
+      process.writeToStdin('buffered message');
+
+      // Should not be sent immediately
+      expect(mockConnectionInstance.send).not.toHaveBeenCalledWith(expect.stringContaining('buffered message'));
+
+      // Simulate successful reconnection
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+
+      // Should be sent after reconnection
+      expect(mockConnectionInstance.send).toHaveBeenCalledWith(JSON.stringify({
+        event: 'stdin',
+        data: 'buffered message',
+      }));
+    });
   });
 });
