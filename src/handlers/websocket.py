@@ -159,6 +159,10 @@ class WebsocketHandler:
                     task = asyncio.create_task(self.handle_checkpoint())
                 elif message.get("action") == "snapshot_filesystem":
                     task = asyncio.create_task(self.handle_snapshot_filesystem(message))
+                elif message.get("action") == "kill_process":
+                    task = asyncio.create_task(self.handle_kill_process())
+                elif message.get("action") == "kill_sandbox":
+                    task = asyncio.create_task(self.handle_kill_sandbox())
                 elif message.get("event") == "stdin":
                     task = asyncio.create_task(self.handle_stdin(message))
                 elif message.get("action") == "reconnect":
@@ -171,6 +175,27 @@ class WebsocketHandler:
                     task.add_done_callback(self.active_tasks.discard)
         except (WebSocketDisconnect, WebSocketException):
             logger.info(f"Client disconnected from sandbox {self.sandbox.sandbox_id if self.sandbox else 'unknown'}")
+
+    async def handle_kill_process(self):
+        """Handles a kill_process request from the client."""
+        try:
+            if not self.sandbox.is_execution_running:
+                await self.send_status(SandboxStateEvent.SANDBOX_EXECUTION_FORCE_KILLED)
+                return
+            await self.sandbox.kill_exec_process()
+            await self.send_status(SandboxStateEvent.SANDBOX_EXECUTION_FORCE_KILLED)
+        except Exception as e:
+            logger.error(f"Kill failed for sandbox {self.sandbox.sandbox_id}", exc_info=e)
+            await self.send_status(SandboxStateEvent.SANDBOX_EXECUTION_FORCE_KILL_ERROR)
+
+    async def handle_kill_sandbox(self):
+        """Handles a kill_sandbox request from the client."""
+        try:
+            await manager.kill_sandbox(self.sandbox.sandbox_id)
+            await self.websocket.close(code=1000)
+        except Exception as e:
+            logger.error(f"Kill sandbox failed for sandbox {self.sandbox.sandbox_id}", exc_info=e)
+            await self.handle_error(e, close_connection=True)
 
     async def handle_checkpoint(self):
         """Handles a checkpoint request from the client."""
@@ -219,6 +244,7 @@ class WebsocketHandler:
         """
         Handles a single code execution request, including streaming the output.
         """
+        is_execution_done_sent = False
         try:
             language = CodeLanguage(message['language'])
             code = message['code']
@@ -227,7 +253,10 @@ class WebsocketHandler:
             
             async for event in self.sandbox.stream_outputs():
                 if event["type"] == "status_update":
-                    await self.send_status(SandboxStateEvent(event["status"]))
+                    status = SandboxStateEvent(event["status"])
+                    if status == SandboxStateEvent.SANDBOX_EXECUTION_DONE:
+                        is_execution_done_sent = True
+                    await self.send_status(status)
                 else:
                     await self.websocket.send_json({
                         "event": event["type"].value,
@@ -242,24 +271,37 @@ class WebsocketHandler:
         except Exception as e:
             logger.error(f"Unexpected error during execution: {e}")
             await self.handle_error(e, close_connection=True, message=message)
+        finally:
+            if not self.sandbox.is_execution_running and not is_execution_done_sent:
+                await self.send_status(SandboxStateEvent.SANDBOX_EXECUTION_DONE)
 
     async def reconnect_and_stream(self, message: dict):
         """
         Handles a reconnect request, including streaming the output.
         """
+        is_execution_done_sent = False
         try:
             async for event in self.sandbox.stream_outputs():
                 if event["type"] == "status_update":
-                    await self.send_status(SandboxStateEvent(event["status"]))
+                    status = SandboxStateEvent(event["status"])
+                    if status == SandboxStateEvent.SANDBOX_EXECUTION_DONE:
+                        is_execution_done_sent = True
+                    await self.send_status(status)
                 else:
                     await self.websocket.send_json({
                         "event": event["type"].value,
                         "data": event["data"]
                     })
+            
+            # After the stream is exhausted, if the execution is no longer running
+            # and the client hasn't been sent the final status, send it now.
+            if not self.sandbox.is_execution_running and not is_execution_done_sent:
+                await self.send_status(SandboxStateEvent.SANDBOX_EXECUTION_DONE)
 
         except SandboxStreamClosed:
             # This is the expected end of a stream, not an error.
-            pass
+            if not self.sandbox.is_execution_running and not is_execution_done_sent:
+                await self.send_status(SandboxStateEvent.SANDBOX_EXECUTION_DONE)
         except (SandboxOperationError, KeyError, ValueError) as e:
             await self.handle_error(e, close_connection=False, message=message)
         except Exception as e:

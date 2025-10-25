@@ -34,6 +34,7 @@ export class Sandbox {
   private _shouldReconnect: boolean = false;
   private _autoReconnectEnabled: boolean = false;
   private _isCheckpointIntentionally: boolean = false;
+  private _isKillIntentionally = false;
   private _url: string = '';
   private _wsOptions?: WebSocket.ClientOptions;
   private stdinBuffer: string[] = [];
@@ -162,6 +163,10 @@ export class Sandbox {
           this.state = 'running';
           this.eventEmitter.emit('filesystem_snapshot_error', new Error(message.message || message.status));
           break;
+        case SandboxEvent.SANDBOX_KILLED:
+        case SandboxEvent.SANDBOX_KILL_ERROR:
+          this.eventEmitter.emit('killed');
+          break;
       }
       return;
     }
@@ -178,7 +183,7 @@ export class Sandbox {
     }
     
     if (this.activeProcess) {
-      this.activeProcess.terminate();
+      this.activeProcess.close();
       this.activeProcess = null;
     }
   }
@@ -193,7 +198,7 @@ export class Sandbox {
     }
     
     if (this.activeProcess) {
-      this.activeProcess.terminate();
+      this.activeProcess.close();
       this.activeProcess = null;
     }
     // In the 'running' state, you might want to emit a general error
@@ -373,7 +378,30 @@ export class Sandbox {
     return process;
   }
 
-  public terminate() {
-    this.connection.close();
+  public kill(): Promise<void> {
+    if (this.state === 'closed' || this.state === 'failed' || this.state === 'checkpointed') {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this.logDebugMessage('Kill timeout reached. Forcing connection close.');
+        this.connection.close();
+        resolve();
+      }, 5000); // 5-second timeout
+
+      this.eventEmitter.once('killed', () => {
+        this.logDebugMessage('Sandbox killed successfully.');
+        clearTimeout(timeout);
+        this.connection.close();
+        resolve();
+      });
+
+      this._isKillIntentionally = true;
+      this.logDebugMessage('Sending kill command to sandbox...');
+      this.connection.send(JSON.stringify({
+        action: 'kill_sandbox',
+      }));
+    });
   }
 }

@@ -36,10 +36,8 @@
  * 1. Make sure you have ts-node installed (`npm install -g ts-node`).
  * 2. Set the environment variable for your Cloud Run service URL:
  *    `export CLOUD_RUN_URL="wss://your-service-url.run.app"
- * 3. Install the JS client for the sandbox:
- *    `npm install clients/js/`
- * 4. Run the script from the root of the repository:
- *    `ts-node example/reconnect.ts`
+ * 3. Run the script from the root of the repository:
+ *    `npx ts-node example/reconnect.ts`
  */
 import { Sandbox } from '../clients/js/src/sandbox';
 
@@ -81,9 +79,9 @@ async function main() {
     console.error("\nAn error occurred:", e);
   } finally {
     if (sandbox) {
-      console.log("\nTerminating sandbox...");
-      sandbox.terminate();
-      console.log("Sandbox terminated.");
+      console.log('\nKilling sandbox...');
+      sandbox.kill();
+      console.log("Sandbox killed.");
     }
   }
 }

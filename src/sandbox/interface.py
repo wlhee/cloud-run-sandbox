@@ -111,6 +111,13 @@ class SandboxInterface(ABC):
         pass
 
     @abstractmethod
+    async def kill_exec_process(self):
+        """
+        Forcefully kills the running exec process.
+        """
+        pass
+
+    @abstractmethod
     async def delete(self):
         pass
 

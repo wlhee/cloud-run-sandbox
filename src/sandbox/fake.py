@@ -196,3 +196,8 @@ class FakeSandbox(SandboxInterface):
         logger.info(f"Fake sandbox {self.sandbox_id}: SNAPSHOTTING to {snapshot_path}.")
         with open(snapshot_path, "w") as f:
             f.write("snapshot_data")
+
+    async def kill_exec_process(self):
+        """Simulates killing the execution process."""
+        logger.info(f"Fake sandbox {self.sandbox_id}: KILLING EXEC PROCESS.")
+        self._shutting_down = True

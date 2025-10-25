@@ -44,6 +44,8 @@ export class SandboxProcess {
   private eventEmitter = new EventEmitter();
   private _startError: Error | null = null;
   private _isDone: boolean = false;
+  private _isKillIntentionally: boolean = false;
+  private _isKilling = false;
 
   public readonly stdout: SandboxStream;
   public readonly stderr: SandboxStream;
@@ -74,13 +76,21 @@ export class SandboxProcess {
         } else if (message.status === SandboxEvent.SANDBOX_EXECUTION_ERROR) {
           this._startError = new Error(message.message || 'Sandbox execution failed');
           this.eventEmitter.emit('started');
+          this.close();
+        } else if (message.status === SandboxEvent.SANDBOX_EXECUTION_DONE) {
+          if (this._isKilling) {
+            this.eventEmitter.emit('killed');
+          }
+          this.close();
         } else if (
-          message.status === SandboxEvent.SANDBOX_EXECUTION_DONE ||
-          message.status === SandboxEvent.SANDBOX_EXECUTION_FORCE_TERMINATED
+          message.status === SandboxEvent.SANDBOX_EXECUTION_FORCE_KILLED ||
+          message.status === SandboxEvent.SANDBOX_EXECUTION_FORCE_KILL_ERROR
         ) {
-          this._isDone = true;
-          this.cleanup();
-          this.eventEmitter.emit('done');
+          if (this._isKillIntentionally) {
+            this._isKilling = true;
+          } else {
+            this.close();
+          }
         }
         break;
     }
@@ -130,11 +140,35 @@ export class SandboxProcess {
     this.stderr.push(null);
   }
 
-  public terminate(): void {
+  public close(): void {
     if (!this._isDone) {
       this._isDone = true;
       this.cleanup();
       this.eventEmitter.emit('done');
     }
+  }
+
+  public kill(): Promise<void> {
+    if (this._isDone) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this.close();
+        resolve();
+      }, 5000); // 5-second timeout
+
+      this.eventEmitter.once('killed', () => {
+        clearTimeout(timeout);
+        this.close();
+        resolve();
+      });
+
+      this._isKillIntentionally = true;
+      this.send(JSON.stringify({
+        action: 'kill_process',
+      }));
+    });
   }
 }

@@ -796,6 +796,48 @@ class TestManagerLocking:
         # Assert
         self.mgr.delete_sandbox.assert_awaited_once_with(sandbox_id)
 
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_kill_sandbox(self, mock_create_instance):
+        # Arrange
+        mock_lock = AsyncMock()
+        self.mock_lock_factory.create_lock.return_value = mock_lock
+        mock_create_instance.return_value = FakeSandbox("kill-sandbox")
+        self.mgr.delete_sandbox = AsyncMock(wraps=self.mgr.delete_sandbox)
+
+        await self.mgr.create_sandbox(
+            sandbox_id="kill-sandbox",
+            enable_checkpoint=True,
+            enable_sandbox_handoff=True
+        )
+
+        # Act
+        await self.mgr.kill_sandbox("kill-sandbox")
+
+        # Assert
+        self.mgr.delete_sandbox.assert_awaited_once_with("kill-sandbox", delete_metadata=True)
+
+    @patch('src.sandbox.factory.create_sandbox_instance')
+    async def test_delete_sandbox_deletes_metadata(self, mock_create_instance):
+        # Arrange
+        mock_lock = AsyncMock()
+        self.mock_lock_factory.create_lock.return_value = mock_lock
+        mock_create_instance.return_value = FakeSandbox("delete-meta-sandbox")
+
+        await self.mgr.create_sandbox(
+            sandbox_id="delete-meta-sandbox",
+            enable_checkpoint=True,
+            enable_sandbox_handoff=True
+        )
+        
+        handle = self.mgr._sandboxes.get("delete-meta-sandbox")
+        handle.delete_metadata = AsyncMock()
+
+        # Act
+        await self.mgr.delete_sandbox("delete-meta-sandbox", delete_metadata=True)
+
+        # Assert
+        handle.delete_metadata.assert_awaited_once()
+
 
 @patch('src.sandbox.handle.SandboxHandle.verify_checkpoint_persisted', new_callable=AsyncMock)
 @patch('src.sandbox.factory.create_sandbox_instance')

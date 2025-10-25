@@ -55,8 +55,10 @@ class SandboxStateEvent(Enum):
     SANDBOX_IN_USE = "SANDBOX_IN_USE"
     # An error occurred while writing to stdin.
     SANDBOX_STDIN_ERROR = "SANDBOX_STDIN_ERROR"
-    # A running process was forcefully terminated.
-    SANDBOX_EXECUTION_FORCE_TERMINATED = "SANDBOX_EXECUTION_FORCE_TERMINATED"
+    # A running process was forcefully killed.
+    SANDBOX_EXECUTION_FORCE_KILLED = "SANDBOX_EXECUTION_FORCE_KILLED"
+    # An error occurred during the forced kill of a running process.
+    SANDBOX_EXECUTION_FORCE_KILL_ERROR = "SANDBOX_EXECUTION_FORCE_KILL_ERROR"
     # The sandbox is being checkpointed.
     SANDBOX_CHECKPOINTING = "SANDBOX_CHECKPOINTING"
     # The sandbox has been successfully checkpointed.
@@ -86,6 +88,9 @@ class SandboxStateEvent(Enum):
     SANDBOX_LOCK_RENEWAL_ERROR = "SANDBOX_LOCK_RENEWAL_ERROR"
     SANDBOX_LOCK_RELEASING = "SANDBOX_LOCK_RELEASING"
     SANDBOX_LOCK_RELEASED = "SANDBOX_LOCK_RELEASED"
+    SANDBOX_KILLING = "SANDBOX_KILLING"
+    SANDBOX_KILLED = "SANDBOX_KILLED"
+    SANDBOX_KILL_ERROR = "SANDBOX_KILL_ERROR"
 
 
 

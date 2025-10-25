@@ -130,14 +130,14 @@ async function main() {
   } catch (error) {
     console.error('\n❌ An error occurred during the handoff process:', error);
   } finally {
-    // Cleanup: ensure both sandbox connections are terminated
+    // Cleanup: ensure both sandbox connections are killed
     if (sandboxA) {
-      sandboxA.terminate();
-      console.log('[SandboxA] Terminated.');
+      sandboxA.kill();
+      console.log('[SandboxA] Killed.');
     }
     if (sandboxB) {
-      sandboxB.terminate();
-      console.log('[SandboxB] Terminated.');
+      sandboxB.kill();
+      console.log('[SandboxB] Killed.');
     }
   }
 }

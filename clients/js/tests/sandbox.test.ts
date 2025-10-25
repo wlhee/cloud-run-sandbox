@@ -39,7 +39,7 @@ describe('Sandbox', () => {
     MockConnection.mockClear();
   });
 
-  it('should create and terminate a sandbox successfully', async () => {
+  it('should create and kill a sandbox successfully', async () => {
     const createPromise = Sandbox.create('ws://test-url');
     
     mockConnectionInstance.emit('open');
@@ -64,7 +64,12 @@ describe('Sandbox', () => {
       filesystem_snapshot_name: undefined,
     }));
 
-    sandbox.terminate();
+    const killPromise = sandbox.kill();
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_KILLED,
+    }));
+    await killPromise;
     expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
@@ -93,7 +98,12 @@ describe('Sandbox', () => {
       filesystem_snapshot_name: undefined,
     }));
 
-    sandbox.terminate();
+    const killPromise = sandbox.kill();
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_KILLED,
+    }));
+    await killPromise;
     expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
@@ -122,7 +132,12 @@ describe('Sandbox', () => {
       filesystem_snapshot_name: undefined,
     }));
 
-    sandbox.terminate();
+    const killPromise = sandbox.kill();
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_KILLED,
+    }));
+    await killPromise;
     expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
@@ -177,7 +192,12 @@ describe('Sandbox', () => {
       filesystem_snapshot_name: 'my-snapshot',
     }));
 
-    sandbox.terminate();
+    const killPromise = sandbox.kill();
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_KILLED,
+    }));
+    await killPromise;
     expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
@@ -304,7 +324,7 @@ describe('Sandbox', () => {
     expect(await stdoutPromise2).toBe('world\n');
   });
 
-  it('should unblock stream consumers when the sandbox is terminated', async () => {
+  it('should unblock stream consumers when the sandbox is killed', async () => {
     const createPromise = Sandbox.create('ws://test-url');
     mockConnectionInstance.emit('open');
     mockConnectionInstance.emit('message', JSON.stringify({
@@ -327,7 +347,12 @@ describe('Sandbox', () => {
     const stdoutPromise = process.stdout.readAll();
     const stderrPromise = process.stderr.readAll();
 
-    sandbox.terminate();
+    const killPromise = sandbox.kill();
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_KILLED,
+    }));
+    await killPromise;
     mockConnectionInstance.emit('close');
 
     // The streams should end, and the promises should resolve with empty strings.
@@ -389,7 +414,10 @@ describe('Sandbox', () => {
     const checkpointPromise = sandbox.checkpoint();
 
     // Simulate server responses for a recoverable error
-    mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_CHECKPOINTING' }));
+    mockConnectionInstance.emit('message', JSON.stringify({
+      event: 'status_update',
+      status: 'SANDBOX_CHECKPOINTING'
+    }));
     mockConnectionInstance.emit('message', JSON.stringify({
       event: 'status_update',
       status: 'SANDBOX_EXECUTION_IN_PROGRESS_ERROR',
@@ -625,7 +653,7 @@ describe('Sandbox', () => {
     });
   });
   
-  it('should terminate the active process on force-terminate event', async () => {
+  it('should kill the active process on force-kill event', async () => {
     const createPromise = Sandbox.create('ws://test-url');
     mockConnectionInstance.emit('open');
     mockConnectionInstance.emit('message', JSON.stringify({
@@ -651,10 +679,10 @@ describe('Sandbox', () => {
 
     const waitPromise = process.wait();
 
-    // Simulate the force-terminate event
+    // Simulate the force-kill event
     mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
-      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_FORCE_TERMINATED,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_FORCE_KILLED,
     }));
 
     // Assert that the process is now done
@@ -662,5 +690,97 @@ describe('Sandbox', () => {
     
     // Assert that the sandbox has no active process
     expect((sandbox as any).activeProcess).toBeNull();
+  });
+
+  describe('kill', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('should send a kill_sandbox action and resolve on SANDBOX_KILLED', async () => {
+      const createPromise = Sandbox.create('ws://test-url');
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+
+      const killPromise = sandbox.kill();
+
+      expect(mockConnectionInstance.send).toHaveBeenCalledWith(JSON.stringify({
+        action: 'kill_sandbox',
+      }));
+
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_KILLED,
+      }));
+
+      await expect(killPromise).resolves.toBeUndefined();
+      expect(mockConnectionInstance.close).toHaveBeenCalled();
+    });
+
+    it('should resolve on SANDBOX_KILL_ERROR', async () => {
+      const createPromise = Sandbox.create('ws://test-url');
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+
+      const killPromise = sandbox.kill();
+
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_KILL_ERROR,
+      }));
+
+      await expect(killPromise).resolves.toBeUndefined();
+      expect(mockConnectionInstance.close).toHaveBeenCalled();
+    });
+
+    it('should time out and close the connection if no event is received', async () => {
+      const createPromise = Sandbox.create('ws://test-url');
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+
+      const killPromise = sandbox.kill();
+
+      jest.advanceTimersByTime(5000);
+
+      await expect(killPromise).resolves.toBeUndefined();
+      expect(mockConnectionInstance.close).toHaveBeenCalled();
+    });
+
+    it.each(['closed', 'failed', 'checkpointed'])
+    ('should resolve immediately if the sandbox state is %s', async (state) => {
+      const createPromise = Sandbox.create('ws://test-url');
+      mockConnectionInstance.emit('open');
+      mockConnectionInstance.emit('message', JSON.stringify({
+        [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+        [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+      }));
+      const sandbox = await createPromise;
+      (sandbox as any).state = state;
+
+      // Clear the mock so we can check that send is not called by kill()
+      mockConnectionInstance.send.mockClear();
+
+      const killPromise = sandbox.kill();
+
+      await expect(killPromise).resolves.toBeUndefined();
+      expect(mockConnectionInstance.send).not.toHaveBeenCalled();
+      expect(mockConnectionInstance.close).not.toHaveBeenCalled();
+    });
   });
 });

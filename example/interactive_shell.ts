@@ -70,7 +70,7 @@ async function main() {
     console.error("\nAn error occurred:", e);
   } finally {
     if (sandbox) {
-      sandbox.terminate();
+      sandbox.kill();
     }
     // Exit the process, otherwise the stdin listener will keep it alive.
     process.exit();

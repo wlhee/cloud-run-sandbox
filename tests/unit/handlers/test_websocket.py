@@ -592,7 +592,8 @@ async def test_reconnect_and_stream(mock_get_sandbox):
     Tests that a client can reconnect to a sandbox and continue streaming outputs.
     """
     # Arrange
-    sandbox = FakeSandbox("test-sandbox")
+    config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
+    sandbox = FakeSandbox("test-sandbox", config=config)
     mock_get_sandbox.return_value = sandbox
 
     output_stream = [
@@ -619,3 +620,121 @@ async def test_reconnect_and_stream(mock_get_sandbox):
         assert websocket.receive_json() == {"event": "stdout", "data": "output1"}
         assert websocket.receive_json() == {"event": "stderr", "data": "error1"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+async def test_handle_kill_process_success(mock_create_sandbox):
+    """
+    Tests that the 'kill_process' action is correctly handled.
+    """
+    # Arrange
+    config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
+    sandbox = FakeSandbox("test-sandbox", config=config)
+    sandbox.kill_exec_process = AsyncMock()
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        websocket.send_json({"action": "kill_process"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_FORCE_KILLED"}
+
+    sandbox.kill_exec_process.assert_awaited_once()
+
+@pytest.mark.asyncio
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+async def test_handle_kill_process_not_running(mock_create_sandbox):
+    """
+    Tests that a kill request is handled gracefully if no process is running.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    sandbox.kill_exec_process = AsyncMock()
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        # Send kill request when no process is running
+        websocket.send_json({"action": "kill_process"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_FORCE_KILLED"}
+
+    sandbox.kill_exec_process.assert_not_awaited()
+
+@pytest.mark.asyncio
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+async def test_handle_kill_process_failure(mock_create_sandbox):
+    """
+    Tests that a failure during killing is handled gracefully.
+    """
+    # Arrange
+    config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
+    sandbox = FakeSandbox("test-sandbox", config=config)
+    sandbox.kill_exec_process = AsyncMock(side_effect=Exception("Kill failed"))
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        websocket.send_json({"action": "kill_process"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_FORCE_KILL_ERROR"}
+
+    sandbox.kill_exec_process.assert_awaited_once()
+
+@pytest.mark.asyncio
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+async def test_reconnect_and_stream_not_running(mock_create_sandbox):
+    """
+    Tests that a reconnecting client is correctly informed if the process has already finished.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        # Send reconnect and verify stream
+        websocket.send_json({"action": "reconnect"})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
+
+@pytest.mark.asyncio
+@patch('src.sandbox.manager.SandboxManager.kill_sandbox')
+@patch('src.sandbox.manager.SandboxManager.create_sandbox')
+async def test_handle_kill_sandbox_success(mock_create_sandbox, mock_kill_sandbox):
+    """
+    Tests that the 'kill_sandbox' action is correctly handled.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    mock_create_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/create") as websocket:
+        websocket.send_json({"idle_timeout": 120})
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
+        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
+
+        websocket.send_json({"action": "kill_sandbox"})
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 1000
+
+    mock_kill_sandbox.assert_awaited_once_with("test-sandbox")

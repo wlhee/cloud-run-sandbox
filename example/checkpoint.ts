@@ -116,10 +116,10 @@ async function main() {
   } catch (e) {
     console.error("\nAn error occurred:", e);
   } finally {
-    if (sandbox && sandbox.sandboxId) {
-      console.log("\nTerminating sandbox...");
-      sandbox.terminate();
-      console.log("Sandbox terminated.");
+    if (sandbox) {
+      console.log("\nKilling sandbox...");
+      sandbox.kill();
+      console.log("Sandbox killed.");
     }
   }
 }

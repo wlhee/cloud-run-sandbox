@@ -576,8 +576,10 @@ class GVisorSandbox(SandboxInterface):
         self._drain_tasks.clear()
         logger.debug(f"GVISOR ({self.sandbox_id}): Drain tasks canceled.")
 
+        logger.debug(f"GVISOR ({self.sandbox_id}): Deleting container '{self._container_id}'...")
         delete_cmd = self._build_runsc_cmd("delete", "--force", self._container_id)
         await self._run_sync_command(delete_cmd, check=False)
+        logger.debug(f"GVISOR ({self.sandbox_id}): Container deleted.") 
 
         if os.path.exists(self._bundle_dir):
             shutil.rmtree(self._bundle_dir)
@@ -602,16 +604,16 @@ class GVisorSandbox(SandboxInterface):
                 raise SandboxExecutionInProgressError("Cannot checkpoint while an execution is in progress.")
             else:
                 logger.warning(f"GVISOR ({self.sandbox_id}): Forcing checkpoint with a running process. Terminating execution.")
-                await self._kill_exec_process()
+                await self.kill_exec_process()
 
         cmd = self._build_runsc_cmd("checkpoint", f"--image-path={checkpoint_path}", self._container_id)
         await self._run_sync_command(cmd)
         self._state = SandboxState.CHECKPOINTED
         logger.info(f"GVISOR ({self.sandbox_id}): Checkpointed successfully.")
 
-    async def _kill_exec_process(self):
+    async def kill_exec_process(self):
         """
-        Forcefully terminates the running exec process inside the sandbox using the captured PID.
+        Forcefully kills the running exec process inside the sandbox using the captured PID.
         """
         if not self._exec_process or not self._exec_process.is_running:
             return
@@ -623,9 +625,9 @@ class GVisorSandbox(SandboxInterface):
                 await self._run_sync_command(kill_cmd, check=False)
             except Exception as e:
                 logger.error(f"GVISOR ({self.sandbox_id}): Error while trying to kill exec process with PID {self._exec_pid}: {e}")
-
-        # Wait for the original host-side `runsc exec` process to terminate.
-        logger.warning(f"GVISOR ({self.sandbox_id}): No internal PID was captured for the exec process. Falling back to host-side termination.")
+        else:
+            # Wait for the original host-side `runsc exec` process to terminate.
+            logger.warning(f"GVISOR ({self.sandbox_id}): No internal PID was captured for the exec process. Falling back to host-side termination.")
         await self._exec_process.stop()
         await self._exec_process.wait()
         self._exec_process = None

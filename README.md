@@ -47,7 +47,7 @@ const stdout = await process.stdout.readAll();
 console.log(`STDOUT: ${stdout}`);
 
 // Clean up the sandbox session
-sandbox.terminate();
+sandbox.kill();
 ```
 
 For a more detailed example, please see `example/client_example.ts`.

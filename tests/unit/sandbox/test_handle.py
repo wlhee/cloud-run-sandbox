@@ -453,6 +453,31 @@ class TestSandboxHandleMethods(unittest.IsolatedAsyncioTestCase):
             expected_path = f"sandbox_checkpoints/{checkpoint_id}"
             self.assertEqual(checkpoint_info["path"], expected_path)
 
+    async def test_delete_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_instance = MagicMock()
+            gcs_config = GCSConfig(
+                metadata_mount_path=temp_dir,
+                metadata_bucket="my-metadata-bucket",
+                sandbox_checkpoint_mount_path=temp_dir,
+                sandbox_checkpoint_bucket="my-checkpoints-bucket",
+            )
+
+            handle = await SandboxHandle.create_persistent(
+                sandbox_id="persistent-sandbox",
+                instance=mock_instance,
+                idle_timeout=300,
+                gcs_config=gcs_config,
+                lock_factory=MagicMock(),
+            )
+
+            metadata_dir = os.path.dirname(handle.metadata_path)
+            self.assertTrue(os.path.exists(metadata_dir))
+
+            await handle.delete_metadata()
+
+            self.assertFalse(os.path.exists(metadata_dir))
+
 
 class TestSandboxHandleProperties(unittest.TestCase):
     def test_is_sandbox_checkpointable(self):

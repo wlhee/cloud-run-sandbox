@@ -161,6 +161,7 @@ class SandboxManager:
                     gcs_config=self.gcs_config,
                     delete_callback=delete_callback,
                     ip_address=ip_address,
+                    status_notifier=status_notifier,
                 )
 
             sandbox_instance = factory.create_sandbox_instance(sandbox_id, config=config)
@@ -282,7 +283,7 @@ class SandboxManager:
 
         try:
             if force and handle.instance.is_execution_running and handle.status_notifier:
-                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_EXECUTION_FORCE_TERMINATED)
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_EXECUTION_FORCE_KILLED)
             checkpoint_path = handle.sandbox_checkpoint_dir_path()
             await handle.instance.checkpoint(checkpoint_path, force=force)
 
@@ -318,7 +319,7 @@ class SandboxManager:
         await handle.instance.snapshot_filesystem(snapshot_path)
         logger.info(f"Sandbox {sandbox_id} filesystem snapshotted to {snapshot_path}")
 
-    async def delete_sandbox(self, sandbox_id: str):
+    async def delete_sandbox(self, sandbox_id: str, delete_metadata: bool = False):
         """
         Deletes a sandbox and removes it from the manager.
         """
@@ -337,6 +338,9 @@ class SandboxManager:
                 self._ip_pool.add(handle.ip_address)
                 del self._ip_allocations[sandbox_id]
 
+            if delete_metadata:
+                await handle.delete_metadata()
+
             if handle.delete_callback:
                 handle.delete_callback(sandbox_id)
             
@@ -344,6 +348,34 @@ class SandboxManager:
                 await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_DELETED)
 
             logger.info(f"Sandbox manager deleted {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
+
+    async def kill_sandbox(self, sandbox_id: str):
+        """
+        Immediately deletes a sandbox by its ID.
+        """
+        print(f"Killing sandbox {sandbox_id}...")
+        handle = self._sandboxes.get(sandbox_id)
+        try:
+            if not handle:
+                print(f"Sandbox {sandbox_id} handle not found.")
+            if handle and not handle.status_notifier:
+                print(f"Sandbox {sandbox_id} has no status notifier.")
+            if handle and handle.status_notifier:
+                print(f"Sending SANDBOX_KILLING status for sandbox {sandbox_id}...")
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_KILLING)
+            
+            print(f"Sandbox manager trying to delete sandbox {sandbox_id}...")
+            await self.delete_sandbox(sandbox_id, delete_metadata=True)
+            print(f"Sandbox manager finsihed deleting sandbox {sandbox_id}...")
+
+            
+            if handle and handle.status_notifier:
+                print(f"Sending SANDBOX_KILLED status for sandbox {sandbox_id}...")
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_KILLED)
+        except Exception as e:
+            logger.error(f"Kill failed for sandbox {sandbox_id}", exc_info=e)
+            if handle and handle.status_notifier:
+                await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_KILL_ERROR)
 
     async def delete_all_sandboxes(self):
         """
@@ -370,7 +402,9 @@ class SandboxManager:
         logger.info("All sandboxes deleted.")
 
     async def _on_release_requested(self, sandbox_id: str):
-        """Callback for when another process wants to take over the sandbox."""
+        """
+        Callback for when another process wants to take over the sandbox.
+        """
         logger.warning(f"Lock release requested for sandbox {sandbox_id}. Checkpointing and shutting down.")
         handle = self._sandboxes.get(sandbox_id)
         if handle and handle.status_notifier:
@@ -387,7 +421,9 @@ class SandboxManager:
                 await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_CHECKPOINTED)
 
     async def _on_renewal_error(self, sandbox_id: str):
-        """Callback for when the lock renewal fails."""
+        """
+        Callback for when the lock renewal fails.
+        """
         logger.error(f"Lock renewal failed for sandbox {sandbox_id}. Shutting down.")
         handle = self._sandboxes.get(sandbox_id)
         if handle and handle.status_notifier:

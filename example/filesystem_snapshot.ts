@@ -100,15 +100,16 @@ async function main() {
   } catch (e) {
     console.error("\nAn error occurred:", e);
   } finally {
+    // --- Cleanup ---
     if (sandbox1) {
-      console.log("\nTerminating sandbox1...");
-      sandbox1.terminate();
-      console.log("Sandbox1 terminated.");
+      console.log("\nKilling sandbox1...");
+      sandbox1.kill();
+      console.log("Sandbox1 killed.");
     }
     if (sandbox2) {
-      console.log("\nTerminating sandbox2...");
-      sandbox2.terminate();
-      console.log("Sandbox2 terminated.");
+      console.log("Killing sandbox2...");
+      sandbox2.kill();
+      console.log("Sandbox2 killed.");
     }
   }
 }

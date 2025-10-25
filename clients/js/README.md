@@ -26,8 +26,8 @@ async function main() {
     console.log(chunk.toString());
   }
 
-  // Terminate the sandbox
-  sandbox.terminate();
+  // Kill the sandbox
+  sandbox.kill();
 }
 
 main().catch(console.error);

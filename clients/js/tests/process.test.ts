@@ -33,7 +33,7 @@ class MockServer {
     this.process = process;
   }
 
-  private sendMessage(message: Partial<WebSocketMessage>) {
+  public sendMessage(message: Partial<WebSocketMessage>) {
     if (!this.process) {
       throw new Error('No process connected to the mock server');
     }
@@ -69,6 +69,13 @@ class MockServer {
       [MessageKey.MESSAGE]: errorMessage,
     });
   }
+
+  sendForcedKill() {
+    this.sendMessage({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_FORCE_KILLED,
+    });
+  }
 }
 
 
@@ -77,6 +84,11 @@ describe('SandboxProcess', () => {
 
   beforeEach(() => {
     server = new MockServer();
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('sends the correct execution request to the server', async () => {
@@ -270,7 +282,7 @@ describe('SandboxProcess', () => {
     }));
   });
 
-  it('terminates the process', async () => {
+  it('sends a kill action to the server', async () => {
     // Arrange
     const process = new SandboxProcess(server.send);
     server.setProcess(process);
@@ -280,10 +292,49 @@ describe('SandboxProcess', () => {
     server.sendRunning();
     await execPromise;
 
-    const waitPromise = process.wait();
-    process.terminate();
+    process.kill();
 
     // Assert
+    expect(server.send).toHaveBeenCalledWith(JSON.stringify({
+      action: 'kill_process',
+    }));
+  });
+
+  it('waits for both FORCE_KILLED and DONE events on kill', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
+    const execPromise = process.exec('bash', 'test');
+    server.sendRunning();
+    await execPromise;
+
+    // Act
+    const killPromise = process.kill();
+
+    // Simulate the server sending the two events in order
+    server.sendForcedKill();
+    server.sendDone();
+
+    // Assert
+    await expect(killPromise).resolves.toBeUndefined();
+    await expect(process.wait()).resolves.toBeUndefined();
+  });
+
+  it('resolves kill and wait promises on timeout', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
+    const execPromise = process.exec('bash', 'test');
+    server.sendRunning();
+    await execPromise;
+
+    // Act
+    const killPromise = process.kill();
+    const waitPromise = process.wait();
+    jest.runAllTimers();
+
+    // Assert
+    await expect(killPromise).resolves.toBeUndefined();
     await expect(waitPromise).resolves.toBeUndefined();
   });
 });

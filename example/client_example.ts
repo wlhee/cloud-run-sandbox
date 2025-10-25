@@ -127,9 +127,10 @@ print("Python script finished.")
     console.error("\nAn error occurred:", e);
   } finally {
     if (sandbox) {
-      console.log("\nTerminating sandbox...");
-      sandbox.terminate();
-      console.log("Sandbox terminated.");
+  // Kill the sandbox
+  sandbox.kill();
+  console.log("Sandbox killed.");
+}
     }
   }
 }

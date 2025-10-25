@@ -152,6 +152,7 @@ class SandboxHandle:
         gcs_config: Optional[GCSConfig] = None,
         delete_callback: Optional[Callable[[str], None]] = None,
         ip_address: Optional[str] = None,
+        status_notifier: Optional[StatusNotifier] = None,
         **kwargs
     ) -> 'SandboxHandle':
         """
@@ -162,7 +163,7 @@ class SandboxHandle:
         to be aware of GCS mount paths for features like filesystem snapshotting,
         which can be performed on any sandbox.
         """
-        return cls(sandbox_id, instance, idle_timeout, gcs_config=gcs_config, delete_callback=delete_callback, ip_address=ip_address, **kwargs)
+        return cls(sandbox_id, instance, idle_timeout, gcs_config=gcs_config, delete_callback=delete_callback, ip_address=ip_address, status_notifier=status_notifier, **kwargs)
 
     @classmethod
     async def create_persistent(
@@ -480,3 +481,18 @@ class SandboxHandle:
             gcs_prefix=gcs_prefix,
             timeout_sec=timeout_sec,
         )
+
+    async def delete_metadata(self):
+        """Deletes the GCS metadata directory for this sandbox."""
+        if not self.metadata_path:
+            return
+
+        metadata_dir = os.path.dirname(self.metadata_path)
+        if os.path.exists(metadata_dir):
+            try:
+                import shutil
+                shutil.rmtree(metadata_dir)
+                logger.info(f"Deleted metadata directory for sandbox {self.sandbox_id} at {metadata_dir}")
+            except OSError as e:
+                logger.error(f"Failed to delete metadata directory for sandbox {self.sandbox_id} at {metadata_dir}: {e}")
+                raise SandboxOperationError(f"Failed to delete metadata for sandbox {self.sandbox_id}") from e
