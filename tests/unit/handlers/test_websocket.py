@@ -90,7 +90,7 @@ async def test_create_interactive_session_success(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
     # Assert that the sandbox was created with the correct idle timeout
-    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False, enable_sandbox_handoff=False, filesystem_snapshot_name=None, status_notifier=ANY)
+    mock_create_sandbox.assert_called_once_with(idle_timeout=120, enable_checkpoint=False, enable_idle_timeout_auto_checkpoint=False, enable_sandbox_handoff=False, filesystem_snapshot_name=None, status_notifier=ANY)
 
 @pytest.mark.asyncio
 @patch('src.sandbox.manager.SandboxManager.create_sandbox')
@@ -114,6 +114,7 @@ async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
     mock_create_sandbox.assert_called_once_with(
         idle_timeout=300,
         enable_checkpoint=False,
+        enable_idle_timeout_auto_checkpoint=False,
         enable_sandbox_handoff=False,
         filesystem_snapshot_name="my-snapshot",
         status_notifier=ANY
@@ -142,6 +143,7 @@ async def test_create_sandbox_with_handoff(mock_create_sandbox):
     mock_create_sandbox.assert_called_once_with(
         idle_timeout=300,
         enable_checkpoint=False,
+        enable_idle_timeout_auto_checkpoint=False,
         enable_sandbox_handoff=True,
         filesystem_snapshot_name=None,
         status_notifier=ANY

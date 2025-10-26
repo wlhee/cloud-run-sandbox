@@ -80,6 +80,7 @@ class WebsocketHandler:
             init_message = await self.websocket.receive_json()
             idle_timeout = init_message.get("idle_timeout", 300)
             enable_checkpoint = init_message.get("enable_checkpoint", False)
+            enable_idle_timeout_auto_checkpoint = init_message.get("enable_idle_timeout_auto_checkpoint", False)
             enable_sandbox_handoff = init_message.get("enable_sandbox_handoff", False)
             filesystem_snapshot_name = init_message.get("filesystem_snapshot_name")
 
@@ -94,6 +95,7 @@ class WebsocketHandler:
             self.sandbox = await manager.create_sandbox(
                 idle_timeout=idle_timeout,
                 enable_checkpoint=enable_checkpoint,
+                enable_idle_timeout_auto_checkpoint=enable_idle_timeout_auto_checkpoint,
                 enable_sandbox_handoff=enable_sandbox_handoff,
                 filesystem_snapshot_name=filesystem_snapshot_name,
                 status_notifier=self.status_notifier
@@ -122,6 +124,8 @@ class WebsocketHandler:
                     await self.send_status(SandboxStateEvent.SANDBOX_NOT_FOUND)
                     await self.websocket.close(code=1011)
                     return False  # Indicates failure
+            else:
+                manager.update_status_notifier(sandbox_id, self.status_notifier)
 
             if sandbox.is_attached:
                 await self.send_status(SandboxStateEvent.SANDBOX_IN_USE)

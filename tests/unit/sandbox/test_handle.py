@@ -127,6 +127,38 @@ class TestAsyncSandboxHandleFactories(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(metadata["idle_timeout"], 300)
             self.assertTrue(metadata["enable_sandbox_checkpoint"])
             self.assertFalse(metadata["enable_sandbox_handoff"])
+            self.assertFalse(metadata["enable_idle_timeout_auto_checkpoint"])
+
+    async def test_create_persistent_handle_with_auto_checkpoint(self):
+        """
+        Tests that `enable_idle_timeout_auto_checkpoint` is persisted correctly.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_instance = MagicMock()
+            gcs_config = GCSConfig(
+                metadata_mount_path=temp_dir,
+                metadata_bucket="my-metadata-bucket",
+                sandbox_checkpoint_mount_path=temp_dir,
+                sandbox_checkpoint_bucket="my-checkpoints-bucket",
+            )
+
+            handle = await SandboxHandle.create_persistent(
+                sandbox_id="auto-checkpoint-sandbox",
+                instance=mock_instance,
+                idle_timeout=300,
+                gcs_config=gcs_config,
+                lock_factory=MagicMock(),
+                enable_idle_timeout_auto_checkpoint=True,
+            )
+
+            expected_path = os.path.join(temp_dir, "sandboxes", "auto-checkpoint-sandbox", "metadata.json")
+            self.assertTrue(os.path.exists(expected_path))
+
+            with open(expected_path, "r") as f:
+                metadata = json.load(f)
+            
+            self.assertTrue(metadata["enable_idle_timeout_auto_checkpoint"])
+            self.assertTrue(handle.is_idle_timeout_auto_checkpoint_enabled)
 
     async def test_create_persistent_fails_if_directory_exists(self):
         """
@@ -303,6 +335,7 @@ class TestAttachPersistentFactory(unittest.IsolatedAsyncioTestCase):
             "idle_timeout": 450,
             "enable_sandbox_checkpoint": True,
             "enable_sandbox_handoff": False,
+            "enable_idle_timeout_auto_checkpoint": True,
             "latest_sandbox_checkpoint": {
                 "bucket": "my-checkpoints-bucket",
                 "path": "sandbox_checkpoints/ckpt-xyz/"
@@ -326,6 +359,7 @@ class TestAttachPersistentFactory(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(handle.gcs_metadata)
         self.assertEqual(handle.idle_timeout, 450)
+        self.assertTrue(handle.is_idle_timeout_auto_checkpoint_enabled)
         self.assertIsNone(handle.lock)
 
     async def test_attach_persistent_with_handoff_acquires_lock(self):

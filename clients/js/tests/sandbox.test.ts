@@ -62,6 +62,7 @@ describe('Sandbox', () => {
       enable_checkpoint: false,
       enable_sandbox_handoff: false,
       filesystem_snapshot_name: undefined,
+      enable_idle_timeout_auto_checkpoint: false,
     }));
 
     const killPromise = sandbox.kill();
@@ -96,6 +97,42 @@ describe('Sandbox', () => {
       enable_checkpoint: true,
       enable_sandbox_handoff: false,
       filesystem_snapshot_name: undefined,
+      enable_idle_timeout_auto_checkpoint: false,
+    }));
+
+    const killPromise = sandbox.kill();
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_KILLED,
+    }));
+    await killPromise;
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
+  });
+
+  it('should create a sandbox with idle timeout auto checkpoint enabled', async () => {
+    const createPromise = Sandbox.create('ws://test-url', { enableIdleTimeoutAutoCheckpoint: true });
+    
+    mockConnectionInstance.emit('open');
+
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.SANDBOX_ID,
+      [MessageKey.SANDBOX_ID]: 'test-id',
+    }));
+    mockConnectionInstance.emit('message', JSON.stringify({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_RUNNING,
+    }));
+
+    const sandbox = await createPromise;
+
+    expect(sandbox).toBeInstanceOf(Sandbox);
+    expect(sandbox.sandboxId).toBe('test-id');
+    expect(mockConnectionInstance.send).toHaveBeenCalledWith(JSON.stringify({
+      idle_timeout: 60,
+      enable_checkpoint: false,
+      enable_sandbox_handoff: false,
+      filesystem_snapshot_name: undefined,
+      enable_idle_timeout_auto_checkpoint: true,
     }));
 
     const killPromise = sandbox.kill();
@@ -130,6 +167,7 @@ describe('Sandbox', () => {
       enable_checkpoint: false,
       enable_sandbox_handoff: true,
       filesystem_snapshot_name: undefined,
+      enable_idle_timeout_auto_checkpoint: false,
     }));
 
     const killPromise = sandbox.kill();
@@ -190,6 +228,7 @@ describe('Sandbox', () => {
       enable_checkpoint: false,
       enable_sandbox_handoff: false,
       filesystem_snapshot_name: 'my-snapshot',
+      enable_idle_timeout_auto_checkpoint: false,
     }));
 
     const killPromise = sandbox.kill();

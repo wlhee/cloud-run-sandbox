@@ -228,8 +228,8 @@ export class Sandbox {
     return { url: reconnectUrl, wsOptions: this._wsOptions };
   }
 
-  static create(url: string, options: { idleTimeout?: number, enableSandboxCheckpoint?: boolean, enableSandboxHandoff?: boolean, filesystemSnapshotName?: string, enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions, enableAutoReconnect?: boolean } = {}): Promise<Sandbox> {
-    const { idleTimeout = 60, enableSandboxCheckpoint = false, enableSandboxHandoff = false, filesystemSnapshotName, enableDebug = false, debugLabel = '', wsOptions, enableAutoReconnect = false } = options;
+  static create(url: string, options: { idleTimeout?: number, enableSandboxCheckpoint?: boolean, enableSandboxHandoff?: boolean, filesystemSnapshotName?: string, enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions, enableAutoReconnect?: boolean, enableIdleTimeoutAutoCheckpoint?: boolean } = {}): Promise<Sandbox> {
+    const { idleTimeout = 60, enableSandboxCheckpoint = false, enableSandboxHandoff = false, filesystemSnapshotName, enableDebug = false, debugLabel = '', wsOptions, enableAutoReconnect = false, enableIdleTimeoutAutoCheckpoint = false } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     let sandbox: Sandbox;
@@ -251,6 +251,7 @@ export class Sandbox {
         enable_checkpoint: enableSandboxCheckpoint,
         enable_sandbox_handoff: enableSandboxHandoff,
         filesystem_snapshot_name: filesystemSnapshotName,
+        enable_idle_timeout_auto_checkpoint: enableIdleTimeoutAutoCheckpoint,
       }));
     });
     

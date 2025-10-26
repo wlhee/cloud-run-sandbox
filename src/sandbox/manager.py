@@ -61,8 +61,12 @@ class SandboxManager:
 
                     is_expired = time.time() - handle.last_activity > handle.idle_timeout
                     if is_expired and not handle.instance.is_execution_running:
-                        logger.info(f"Sandbox {sandbox_id} has been idle for {handle.idle_timeout} seconds. Deleting.")
-                        await self.delete_sandbox(sandbox_id)
+                        if handle.is_idle_timeout_auto_checkpoint_enabled:
+                            logger.info(f"Sandbox {sandbox_id} has been idle for {handle.idle_timeout} seconds. Checkpointing.")
+                            await self.checkpoint_sandbox(sandbox_id)
+                        else:
+                            logger.info(f"Sandbox {sandbox_id} has been idle for {handle.idle_timeout} seconds. Deleting.")
+                            await self.delete_sandbox(sandbox_id)
             except asyncio.CancelledError:
                 logger.info("Sandbox cleanup loop cancelled.")
                 break
@@ -96,6 +100,7 @@ class SandboxManager:
         idle_timeout: int = None,
         delete_callback: Optional[Callable[[str], None]] = None,
         enable_checkpoint: bool = False,
+        enable_idle_timeout_auto_checkpoint: bool = False,
         filesystem_snapshot_name: str = None,
         enable_sandbox_handoff: bool = False,
         status_notifier: Optional[StatusNotifier] = None,
@@ -111,6 +116,9 @@ class SandboxManager:
 
         if enable_sandbox_handoff and not enable_checkpoint:
             raise SandboxCreationError("Sandbox handoff requires checkpointing to be enabled.")
+        
+        if enable_idle_timeout_auto_checkpoint and not enable_checkpoint:
+            raise SandboxCreationError("Idle timeout auto checkpoint requires checkpointing to be enabled.")
 
         config = factory.make_sandbox_config()
         ip_address = None
@@ -152,6 +160,7 @@ class SandboxManager:
                     on_release_requested=self._on_release_requested,
                     on_renewal_error=self._on_renewal_error,
                     status_notifier=status_notifier,
+                    enable_idle_timeout_auto_checkpoint=enable_idle_timeout_auto_checkpoint,
                 )
             else:
                 handle = SandboxHandle.create_ephemeral(
@@ -191,6 +200,12 @@ class SandboxManager:
             self.reset_idle_timer(sandbox_id)
             return handle.instance
         return None
+
+    def update_status_notifier(self, sandbox_id: str, status_notifier: StatusNotifier):
+        """Updates the status notifier for a given sandbox."""
+        handle = self._sandboxes.get(sandbox_id)
+        if handle:
+            handle.status_notifier = status_notifier
 
     async def restore_sandbox(
             self,
@@ -376,6 +391,27 @@ class SandboxManager:
             logger.error(f"Kill failed for sandbox {sandbox_id}", exc_info=e)
             if handle and handle.status_notifier:
                 await handle.status_notifier.send_status(SandboxStateEvent.SANDBOX_KILL_ERROR)
+
+    async def checkpoint_all_sandboxes(self):
+        """
+        Checkpoints all sandboxes that are configured for auto-checkpointing.
+        """
+        logger.info("Checkpointing all eligible sandboxes before shutdown...")
+        for sandbox_id, handle in self._sandboxes.items():
+            if handle.is_idle_timeout_auto_checkpoint_enabled:
+                if handle.instance.is_attached:
+                    logger.info(f"Sandbox {sandbox_id} has an active connection. Notifying client of SIGTERM.")
+                    if handle.status_notifier:
+                        await handle.status_notifier.send_status(SandboxStateEvent.SERVER_SIGTERM)
+                else:
+                    logger.info(f"Checkpointing sandbox {sandbox_id} due to shutdown.")
+                    try:
+                        await self.checkpoint_sandbox(sandbox_id)
+                    except Exception as e:
+                        logger.error(f"Error checkpointing sandbox {sandbox_id} during shutdown: {e}")
+            else:
+                logger.info(f"Sandbox {sandbox_id} is not configured for auto-checkpointing. Deleting.")
+                await self.delete_sandbox(sandbox_id)
 
     async def delete_all_sandboxes(self):
         """

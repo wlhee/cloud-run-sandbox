@@ -114,6 +114,43 @@ async def test_idle_cleanup(mock_create_instance):
     
     assert mgr.get_sandbox("idle-sandbox") is None
 
+
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_idle_auto_checkpoint(mock_create_instance, tmp_path):
+    """
+    Tests that an idle sandbox is automatically checkpointed.
+    """
+    # Arrange
+    sandbox = FakeSandbox("idle-checkpoint-sandbox")
+    mock_create_instance.return_value = sandbox
+    gcs_config = GCSConfig(
+        metadata_mount_path=str(tmp_path),
+        metadata_bucket="test-bucket",
+        sandbox_checkpoint_mount_path=str(tmp_path),
+        sandbox_checkpoint_bucket="test-bucket"
+    )
+    mgr = SandboxManager(gcs_config=gcs_config)
+    mgr.enable_idle_cleanup(cleanup_interval=0.1)
+    
+    # Spy on checkpoint_sandbox
+    mgr.checkpoint_sandbox = AsyncMock(wraps=mgr.checkpoint_sandbox)
+
+    # Act
+    await mgr.create_sandbox(
+        sandbox_id="idle-checkpoint-sandbox",
+        idle_timeout=0.1,
+        enable_checkpoint=True,
+        enable_idle_timeout_auto_checkpoint=True,
+    )
+    
+    # Assert
+    assert "idle-checkpoint-sandbox" in mgr._sandboxes
+    
+    # Wait for the idle cleanup to trigger the checkpoint
+    await asyncio.sleep(0.3)
+    
+    mgr.checkpoint_sandbox.assert_awaited_once_with("idle-checkpoint-sandbox")
+
 @patch('src.sandbox.factory.create_sandbox_instance')
 async def test_reset_idle_timer(mock_create_instance):
     """

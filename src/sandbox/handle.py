@@ -92,6 +92,8 @@ class GCSSandboxMetadata:
     enable_sandbox_checkpoint: bool = False
     # Whether this sandbox can be handed off between different sandbox manager instances.
     enable_sandbox_handoff: bool = False
+    # Whether this sandbox should be checkpointed automatically when it is idle.
+    enable_idle_timeout_auto_checkpoint: bool = False
 
 
 @dataclass
@@ -176,6 +178,7 @@ class SandboxHandle:
         delete_callback: Optional[Callable[[str], None]] = None,
         ip_address: Optional[str] = None,
         enable_sandbox_handoff: bool = False,
+        enable_idle_timeout_auto_checkpoint: bool = False,
         on_release_requested: Optional[Callable[[str], Awaitable[None]]] = None,
         on_renewal_error: Optional[Callable[[str], Awaitable[None]]] = None,
         status_notifier: Optional[StatusNotifier] = None,
@@ -235,6 +238,7 @@ class SandboxHandle:
             idle_timeout=idle_timeout,
             enable_sandbox_checkpoint=True,
             enable_sandbox_handoff=enable_sandbox_handoff,
+            enable_idle_timeout_auto_checkpoint=enable_idle_timeout_auto_checkpoint,
         )
         handle.write_metadata()
 
@@ -362,6 +366,11 @@ class SandboxHandle:
     def is_sandbox_handoff_enabled(self) -> bool:
         """Checks if the sandbox is configured to allow handoff."""
         return self.gcs_metadata is not None and self.gcs_metadata.enable_sandbox_handoff
+
+    @property
+    def is_idle_timeout_auto_checkpoint_enabled(self) -> bool:
+        """Checks if the sandbox is configured to be checkpointed automatically when it is idle."""
+        return self.gcs_metadata is not None and self.gcs_metadata.enable_idle_timeout_auto_checkpoint
 
     def update_latest_checkpoint(self):
         """
