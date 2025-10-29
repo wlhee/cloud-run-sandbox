@@ -323,10 +323,9 @@ async def test_invalid_message_format(mock_create_sandbox):
         # Check for the error message
         supported_languages = ", ".join([lang.value for lang in CodeLanguage])
         expected_error = (
-            "Invalid message format. 'language' and 'code' fields are required. "
-            f"Supported languages are: {supported_languages}"
+            f"Unsupported language: 'None'. Supported languages are: {supported_languages}"
         )
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_ERROR"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR"}
         assert websocket.receive_json() == {"event": "error", "message": expected_error}
 
         # The connection should remain open
@@ -368,10 +367,9 @@ async def test_unsupported_language(mock_create_sandbox):
         # Check for the error message
         supported_languages = ", ".join([lang.value for lang in CodeLanguage])
         expected_error = (
-            "Invalid message format. 'language' and 'code' fields are required. "
-            f"Supported languages are: {supported_languages}"
+            f"Unsupported language: 'unsupported'. Supported languages are: {supported_languages}"
         )
-        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_ERROR"}
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR"}
         assert websocket.receive_json() == {"event": "error", "message": expected_error}
 
         # The connection should remain open

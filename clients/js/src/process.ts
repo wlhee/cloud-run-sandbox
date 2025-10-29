@@ -77,6 +77,10 @@ export class SandboxProcess {
           this._startError = new Error(message.message || 'Sandbox execution failed');
           this.eventEmitter.emit('started');
           this.close();
+        } else if (message.status === SandboxEvent.SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR) {
+          this._startError = new Error(message.message || 'Unsupported language');
+          this.eventEmitter.emit('started');
+          this.close();
         } else if (message.status === SandboxEvent.SANDBOX_EXECUTION_DONE) {
           if (this._isKilling) {
             this.eventEmitter.emit('killed');

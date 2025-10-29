@@ -60,6 +60,10 @@ class SandboxExecutionError(SandboxOperationError):
     """Raised when code execution within a sandbox fails."""
     pass
 
+class UnsupportedLanguageError(SandboxExecutionError):
+    """Raised when an unsupported language is specified for execution."""
+    pass
+
 class SandboxStreamClosed(SandboxError):
     """Raised by the stream_outputs() generator when the output stream is closed."""
     pass

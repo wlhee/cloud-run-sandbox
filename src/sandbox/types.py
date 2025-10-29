@@ -47,6 +47,8 @@ class SandboxStateEvent(Enum):
     SANDBOX_CREATION_ERROR = "SANDBOX_CREATION_ERROR"
     # An error occurred during the execution of code in the sandbox.
     SANDBOX_EXECUTION_ERROR = "SANDBOX_EXECUTION_ERROR"
+    # The specified language is not supported.
+    SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR = "SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR"
     # The sandbox is executing code.
     SANDBOX_EXECUTION_RUNNING = "SANDBOX_EXECUTION_RUNNING"
     # The sandbox has finished executing code.

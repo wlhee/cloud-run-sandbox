@@ -70,6 +70,14 @@ class MockServer {
     });
   }
 
+  sendUnsupportedLanguageError(errorMessage: string) {
+    this.sendMessage({
+      [MessageKey.EVENT]: EventType.STATUS_UPDATE,
+      [MessageKey.STATUS]: SandboxEvent.SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR,
+      [MessageKey.MESSAGE]: errorMessage,
+    });
+  }
+
   sendForcedKill() {
     this.sendMessage({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
@@ -241,6 +249,19 @@ describe('SandboxProcess', () => {
 
     // Assert
     await expect(execPromise).rejects.toThrow('Syntax error');
+  });
+
+  it('rejects the exec promise on unsupported language error', async () => {
+    // Arrange
+    const process = new SandboxProcess(server.send);
+    server.setProcess(process);
+
+    // Act
+    const execPromise = process.exec('javascript', 'console.log("hello")');
+    server.sendUnsupportedLanguageError('Unsupported language');
+
+    // Assert
+    await expect(execPromise).rejects.toThrow('Unsupported language');
   });
 
   it('does not hang if stdout is fully consumed before wait() is called', async () => {

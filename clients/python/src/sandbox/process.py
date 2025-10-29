@@ -64,11 +64,11 @@ class SandboxProcess:
         """
         if self._done_event.is_set():
             return
-        
+
         self._cleanup()
         if self._on_done:
             self._on_done()
-        
+
         # This must be the last step, as it unblocks awaiters.
         self._done_event.set()
 
@@ -86,9 +86,13 @@ class SandboxProcess:
             if status == SandboxEvent.SANDBOX_EXECUTION_RUNNING:
                 self._started_event.set()
             elif status == SandboxEvent.SANDBOX_EXECUTION_ERROR:
-                self._start_error = SandboxExecutionError(message.get(MessageKey.MESSAGE, "Unknown execution error"))
+                self._start_error = SandboxExecutionError(message.get(MessageKey.MESSAGE, "Sandbox execution failed"))
                 self._started_event.set()
-                self._set_done() # An error means the process is done.
+                self._set_done()
+            elif status == SandboxEvent.SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR:
+                self._start_error = SandboxExecutionError(message.get(MessageKey.MESSAGE, "Unsupported language"))
+                self._started_event.set()
+                self._set_done()
             elif status == SandboxEvent.SANDBOX_EXECUTION_DONE:
                 self._set_done()
             return
@@ -96,7 +100,7 @@ class SandboxProcess:
         if event_type == EventType.STDOUT:
             self.stdout._put(message.get(MessageKey.DATA))
             return
-        
+
         if event_type == EventType.STDERR:
             self.stderr._put(message.get(MessageKey.DATA))
             return
@@ -104,7 +108,7 @@ class SandboxProcess:
     async def exec(self, language: str, code: str):
         """
         Starts the execution of the process in the sandbox and waits for confirmation.
-
+        
         Raises:
             SandboxExecutionError: If the execution fails to start.
         """
@@ -142,3 +146,4 @@ class SandboxProcess:
         """
         self.stdout._close()
         self.stderr._close()
+

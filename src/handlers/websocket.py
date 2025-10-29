@@ -14,7 +14,7 @@
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException
 from src.sandbox.manager import SandboxManager
-from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxError, StatusNotifier
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxError, StatusNotifier, UnsupportedLanguageError
 from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 import logging
@@ -250,7 +250,13 @@ class WebsocketHandler:
         """
         is_execution_done_sent = False
         try:
-            language = CodeLanguage(message['language'])
+            language_str = message.get('language')
+            if not language_str or language_str not in [lang.value for lang in CodeLanguage]:
+                supported_languages = ", ".join([lang.value for lang in CodeLanguage])
+                raise UnsupportedLanguageError(
+                    f"Unsupported language: '{language_str}'. Supported languages are: {supported_languages}"
+                )
+            language = CodeLanguage(language_str)
             code = message['code']
 
             await self.sandbox.execute(language, code=code)
@@ -318,7 +324,9 @@ class WebsocketHandler:
     async def handle_error(self, e: Exception, close_connection: bool, message: dict = None):
         error_status = SandboxStateEvent.SANDBOX_ERROR
 
-        if isinstance(e, SandboxRestoreError):
+        if isinstance(e, UnsupportedLanguageError):
+            error_status = SandboxStateEvent.SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR
+        elif isinstance(e, SandboxRestoreError):
             error_status = SandboxStateEvent.SANDBOX_RESTORE_ERROR
         elif isinstance(e, SandboxExecutionInProgressError):
             error_status = SandboxStateEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR

@@ -19,7 +19,7 @@ import websockets
 from unittest.mock import AsyncMock, patch
 
 from sandbox.sandbox import Sandbox
-from sandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError
+from sandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError, SandboxExecutionError
 from sandbox.types import MessageKey, EventType, SandboxEvent
 
 @pytest.fixture
@@ -294,3 +294,30 @@ async def test_exec_raises_error_if_not_running(mock_websocket_factory):
     # Act & Assert
     with pytest.raises(SandboxStateError, match="Sandbox is not in a running state. Current state: closed"):
         await sandbox.exec("command", "bash")
+
+@pytest.mark.asyncio
+async def test_unsupported_language_error_raises_exception(mock_websocket_factory):
+    """
+    Tests that a SandboxExecutionError is raised for unsupported language errors.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    exec_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR,
+            MessageKey.MESSAGE: "Unsupported language: javascript"
+        },
+    ]
+    await mock_websocket_factory(creation_messages, [exec_messages])
+    
+    sandbox = await Sandbox.create("ws://test")
+    
+    # Act & Assert
+    with pytest.raises(SandboxExecutionError, match="Unsupported language: javascript"):
+        await sandbox.exec("javascript", "console.log('hello')")
+    
+    await sandbox.terminate()
