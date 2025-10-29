@@ -48,7 +48,7 @@ async def main():
 
     try:
         # Create a new sandbox session
-        sandbox = await Sandbox.create(url, ssl=ssl_context)
+        sandbox = await Sandbox.create(url, ssl=ssl_context, enable_debug=True, debug_label="client_example")
         print(f"Successfully created sandbox with ID: {sandbox.sandbox_id}")
 
         # Execute a bash command

@@ -358,15 +358,15 @@ async def test_debug_logging(mock_websocket_factory, capsys):
     captured_debug = capsys.readouterr()
     
     # Assert that key lifecycle events are logged with the correct label
-    assert "[SandboxClient DEBUG| TestLabel |] Connecting to ws://test/create" in captured_debug.out
-    assert "[SandboxClient DEBUG| TestLabel |] Connection established." in captured_debug.out
-    assert "[SandboxClient DEBUG| TestLabel |] Received message: {\"event\": \"sandbox_id\", \"sandbox_id\": \"test_id\"}" in captured_debug.out
-    assert "[SandboxClient DEBUG| TestLabel |] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_RUNNING\"}" in captured_debug.out
-    assert "[SandboxClient DEBUG| TestLabel |] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_EXECUTION_RUNNING\"}" in captured_debug.out
+    assert "[TestLabel] Connecting to ws://test/create" in captured_debug.out
+    assert "[TestLabel] Connection established." in captured_debug.out
+    assert "[TestLabel] Received message: {\"event\": \"sandbox_id\", \"sandbox_id\": \"test_id\"}" in captured_debug.out
+    assert "[TestLabel] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_RUNNING\"}" in captured_debug.out
+    assert "[TestLabel] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_EXECUTION_RUNNING\"}" in captured_debug.out
     
     # Assert that noisy I/O events are NOT logged
     assert "STDOUT" not in captured_debug.out
     assert "STDERR" not in captured_debug.out
     
-    assert "[SandboxClient DEBUG| TestLabel |] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_EXECUTION_DONE\"}" in captured_debug.out
-    assert "[SandboxClient DEBUG| TestLabel |] Closing WebSocket connection." in captured_debug.out
+    assert "[TestLabel] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_EXECUTION_DONE\"}" in captured_debug.out
+    assert "[TestLabel] Closing WebSocket connection." in captured_debug.out

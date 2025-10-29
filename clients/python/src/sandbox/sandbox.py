@@ -69,8 +69,8 @@ class Sandbox:
 
     def _log_debug(self, message):
         if self._enable_debug:
-            label = f" {self._debug_label} |" if self._debug_label else ""
-            print(f"[SandboxClient DEBUG|{label}] {message}")
+            label = f"[{self._debug_label}]" if self._debug_label else ""
+            print(f"{label} {message}")
 
     async def _send(self, data: dict):
         """Sends a JSON message to the WebSocket."""

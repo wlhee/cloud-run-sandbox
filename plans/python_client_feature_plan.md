@@ -4,7 +4,7 @@ This plan is structured around a series of features to bring the Python client t
 
 ---
 
-#### **Feature 1: Debugging Support**
+#### **Feature 1: Debugging Support (Done)**
 *   **Goal:** Add debug logging capabilities to the Python client for easier troubleshooting.
 *   **Key API Additions:** `enable_debug` and `debug_label` parameters on `Sandbox.create()`.
 *   **Implementation Steps:**
