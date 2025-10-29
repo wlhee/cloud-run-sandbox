@@ -16,7 +16,7 @@ import asyncio
 import os
 import ssl
 import certifi
-from codesandbox import Sandbox
+from sandbox import Sandbox
 
 async def main():
     """
@@ -78,7 +78,7 @@ async def main():
         )
         print("\nExecuting streaming Python command:")
         print(py_command)
-        process = await sandbox.exec(py_command, "python")
+        process = await sandbox.exec("python", py_command)
 
         # Read the output streams using async iteration
         print("\n--- Python Streaming Output ---")

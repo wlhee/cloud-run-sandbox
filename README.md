@@ -50,7 +50,7 @@ console.log(`STDOUT: ${stdout}`);
 sandbox.kill();
 ```
 
-For a more detailed example, please see `example/client_example.ts`.
+For a more detailed example, please see `examples/client_example.ts`.
 
 ## 3. Checkpoint and Restore
 
@@ -108,7 +108,7 @@ await sandbox1.checkpoint();
 const sandbox2 = await Sandbox.attach(url, sandboxId);
 ```
 
-For a complete, runnable demonstration, please see the example file: `example/checkpoint.ts`.
+For a complete, runnable demonstration, please see the example file: `examples/checkpoint.ts`.
 
 ## 4. Filesystem Snapshot
 
@@ -159,7 +159,7 @@ await sandbox1.snapshotFilesystem('my-snapshot');
 const sandbox2 = await Sandbox.create(url, { filesystemSnapshotName: 'my-snapshot' });
 ```
 
-For a complete, runnable demonstration, please see the example file: `example/filesystem_snapshot.ts`.
+For a complete, runnable demonstration, please see the example file: `examples/filesystem_snapshot.ts`.
 
 ## 5. Executing Python or Bash Code via HTTP (One-off testing)
 
@@ -167,10 +167,10 @@ To execute a Python or Bash script with HTTP, you can send a POST request to the
 endpoint with the content of the script as the request body, and `language=[python|bash]` as a
 query parameter.
 
-For example, to execute the `test_hello.py` script in `example` directory:
+For example, to execute the `test_hello.py` script in `examples` directory:
 
 ```bash
-curl -s -X POST -H "Content-Type: text/plain" --data-binary @example/test_hello.py https://<YOUR_SERVICE_URL>/execute?language=python
+curl -s -X POST -H "Content-Type: text/plain" --data-binary @examples/test_hello.py https://<YOUR_SERVICE_URL>/execute?language=python
 ```
 
 For bash scripts,

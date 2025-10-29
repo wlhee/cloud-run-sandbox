@@ -17,8 +17,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from codesandbox.process import SandboxProcess, SandboxExecutionError
-from codesandbox.types import MessageKey, EventType, SandboxEvent
+from sandbox.process import SandboxProcess, SandboxExecutionError
+from sandbox.types import MessageKey, EventType, SandboxEvent
 
 @pytest.mark.asyncio
 async def test_process_exec_success_read():
@@ -48,7 +48,7 @@ async def test_process_exec_success_read():
         for msg in messages:
             process.handle_message(msg)
             await asyncio.sleep(0) # Yield control to allow tasks to run
-            
+        
         await exec_task
 
     # Act
@@ -87,7 +87,7 @@ async def test_process_stream_iteration():
         for msg in messages:
             process.handle_message(msg)
             await asyncio.sleep(0)
-            
+        
         await exec_task
 
     # Act
@@ -95,13 +95,13 @@ async def test_process_stream_iteration():
     
     stdout_chunks = []
     stderr_chunks = []
-
+    
     async def read_streams():
         async for chunk in process.stdout:
             stdout_chunks.append(chunk)
         async for chunk in process.stderr:
             stderr_chunks.append(chunk)
-
+            
     await asyncio.gather(read_streams(), process.wait())
 
     # Assert
@@ -130,7 +130,7 @@ async def test_process_exec_failure_unblocks_wait():
         exec_task = asyncio.create_task(process.exec("python", "some code"))
         process.handle_message(error_message)
         await exec_task
-
+    
     # The .wait() call should now complete immediately.
     await asyncio.wait_for(process.wait(), timeout=0.1)
     
@@ -164,14 +164,14 @@ async def test_process_terminate():
     exec_task = asyncio.create_task(process.exec("bash", "long command"))
     await exec_and_feed_partial()
     await exec_task # exec() is now unblocked
-
+    
     # Confirm we received the first chunk of output
     first_chunk = await asyncio.wait_for(process.stdout.__aiter__().__anext__(), timeout=0.1)
     assert first_chunk == "Partial output"
-
+    
     # Terminate the process while it's "running"
     await process.terminate()
-    
+
     # Assert
     # The wait() should resolve immediately because terminate is synchronous
     await asyncio.wait_for(process.wait(), timeout=0.1)
@@ -189,7 +189,7 @@ async def test_process_terminate_while_reading():
     # Arrange
     mock_ws = AsyncMock()
     process = SandboxProcess(mock_ws)
-
+    
     async def exec_and_feed_first_chunk():
         process.handle_message({
             MessageKey.EVENT: EventType.STATUS_UPDATE,
@@ -208,20 +208,20 @@ async def test_process_terminate_while_reading():
     # Act
     output_chunks = []
     first_chunk_received = asyncio.Event()
-
+    
     async def reader():
         async for chunk in process.stdout:
             output_chunks.append(chunk)
             first_chunk_received.set()
-
+            
     reader_task = asyncio.create_task(reader())
-
+    
     # Wait for the reader to confirm it has processed the first chunk
     await asyncio.wait_for(first_chunk_received.wait(), timeout=0.1)
     
     # Terminate the process while the reader is blocked on the stream
     await process.terminate()
-    
+
     # Assert
     # The reader task should complete without error
     await asyncio.wait_for(reader_task, timeout=0.1)
@@ -241,7 +241,7 @@ async def test_process_terminate_while_full_reading():
     # Arrange
     mock_ws = AsyncMock()
     process = SandboxProcess(mock_ws)
-
+    
     async def exec_and_feed_first_chunk():
         process.handle_message({
             MessageKey.EVENT: EventType.STATUS_UPDATE,
@@ -260,13 +260,13 @@ async def test_process_terminate_while_full_reading():
     # Act
     # Start the .read_all() in the background
     reader_task = asyncio.create_task(process.stdout.read_all())
-
+    
     # Give the reader a moment to start and consume the first chunk
     await asyncio.sleep(0.01)
     
     # Terminate the process while the reader is blocked
     await process.terminate()
-    
+
     # Assert
     # The reader task should complete and return the partial content
     result = await asyncio.wait_for(reader_task, timeout=0.1)
@@ -284,7 +284,7 @@ async def test_wait_is_unblocked_by_done_message():
     # Arrange
     mock_ws = AsyncMock()
     process = SandboxProcess(mock_ws)
-    
+
     # Act
     wait_task = asyncio.create_task(process.wait())
     
@@ -296,7 +296,7 @@ async def test_wait_is_unblocked_by_done_message():
         MessageKey.EVENT: EventType.STATUS_UPDATE,
         MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE
     })
-    
+
     # Assert
     await asyncio.wait_for(wait_task, timeout=0.1)
     assert wait_task.done(), "wait() should be unblocked after the DONE message"
@@ -309,7 +309,7 @@ async def test_multiple_waits_are_unblocked():
     # Arrange
     mock_ws = AsyncMock()
     process = SandboxProcess(mock_ws)
-    
+
     # Act
     wait_tasks = [asyncio.create_task(process.wait()) for _ in range(3)]
     
@@ -317,7 +317,7 @@ async def test_multiple_waits_are_unblocked():
     assert not any(t.done() for t in wait_tasks)
     
     await process.terminate()
-    
+
     # Assert
     await asyncio.wait_for(asyncio.gather(*wait_tasks), timeout=0.1)
     assert all(t.done() for t in wait_tasks)
@@ -331,11 +331,11 @@ async def test_terminate_is_idempotent():
     mock_ws = AsyncMock()
     on_done_callback = MagicMock()
     process = SandboxProcess(mock_ws, on_done=on_done_callback)
-    
+
     # Act
     await process.terminate()
     await process.terminate()
-    
+
     # Assert
     await process.wait()
     on_done_callback.assert_called_once()
@@ -348,7 +348,7 @@ async def test_process_write_to_stdin():
     # Arrange
     mock_ws = AsyncMock()
     process = SandboxProcess(mock_ws)
-
+    
     async def exec_and_write():
         # Start exec in the background
         exec_task = asyncio.create_task(process.exec("bash", "cat"))
@@ -359,10 +359,10 @@ async def test_process_write_to_stdin():
             MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING
         })
         await exec_task
-
+        
         # Write to stdin
         await process.write_to_stdin("hello\n")
-
+        
         # Simulate stdout and done
         process.handle_message({MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "hello\n"})
         process.handle_message({

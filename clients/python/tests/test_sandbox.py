@@ -18,9 +18,9 @@ import pytest
 import websockets
 from unittest.mock import AsyncMock, patch
 
-from codesandbox.sandbox import Sandbox
-from codesandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError
-from codesandbox.types import MessageKey, EventType, SandboxEvent
+from sandbox.sandbox import Sandbox
+from sandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError
+from sandbox.types import MessageKey, EventType, SandboxEvent
 
 @pytest.fixture
 def mock_websocket_factory():
@@ -29,7 +29,7 @@ def mock_websocket_factory():
     It patches `websockets.connect` and allows tests to specify message scripts
     that are sent in response to client actions (like `exec`).
     """
-    with patch('codesandbox.sandbox.websockets.connect', new_callable=AsyncMock) as mock_connect:
+    with patch('sandbox.sandbox.websockets.connect', new_callable=AsyncMock) as mock_connect:
         
         async def _factory(creation_messages, exec_messages_list=None, close_on_finish=True):
             if exec_messages_list is None:

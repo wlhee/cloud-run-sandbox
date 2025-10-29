@@ -12,7 +12,7 @@ pip install .
 
 ```python
 import asyncio
-from codesandbox import Sandbox
+from sandbox import Sandbox
 
 async def main():
     # The URL should be the WebSocket endpoint of your deployed service,
