@@ -48,8 +48,8 @@ class SandboxProcess:
     """
     Represents a process running within a sandbox, providing access to its I/O streams.
     """
-    def __init__(self, websocket, on_done: Callable[[], None] = None):
-        self._ws = websocket
+    def __init__(self, send_cb: Callable[[dict], asyncio.Task], on_done: Callable[[], None] = None):
+        self._send = send_cb
         self.stdout = SandboxStream()
         self.stderr = SandboxStream()
         self._started_event = asyncio.Event()
@@ -112,10 +112,10 @@ class SandboxProcess:
         Raises:
             SandboxExecutionError: If the execution fails to start.
         """
-        await self._ws.send(json.dumps({
+        await self._send({
             "language": language,
             "code": code,
-        }))
+        })
 
         # Wait for the execution to be acknowledged by the server
         await self._started_event.wait()
@@ -129,10 +129,10 @@ class SandboxProcess:
 
     async def write_to_stdin(self, data: str):
         """Writes data to the stdin of the process."""
-        await self._ws.send(json.dumps({
+        await self._send({
             "event": "stdin",
             "data": data,
-        }))
+        })
 
     async def terminate(self):
         """

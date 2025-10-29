@@ -150,7 +150,7 @@ async def test_sandbox_connection_lost_during_creation(mock_websocket_factory):
     await mock_websocket_factory([])
 
     # Act & Assert
-    with pytest.raises(SandboxConnectionError, match="Connection closed during creation"):
+    with pytest.raises(SandboxConnectionError, match="Connection closed:"):
         await Sandbox.create("ws://test")
 
 @pytest.mark.asyncio
@@ -321,3 +321,52 @@ async def test_unsupported_language_error_raises_exception(mock_websocket_factor
         await sandbox.exec("javascript", "console.log('hello')")
     
     await sandbox.terminate()
+
+@pytest.mark.asyncio
+async def test_debug_logging(mock_websocket_factory, capsys):
+    """
+    Tests that debug logs are correctly generated when the feature is enabled
+    and suppressed when disabled.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    exec_messages = [
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING},
+        {MessageKey.EVENT: EventType.STDOUT, MessageKey.DATA: "output"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE},
+    ]
+    
+    # --- Test with debug disabled ---
+    await mock_websocket_factory(creation_messages, [exec_messages], close_on_finish=False)
+    sandbox_no_debug = await Sandbox.create("ws://test", enable_debug=False)
+    await sandbox_no_debug.exec("bash", "command")
+    await sandbox_no_debug.terminate()
+    
+    captured_no_debug = capsys.readouterr()
+    assert "[SandboxClient DEBUG|" not in captured_no_debug.out
+
+    # --- Test with debug enabled ---
+    await mock_websocket_factory(creation_messages, [exec_messages], close_on_finish=False)
+    sandbox_debug = await Sandbox.create("ws://test", enable_debug=True, debug_label="TestLabel")
+    process = await sandbox_debug.exec("bash", "command")
+    await process.wait()
+    await sandbox_debug.terminate()
+
+    captured_debug = capsys.readouterr()
+    
+    # Assert that key lifecycle events are logged with the correct label
+    assert "[SandboxClient DEBUG| TestLabel |] Connecting to ws://test/create" in captured_debug.out
+    assert "[SandboxClient DEBUG| TestLabel |] Connection established." in captured_debug.out
+    assert "[SandboxClient DEBUG| TestLabel |] Received message: {\"event\": \"sandbox_id\", \"sandbox_id\": \"test_id\"}" in captured_debug.out
+    assert "[SandboxClient DEBUG| TestLabel |] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_RUNNING\"}" in captured_debug.out
+    assert "[SandboxClient DEBUG| TestLabel |] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_EXECUTION_RUNNING\"}" in captured_debug.out
+    
+    # Assert that noisy I/O events are NOT logged
+    assert "STDOUT" not in captured_debug.out
+    assert "STDERR" not in captured_debug.out
+    
+    assert "[SandboxClient DEBUG| TestLabel |] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_EXECUTION_DONE\"}" in captured_debug.out
+    assert "[SandboxClient DEBUG| TestLabel |] Closing WebSocket connection." in captured_debug.out

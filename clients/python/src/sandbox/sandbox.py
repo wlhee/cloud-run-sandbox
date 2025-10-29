@@ -25,16 +25,18 @@ class Sandbox:
     """
     Represents a connection to a Cloud Run Sandbox, used to execute commands.
     """
-    def __init__(self, websocket):
+    def __init__(self, websocket, enable_debug=False, debug_label=""):
         self._ws = websocket
         self._sandbox_id = None
         self._active_process = None
         self._created_event = asyncio.Event()
         self._creation_error = None
         self._stop_event = asyncio.Event()
-        self._listen_task = asyncio.create_task(self._listen())
+        self._listen_task = None
         self._state = "creating"
         self._shutdown_lock = asyncio.Lock()
+        self._enable_debug = enable_debug
+        self._debug_label = debug_label
 
     @property
     def sandbox_id(self):
@@ -42,24 +44,38 @@ class Sandbox:
         return self._sandbox_id
 
     @classmethod
-    async def create(cls, url: str, idle_timeout: int = 60, ssl=None):
+    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label=""):
         """
         Creates a new sandbox session.
         """
+        instance = cls(None, enable_debug, debug_label)
         try:
             # Use __await__ to make it compatible with the AsyncMock from tests
             sanitized_url = url.rstrip('/')
+            instance._log_debug(f"Connecting to {sanitized_url}/create")
             websocket = await websockets.connect(f"{sanitized_url}/create", ssl=ssl)
+            instance._ws = websocket
+            instance._log_debug("Connection established.")
         except websockets.exceptions.InvalidURI as e:
             raise SandboxConnectionError(f"Invalid WebSocket URI: {e}")
         except ConnectionRefusedError:
             raise SandboxConnectionError(f"Connection refused for WebSocket URI: {url}")
 
-        await websocket.send(json.dumps({"idle_timeout": idle_timeout}))
+        await instance._send({"idle_timeout": idle_timeout})
         
-        sandbox = cls(websocket)
-        await sandbox._wait_for_creation()
-        return sandbox
+        instance._listen_task = asyncio.create_task(instance._listen())
+        await instance._wait_for_creation()
+        return instance
+
+    def _log_debug(self, message):
+        if self._enable_debug:
+            label = f" {self._debug_label} |" if self._debug_label else ""
+            print(f"[SandboxClient DEBUG|{label}] {message}")
+
+    async def _send(self, data: dict):
+        """Sends a JSON message to the WebSocket."""
+        message_str = json.dumps(data)
+        await self._ws.send(message_str)
 
     async def _wait_for_creation(self):
         """
@@ -79,7 +95,7 @@ class Sandbox:
         if self._state != "running":
             raise SandboxStateError(f"Sandbox is not in a running state. Current state: {self._state}")
 
-        process = SandboxProcess(self._ws, on_done=self._clear_active_process)
+        process = SandboxProcess(self._send, on_done=self._clear_active_process)
         self._active_process = process
         
         await process.exec(language, code)
@@ -93,6 +109,7 @@ class Sandbox:
             self._state = "failed"
             self._creation_error = exc
             self._created_event.set()
+            self._log_debug(f"Creation failed: {exc}")
 
     async def _listen(self):
         """
@@ -116,10 +133,20 @@ class Sandbox:
                 message = json.loads(message_str)
                 event = message.get(MessageKey.EVENT)
 
-                # Process-specific events are always forwarded
-                if (event in [EventType.STDOUT, EventType.STDERR] or
-                    (event == EventType.STATUS_UPDATE and 
-                     message.get(MessageKey.STATUS, "").startswith("SANDBOX_EXECUTION_"))):
+                # Handle noisy I/O events first and skip logging for them.
+                if event in [EventType.STDOUT, EventType.STDERR]:
+                    if self._active_process:
+                        self._active_process.handle_message(message)
+                    continue
+
+                # For all other messages, log first.
+                self._log_debug(f"Received message: {message_str}")
+
+                # Now, dispatch the message.
+                is_execution_status = (event == EventType.STATUS_UPDATE and
+                                       message.get(MessageKey.STATUS, "").startswith("SANDBOX_EXECUTION_"))
+
+                if is_execution_status:
                     if self._active_process:
                         self._active_process.handle_message(message)
                     continue
@@ -140,12 +167,14 @@ class Sandbox:
                         await self._shutdown()
                         break
         
-        except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError):
-            error = SandboxConnectionError("Connection closed during creation")
+        except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError) as e:
+            error = SandboxConnectionError(f"Connection closed: {e}")
+            self._log_debug(f"Connection closed: {e}")
             self._handle_creation_error(error)
             await self._shutdown()
         
         except Exception as e:
+            self._log_debug(f"An unexpected error occurred: {e}")
             self._handle_creation_error(e)
             await self._shutdown()
 
@@ -153,6 +182,7 @@ class Sandbox:
         async with self._shutdown_lock:
             if self._state == "running":
                 self._state = "closed"
+                self._log_debug("State changed to closed")
 
             if self._active_process:
                 await self._active_process.terminate()
@@ -163,7 +193,8 @@ class Sandbox:
                 if asyncio.current_task() is not self._listen_task:
                     await self._listen_task
 
-            if self._ws.state != websockets.protocol.State.CLOSED:
+            if self._ws and self._ws.state != websockets.protocol.State.CLOSED:
+                self._log_debug("Closing WebSocket connection.")
                 await self._ws.close()
 
     async def terminate(self):
