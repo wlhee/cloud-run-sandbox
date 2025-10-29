@@ -370,3 +370,73 @@ async def test_debug_logging(mock_websocket_factory, capsys):
     
     assert "[TestLabel] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_EXECUTION_DONE\"}" in captured_debug.out
     assert "[TestLabel] Closing WebSocket connection." in captured_debug.out
+
+@pytest.mark.asyncio
+async def test_sandbox_attach_success(mock_websocket_factory):
+    """
+    Tests that a sandbox can be attached to successfully.
+    """
+    # Arrange
+    attach_messages = [
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    mock_ws = await mock_websocket_factory(attach_messages)
+
+    # Act
+    sandbox = await Sandbox.attach("ws://test", "existing_id")
+    
+    # Assert
+    assert sandbox.sandbox_id == "existing_id"
+    
+    await sandbox.terminate()
+    mock_ws.close.assert_awaited_once()
+
+@pytest.mark.asyncio
+async def test_sandbox_attach_not_found(mock_websocket_factory):
+    """
+    Tests that attach raises SandboxCreationError if the sandbox is not found.
+    """
+    # Arrange
+    error_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_NOT_FOUND,
+            MessageKey.MESSAGE: "Sandbox not found"
+        },
+    ]
+    await mock_websocket_factory(error_messages)
+
+    # Act & Assert
+    with pytest.raises(SandboxCreationError, match="Sandbox not found"):
+        await Sandbox.attach("ws://test", "non_existent_id")
+
+@pytest.mark.asyncio
+async def test_sandbox_attach_in_use(mock_websocket_factory):
+    """
+    Tests that attach raises SandboxCreationError if the sandbox is in use.
+    """
+    # Arrange
+    error_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_IN_USE,
+            MessageKey.MESSAGE: "Sandbox in use"
+        },
+    ]
+    await mock_websocket_factory(error_messages)
+
+    # Act & Assert
+    with pytest.raises(SandboxCreationError, match="Sandbox in use"):
+        await Sandbox.attach("ws://test", "in_use_id")
+
+@pytest.mark.asyncio
+async def test_sandbox_connection_lost_during_attach(mock_websocket_factory):
+    """
+    Tests that a connection lost during attach raises a SandboxConnectionError.
+    """
+    # Arrange
+    await mock_websocket_factory([])
+
+    # Act & Assert
+    with pytest.raises(SandboxConnectionError, match="Connection closed:"):
+        await Sandbox.attach("ws://test", "any_id")

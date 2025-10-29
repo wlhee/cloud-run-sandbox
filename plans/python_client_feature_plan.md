@@ -2,6 +2,10 @@
 
 This plan is structured around a series of features to bring the Python client to full parity with the TypeScript client. For each feature, the process will be to implement the API, add corresponding unit tests, and, where applicable, create a new Python example file that mirrors the functionality of the TypeScript examples.
 
+Use the TypeScript client implementation as a reference for business logic and error handling:
+- TypeScript client code location: clients/js/src
+- TypeScript client example location: examples/
+
 ---
 
 #### **Feature 1: Debugging Support (Done)**

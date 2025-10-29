@@ -25,15 +25,15 @@ class Sandbox:
     """
     Represents a connection to a Cloud Run Sandbox, used to execute commands.
     """
-    def __init__(self, websocket, enable_debug=False, debug_label=""):
+    def __init__(self, websocket, initial_state: str, enable_debug=False, debug_label=""):
         self._ws = websocket
         self._sandbox_id = None
         self._active_process = None
-        self._created_event = asyncio.Event()
-        self._creation_error = None
+        self._ready_event = asyncio.Event()
+        self._error_on_ready = None
         self._stop_event = asyncio.Event()
         self._listen_task = None
-        self._state = "creating"
+        self._state = initial_state
         self._shutdown_lock = asyncio.Lock()
         self._enable_debug = enable_debug
         self._debug_label = debug_label
@@ -48,7 +48,7 @@ class Sandbox:
         """
         Creates a new sandbox session.
         """
-        instance = cls(None, enable_debug, debug_label)
+        instance = cls(None, "creating", enable_debug, debug_label)
         try:
             # Use __await__ to make it compatible with the AsyncMock from tests
             sanitized_url = url.rstrip('/')
@@ -64,7 +64,29 @@ class Sandbox:
         await instance._send({"idle_timeout": idle_timeout})
         
         instance._listen_task = asyncio.create_task(instance._listen())
-        await instance._wait_for_creation()
+        await instance._wait_for_ready()
+        return instance
+
+    @classmethod
+    async def attach(cls, url: str, sandbox_id: str, ssl=None, enable_debug=False, debug_label=""):
+        """
+        Attaches to an existing sandbox session.
+        """
+        instance = cls(None, "attaching", enable_debug, debug_label)
+        try:
+            sanitized_url = url.rstrip('/')
+            instance._log_debug(f"Connecting to {sanitized_url}/attach/{sandbox_id}")
+            websocket = await websockets.connect(f"{sanitized_url}/attach/{sandbox_id}", ssl=ssl)
+            instance._ws = websocket
+            instance._sandbox_id = sandbox_id
+            instance._log_debug("Connection established.")
+        except websockets.exceptions.InvalidURI as e:
+            raise SandboxConnectionError(f"Invalid WebSocket URI: {e}")
+        except ConnectionRefusedError:
+            raise SandboxConnectionError(f"Connection refused for WebSocket URI: {url}")
+
+        instance._listen_task = asyncio.create_task(instance._listen())
+        await instance._wait_for_ready()
         return instance
 
     def _log_debug(self, message):
@@ -77,13 +99,13 @@ class Sandbox:
         message_str = json.dumps(data)
         await self._ws.send(message_str)
 
-    async def _wait_for_creation(self):
+    async def _wait_for_ready(self):
         """
         Waits for the initial handshake to complete and the sandbox to be running.
         """
-        await self._created_event.wait()
-        if self._creation_error:
-            raise self._creation_error
+        await self._ready_event.wait()
+        if self._error_on_ready:
+            raise self._error_on_ready
 
 
     async def exec(self, language: str, code: str) -> SandboxProcess:
@@ -104,12 +126,12 @@ class Sandbox:
     def _clear_active_process(self):
         self._active_process = None
 
-    def _handle_creation_error(self, exc):
-        if self._state == "creating":
+    def _handle_error_on_ready(self, exc):
+        if self._state in ["creating", "attaching"]:
             self._state = "failed"
-            self._creation_error = exc
-            self._created_event.set()
-            self._log_debug(f"Creation failed: {exc}")
+            self._error_on_ready = exc
+            self._ready_event.set()
+            self._log_debug(f"Initialization failed: {exc}")
 
     async def _listen(self):
         """
@@ -160,22 +182,22 @@ class Sandbox:
                     status = message.get(MessageKey.STATUS)
                     if status == SandboxEvent.SANDBOX_RUNNING:
                         self._state = "running"
-                        self._created_event.set()
-                    elif status == SandboxEvent.SANDBOX_CREATION_ERROR:
+                        self._ready_event.set()
+                    elif status in [SandboxEvent.SANDBOX_CREATION_ERROR, SandboxEvent.SANDBOX_NOT_FOUND, SandboxEvent.SANDBOX_IN_USE]:
                         error = SandboxCreationError(message.get(MessageKey.MESSAGE, status))
-                        self._handle_creation_error(error)
+                        self._handle_error_on_ready(error)
                         await self._shutdown()
                         break
         
         except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError) as e:
             error = SandboxConnectionError(f"Connection closed: {e}")
             self._log_debug(f"Connection closed: {e}")
-            self._handle_creation_error(error)
+            self._handle_error_on_ready(error)
             await self._shutdown()
         
         except Exception as e:
             self._log_debug(f"An unexpected error occurred: {e}")
-            self._handle_creation_error(e)
+            self._handle_error_on_ready(e)
             await self._shutdown()
 
     async def _shutdown(self):
