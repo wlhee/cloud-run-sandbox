@@ -17,7 +17,7 @@ import json
 from typing import AsyncIterator, Callable
 
 from .types import MessageKey, EventType, SandboxEvent
-from .exceptions import SandboxExecutionError
+from .exceptions import SandboxExecutionError, SandboxStateError
 
 class SandboxStream:
     """
@@ -54,29 +54,31 @@ class SandboxProcess:
         self.stderr = SandboxStream()
         self._started_event = asyncio.Event()
         self._done_event = asyncio.Event()
+        self._killed_event = asyncio.Event()
         self._start_error = None
         self._on_done = on_done
+        self._is_done = False
+        self._is_kill_intentionally = False
+        self._is_killing = False
 
     def _set_done(self):
         """
         Marks the process as done, cleans up resources, and notifies listeners.
         This method is idempotent.
         """
-        if self._done_event.is_set():
+        if self._is_done:
             return
-
+        self._is_done = True
         self._cleanup()
         if self._on_done:
             self._on_done()
-
-        # This must be the last step, as it unblocks awaiters.
         self._done_event.set()
 
     def handle_message(self, message: dict):
         """
         Processes a message from the WebSocket and updates the process state.
         """
-        if self._done_event.is_set():
+        if self._is_done:
             return
 
         event_type = message.get(MessageKey.EVENT)
@@ -94,7 +96,14 @@ class SandboxProcess:
                 self._started_event.set()
                 self._set_done()
             elif status == SandboxEvent.SANDBOX_EXECUTION_DONE:
+                if self._is_killing:
+                    self._killed_event.set()
                 self._set_done()
+            elif status in [SandboxEvent.SANDBOX_EXECUTION_FORCE_KILLED, SandboxEvent.SANDBOX_EXECUTION_FORCE_KILL_ERROR]:
+                if self._is_kill_intentionally:
+                    self._is_killing = True
+                else:
+                    self._set_done()
             return
 
         if event_type == EventType.STDOUT:
@@ -129,16 +138,31 @@ class SandboxProcess:
 
     async def write_to_stdin(self, data: str):
         """Writes data to the stdin of the process."""
+        if self._is_done:
+            raise SandboxStateError("Process has already completed.")
         await self._send({
             "event": "stdin",
             "data": data,
         })
 
-    async def terminate(self):
+    async def kill(self):
         """
-        Terminates the running process.
+        Sends a signal to kill the running process and waits for confirmation.
         """
-        self._set_done()
+        if self._is_done:
+            return
+
+        self._is_kill_intentionally = True
+        await self._send({"action": "kill_process"})
+
+        try:
+            await asyncio.wait_for(self._killed_event.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            # The kill signal was not acknowledged within the timeout.
+            # We can consider the process terminated from the client's perspective.
+            pass
+        finally:
+            self._set_done()
 
     def _cleanup(self):
         """
@@ -146,4 +170,5 @@ class SandboxProcess:
         """
         self.stdout._close()
         self.stderr._close()
+
 

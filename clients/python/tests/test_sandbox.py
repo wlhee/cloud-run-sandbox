@@ -39,6 +39,7 @@ def mock_websocket_factory():
             mock_connect.return_value = mock_ws
             
             message_queue = asyncio.Queue()
+            mock_ws.message_queue = message_queue  # Expose the queue for tests
             exec_called_event = asyncio.Event()
 
             for msg in creation_messages:
@@ -84,14 +85,29 @@ def mock_websocket_factory():
                 return item
             mock_ws.recv.side_effect = recv_side_effect
             
+            async def wait_for_kill_and_send_sandbox_killed():
+                while True:
+                    if mock_ws.send.call_args:
+                        message = mock_ws.send.call_args[0][0]
+                        if json.loads(message).get("action") == "kill_sandbox":
+                            await message_queue.put(
+                                json.dumps({
+                                    MessageKey.EVENT: EventType.STATUS_UPDATE,
+                                    MessageKey.STATUS: SandboxEvent.SANDBOX_KILLED
+                                })
+                            )
+                            break
+                    await asyncio.sleep(0.01)
+            mock_ws.wait_for_kill_and_send_sandbox_killed = wait_for_kill_and_send_sandbox_killed
+            
             return mock_ws
 
         yield _factory
 
 @pytest.mark.asyncio
-async def test_sandbox_create_and_terminate(mock_websocket_factory):
+async def test_sandbox_create_and_kill(mock_websocket_factory):
     """
-    Tests that a sandbox can be created and terminated without errors.
+    Tests that a sandbox can be created and killed without errors.
     This test interacts only with the public API of the Sandbox.
     """
     # Arrange
@@ -113,7 +129,7 @@ async def test_sandbox_create_and_terminate(mock_websocket_factory):
     
     # Act (Termination)
     # Terminate the sandbox. The test passes if this completes without hanging.
-    await sandbox.terminate()
+    await sandbox.kill(timeout=0.1)
 
     # Assert (Termination)
     # We verify that the public `close` method of the websocket was called.
@@ -178,7 +194,7 @@ async def test_sandbox_exec_dispatches_messages(mock_websocket_factory):
     output = await process.stdout.read_all()
     assert output == "output"
     await process.wait()
-    await sandbox.terminate()
+    await sandbox.kill(timeout=0.1)
 
 @pytest.mark.asyncio
 async def test_can_exec_sequentially(mock_websocket_factory):
@@ -217,7 +233,7 @@ async def test_can_exec_sequentially(mock_websocket_factory):
     assert output2 == "output2"
     await process2.wait()
 
-    await sandbox.terminate()
+    await sandbox.kill(timeout=0.1)
 
 @pytest.mark.asyncio
 async def test_cannot_exec_multiple_processes_concurrently(mock_websocket_factory):
@@ -248,13 +264,13 @@ async def test_cannot_exec_multiple_processes_concurrently(mock_websocket_factor
         await sandbox.exec("command2", "bash")
 
     # Cleanup
-    await sandbox.terminate()
+    await sandbox.kill(timeout=0.1)
 
 @pytest.mark.asyncio
-async def test_listen_task_is_cancelled_on_terminate(mock_websocket_factory):
+async def test_listen_task_is_cancelled_on_kill(mock_websocket_factory):
     """
     Tests that the internal _listen task is properly awaited and cancelled
-    when the sandbox is terminated, preventing a resource leak.
+    when the sandbox is killed, preventing a resource leak.
     """
     # Arrange
     creation_messages = [
@@ -271,7 +287,7 @@ async def test_listen_task_is_cancelled_on_terminate(mock_websocket_factory):
     assert not listen_task.done()
 
     # Act
-    await sandbox.terminate()
+    await sandbox.kill(timeout=0.1)
 
     # Assert (post-condition)
     assert listen_task.done()
@@ -289,7 +305,7 @@ async def test_exec_raises_error_if_not_running(mock_websocket_factory):
     await mock_websocket_factory(creation_messages, close_on_finish=False)
     
     sandbox = await Sandbox.create("ws://test")
-    await sandbox.terminate() # Terminate the sandbox to put it in a non-running state.
+    await sandbox.kill(timeout=0.1) # Terminate the sandbox to put it in a non-running state.
 
     # Act & Assert
     with pytest.raises(SandboxStateError, match="Sandbox is not in a running state. Current state: closed"):
@@ -320,7 +336,7 @@ async def test_unsupported_language_error_raises_exception(mock_websocket_factor
     with pytest.raises(SandboxExecutionError, match="Unsupported language: javascript"):
         await sandbox.exec("javascript", "console.log('hello')")
     
-    await sandbox.terminate()
+    await sandbox.kill(timeout=0.1)
 
 @pytest.mark.asyncio
 async def test_debug_logging(mock_websocket_factory, capsys):
@@ -343,7 +359,7 @@ async def test_debug_logging(mock_websocket_factory, capsys):
     await mock_websocket_factory(creation_messages, [exec_messages], close_on_finish=False)
     sandbox_no_debug = await Sandbox.create("ws://test", enable_debug=False)
     await sandbox_no_debug.exec("bash", "command")
-    await sandbox_no_debug.terminate()
+    await sandbox_no_debug.kill(timeout=0.1)
     
     captured_no_debug = capsys.readouterr()
     assert "[SandboxClient DEBUG|" not in captured_no_debug.out
@@ -353,7 +369,7 @@ async def test_debug_logging(mock_websocket_factory, capsys):
     sandbox_debug = await Sandbox.create("ws://test", enable_debug=True, debug_label="TestLabel")
     process = await sandbox_debug.exec("bash", "command")
     await process.wait()
-    await sandbox_debug.terminate()
+    await sandbox_debug.kill(timeout=0.1)
 
     captured_debug = capsys.readouterr()
     
@@ -388,7 +404,7 @@ async def test_sandbox_attach_success(mock_websocket_factory):
     # Assert
     assert sandbox.sandbox_id == "existing_id"
     
-    await sandbox.terminate()
+    await sandbox.kill(timeout=0.1)
     mock_ws.close.assert_awaited_once()
 
 @pytest.mark.asyncio
@@ -440,3 +456,96 @@ async def test_sandbox_connection_lost_during_attach(mock_websocket_factory):
     # Act & Assert
     with pytest.raises(SandboxConnectionError, match="Connection closed:"):
         await Sandbox.attach("ws://test", "any_id")
+
+
+@pytest.mark.asyncio
+async def test_sandbox_kill_sends_kill_action(mock_websocket_factory):
+    """
+    Tests that calling kill() on a sandbox sends the correct kill_sandbox action.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    mock_ws = await mock_websocket_factory(creation_messages, close_on_finish=False)
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act
+    await sandbox.kill()
+
+    # Assert
+    mock_ws.send.assert_any_call(json.dumps({"action": "kill_sandbox"}))
+
+
+@pytest.mark.asyncio
+async def test_sandbox_kill_unblocks_on_server_messages(mock_websocket_factory):
+    """
+    Tests that kill() is unblocked when SANDBOX_KILLED and SANDBOX_DELETED messages are received from the server.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    mock_ws = await mock_websocket_factory(creation_messages, close_on_finish=False)
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act
+    # Use the helper to coordinate the test
+    await asyncio.gather(
+        sandbox.kill(),
+        mock_ws.wait_for_kill_and_send_sandbox_killed()
+    )
+
+    # Assert
+    assert sandbox._state == "closed"
+    mock_ws.send.assert_any_call(json.dumps({"action": "kill_sandbox"}))
+
+
+@pytest.mark.asyncio
+async def test_sandbox_kill_timeout_returns(mock_websocket_factory):
+    """
+    Tests that kill() returns even if the server does not send a confirmation message,
+    relying on the timeout mechanism.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    # Configure mock to NOT send kill confirmation messages
+    mock_ws = await mock_websocket_factory(creation_messages, close_on_finish=False)
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act
+    # Call kill with a short timeout and expect it to complete without server confirmation
+    await sandbox.kill(timeout=0.1)
+
+    # Assert
+    # The sandbox should transition to 'closed' state due to the timeout
+    assert sandbox._state == "closed"
+    mock_ws.send.assert_any_call(json.dumps({"action": "kill_sandbox"}))
+
+
+@pytest.mark.asyncio
+async def test_sandbox_kill_is_idempotent(mock_websocket_factory):
+    """
+    Tests that calling kill() multiple times does not cause errors.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    mock_ws = await mock_websocket_factory(creation_messages, close_on_finish=False)
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act
+    # Call kill multiple times
+    await sandbox.kill()
+    await sandbox.kill()
+
+    # Assert
+    # The test passes if no exceptions are raised and the state is closed.
+    assert sandbox._state == "closed"

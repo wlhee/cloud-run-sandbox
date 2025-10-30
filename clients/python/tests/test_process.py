@@ -17,7 +17,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from sandbox.process import SandboxProcess, SandboxExecutionError
+from sandbox.process import SandboxProcess, SandboxExecutionError, SandboxStateError
 from sandbox.types import MessageKey, EventType, SandboxEvent
 
 @pytest.mark.asyncio
@@ -27,8 +27,8 @@ async def test_process_exec_success_read():
     using the .read_all() method.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    process = SandboxProcess(mock_ws)
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
     
     async def exec_and_feed_messages():
         # These messages simulate the lifecycle of a successful execution
@@ -61,7 +61,7 @@ async def test_process_exec_success_read():
     # Assert
     assert stdout == "Hello World"
     assert stderr == "Error Message"
-    mock_ws.send.assert_called_once()
+    mock_send_cb.assert_called_once_with({"language": "bash", "code": "echo 'Hello World'"})
 
 @pytest.mark.asyncio
 async def test_process_stream_iteration():
@@ -69,8 +69,8 @@ async def test_process_stream_iteration():
     Tests that stdout/stderr can be read chunk by chunk using async iteration.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    process = SandboxProcess(mock_ws)
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
     
     async def exec_and_feed_messages():
         messages = [
@@ -115,9 +115,9 @@ async def test_process_exec_failure_unblocks_wait():
     if the server reports an execution error.
     """
     # Arrange
-    mock_ws = AsyncMock()
+    mock_send_cb = AsyncMock()
     on_done_callback = MagicMock()
-    process = SandboxProcess(mock_ws, on_done=on_done_callback)
+    process = SandboxProcess(mock_send_cb, on_done=on_done_callback)
     
     error_message = {
         MessageKey.EVENT: EventType.STATUS_UPDATE,
@@ -138,13 +138,13 @@ async def test_process_exec_failure_unblocks_wait():
     on_done_callback.assert_called_once()
 
 @pytest.mark.asyncio
-async def test_process_terminate():
+async def test_process_kill():
     """
-    Tests that terminating a process correctly closes the streams.
+    Tests that killing a process correctly sends the kill action and closes the streams.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    process = SandboxProcess(mock_ws)
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
     
     async def exec_and_feed_partial():
         # Simulate the start of execution
@@ -169,26 +169,44 @@ async def test_process_terminate():
     first_chunk = await asyncio.wait_for(process.stdout.__aiter__().__anext__(), timeout=0.1)
     assert first_chunk == "Partial output"
     
-    # Terminate the process while it's "running"
-    await process.terminate()
+    # Kill the process while it's "running"
+    kill_task = asyncio.create_task(process.kill())
+    await asyncio.sleep(0) # Yield control to allow kill_task to send message
+
+    # Simulate the server sending the confirmation messages
+    process.handle_message({
+        MessageKey.EVENT: EventType.STATUS_UPDATE,
+        MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_FORCE_KILLED
+    })
+    await asyncio.sleep(0)
+    process.handle_message({
+        MessageKey.EVENT: EventType.STATUS_UPDATE,
+        MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE
+    })
+    await asyncio.sleep(0)
+
+    await kill_task
 
     # Assert
-    # The wait() should resolve immediately because terminate is synchronous
+    # The wait() should resolve immediately
     await asyncio.wait_for(process.wait(), timeout=0.1)
     
     # The streams should be closed, and subsequent reads should yield no more content
     stdout = await process.stdout.read_all()
     assert stdout == ""
+    
+    # Check that the kill action was sent
+    mock_send_cb.assert_any_call({"action": "kill_process"})
 
 @pytest.mark.asyncio
-async def test_process_terminate_while_reading():
+async def test_process_kill_while_reading():
     """
     Tests that a reader iterating a stream is unblocked gracefully when
-    the process is terminated.
+    the process is killed.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    process = SandboxProcess(mock_ws)
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
     
     async def exec_and_feed_first_chunk():
         process.handle_message({
@@ -219,8 +237,8 @@ async def test_process_terminate_while_reading():
     # Wait for the reader to confirm it has processed the first chunk
     await asyncio.wait_for(first_chunk_received.wait(), timeout=0.1)
     
-    # Terminate the process while the reader is blocked on the stream
-    await process.terminate()
+    # Kill the process while the reader is blocked on the stream
+    await process.kill()
 
     # Assert
     # The reader task should complete without error
@@ -233,14 +251,14 @@ async def test_process_terminate_while_reading():
     assert output_chunks == ["First chunk"]
 
 @pytest.mark.asyncio
-async def test_process_terminate_while_full_reading():
+async def test_process_kill_while_full_reading():
     """
     Tests that a reader calling .read_all() is unblocked gracefully when
-    the process is terminated.
+    the process is killed.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    process = SandboxProcess(mock_ws)
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
     
     async def exec_and_feed_first_chunk():
         process.handle_message({
@@ -264,8 +282,8 @@ async def test_process_terminate_while_full_reading():
     # Give the reader a moment to start and consume the first chunk
     await asyncio.sleep(0.01)
     
-    # Terminate the process while the reader is blocked
-    await process.terminate()
+    # Kill the process while the reader is blocked
+    await process.kill()
 
     # Assert
     # The reader task should complete and return the partial content
@@ -282,8 +300,8 @@ async def test_wait_is_unblocked_by_done_message():
     'EXECUTION_DONE' message is received.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    process = SandboxProcess(mock_ws)
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
 
     # Act
     wait_task = asyncio.create_task(process.wait())
@@ -307,8 +325,8 @@ async def test_multiple_waits_are_unblocked():
     Tests that multiple coroutines awaiting process.wait() are all unblocked.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    process = SandboxProcess(mock_ws)
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
 
     # Act
     wait_tasks = [asyncio.create_task(process.wait()) for _ in range(3)]
@@ -316,25 +334,25 @@ async def test_multiple_waits_are_unblocked():
     await asyncio.sleep(0)
     assert not any(t.done() for t in wait_tasks)
     
-    await process.terminate()
+    await process.kill()
 
     # Assert
     await asyncio.wait_for(asyncio.gather(*wait_tasks), timeout=0.1)
     assert all(t.done() for t in wait_tasks)
 
 @pytest.mark.asyncio
-async def test_terminate_is_idempotent():
+async def test_kill_is_idempotent():
     """
-    Tests that calling terminate() multiple times does not cause errors.
+    Tests that calling kill() multiple times does not cause errors.
     """
     # Arrange
-    mock_ws = AsyncMock()
+    mock_send_cb = AsyncMock()
     on_done_callback = MagicMock()
-    process = SandboxProcess(mock_ws, on_done=on_done_callback)
+    process = SandboxProcess(mock_send_cb, on_done=on_done_callback)
 
     # Act
-    await process.terminate()
-    await process.terminate()
+    await process.kill()
+    await process.kill()
 
     # Assert
     await process.wait()
@@ -346,8 +364,8 @@ async def test_process_write_to_stdin():
     Tests that write_to_stdin sends the correct message to the websocket.
     """
     # Arrange
-    mock_ws = AsyncMock()
-    process = SandboxProcess(mock_ws)
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
     
     async def exec_and_write():
         # Start exec in the background
@@ -371,15 +389,65 @@ async def test_process_write_to_stdin():
         })
 
     # Act
-    exec_and_write_task = asyncio.create_task(exec_and_write())
+    await exec_and_write()
     
     # Read stdout
     stdout = await process.stdout.read_all()
     await process.wait()
-    await exec_and_write_task
 
     # Assert
     assert stdout == "hello\n"
-    assert mock_ws.send.call_count == 2
-    mock_ws.send.assert_any_call(json.dumps({"language": "bash", "code": "cat"}))
-    mock_ws.send.assert_any_call(json.dumps({"event": "stdin", "data": "hello\n"}))
+    assert mock_send_cb.call_count == 2
+    mock_send_cb.assert_any_call({"language": "bash", "code": "cat"})
+    mock_send_cb.assert_any_call({"event": "stdin", "data": "hello\n"})
+
+@pytest.mark.asyncio
+async def test_process_kill_sends_action():
+    """
+    Tests that calling kill() sends the correct kill_process action.
+    """
+    # Arrange
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
+
+    # Act
+    await process.kill()
+
+    # Assert
+    mock_send_cb.assert_called_once_with({"action": "kill_process"})
+
+@pytest.mark.asyncio
+async def test_process_kill_unblocks_wait_on_force_killed():
+    """
+    Tests that process.wait() is unblocked when SANDBOX_EXECUTION_FORCE_KILLED
+    message is received after kill() is called.
+    """
+    # Arrange
+    mock_send_cb = AsyncMock()
+    process = SandboxProcess(mock_send_cb)
+
+    # Simulate process starting
+    process.handle_message({
+        MessageKey.EVENT: EventType.STATUS_UPDATE,
+        MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_RUNNING
+    })
+
+    # Act
+    kill_task = asyncio.create_task(process.kill())
+    await asyncio.sleep(0) # Yield control to allow kill_task to send message
+
+    # Simulate server sending FORCE_KILLED and DONE messages
+    process.handle_message({
+        MessageKey.EVENT: EventType.STATUS_UPDATE,
+        MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_FORCE_KILLED
+    })
+    process.handle_message({
+        MessageKey.EVENT: EventType.STATUS_UPDATE,
+        MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_DONE
+    })
+
+    # Assert
+    await asyncio.wait_for(kill_task, timeout=0.1)
+    await asyncio.wait_for(process.wait(), timeout=0.1)
+    assert process._is_done == True
+    mock_send_cb.assert_called_once_with({"action": "kill_process"})

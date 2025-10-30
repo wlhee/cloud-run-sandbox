@@ -21,7 +21,7 @@ Use the TypeScript client implementation as a reference for business logic and e
 
 ---
 
-#### **Feature 2: Standalone Attach API**
+#### **Feature 2: Standalone Attach API (Done)**
 *   **Goal:** Implement the ability to connect to a pre-existing sandbox instance using its ID.
 *   **Key API Additions:** `Sandbox.attach(url, sandbox_id, ...)` class method.
 *   **Implementation Steps:**
@@ -34,7 +34,7 @@ Use the TypeScript client implementation as a reference for business logic and e
 
 ---
 
-#### **Feature 3: Core Lifecycle & Process Killing**
+#### **Feature 3: Core Lifecycle & Process Killing (Done)**
 *   **Goal:** Establish the basic `create`/`exec` flow and add the ability to kill the sandbox and the running process, mirroring `lifecycle.ts`.
 *   **Key API Additions:** `sandbox.kill()`, `process.kill()`
 *   **TypeScript Example:** `lifecycle.ts`

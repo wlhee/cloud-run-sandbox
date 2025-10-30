@@ -30,6 +30,7 @@ class Sandbox:
         self._sandbox_id = None
         self._active_process = None
         self._ready_event = asyncio.Event()
+        self._killed_event = asyncio.Event()
         self._error_on_ready = None
         self._stop_event = asyncio.Event()
         self._listen_task = None
@@ -37,6 +38,7 @@ class Sandbox:
         self._shutdown_lock = asyncio.Lock()
         self._enable_debug = enable_debug
         self._debug_label = debug_label
+        self._is_kill_intentionally = False
 
     @property
     def sandbox_id(self):
@@ -188,6 +190,9 @@ class Sandbox:
                         self._handle_error_on_ready(error)
                         await self._shutdown()
                         break
+                    elif status in [SandboxEvent.SANDBOX_KILLED, SandboxEvent.SANDBOX_KILL_ERROR]:
+                        self._killed_event.set()
+                        break
         
         except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError) as e:
             error = SandboxConnectionError(f"Connection closed: {e}")
@@ -202,31 +207,46 @@ class Sandbox:
 
     async def _shutdown(self):
         async with self._shutdown_lock:
-            if self._state == "running":
-                self._state = "closed"
-                self._log_debug("State changed to closed")
+            if self._state in ["closed", "failed"]:
+                return
+
+            self._state = "closed"
+            self._log_debug("State changed to closed")
 
             if self._active_process:
-                await self._active_process.terminate()
+                await self._active_process.kill()
                 self._active_process = None
 
             if self._listen_task and not self._listen_task.done():
                 self._stop_event.set()
-                if asyncio.current_task() is not self._listen_task:
-                    await self._listen_task
+                # Do not await the listen_task here to avoid deadlock
+                # if _shutdown is called from within the listen_task.
 
             if self._ws and self._ws.state != websockets.protocol.State.CLOSED:
                 self._log_debug("Closing WebSocket connection.")
                 await self._ws.close()
 
-    async def terminate(self):
+    async def kill(self, timeout: float = 5.0):
         """
         Terminates the sandbox session.
         """
-        await self._shutdown()
+        if self._state in ["closed", "failed"]:
+            return
+
+        self._is_kill_intentionally = True
+        self._log_debug("Sending kill command to sandbox...")
+        await self._send({"action": "kill_sandbox"})
+
+        try:
+            await asyncio.wait_for(self._killed_event.wait(), timeout=timeout)
+            self._log_debug("Sandbox killed successfully.")
+        except asyncio.TimeoutError:
+            self._log_debug("Kill timeout reached. Forcing connection close.")
+        finally:
+            await self._shutdown()
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.terminate()
+        await self.kill()

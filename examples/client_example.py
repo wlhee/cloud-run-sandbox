@@ -34,7 +34,7 @@ async def main():
         pip install -e clients/python
         python3 example/client_example.py
     """
-    url = os.environ.get("CLOUD_RUN_URL")
+    url = os.environ.get("CLOUD_RUN_URL").replace("https://", "wss://")
     if not url:
         print("Error: Please set the CLOUD_RUN_URL environment variable.")
         print("Example: export CLOUD_RUN_URL=\"wss://your-service-url.run.app\"")
@@ -98,7 +98,7 @@ async def main():
         # Terminate the sandbox session
         if 'sandbox' in locals() and sandbox:
             print("\nTerminating sandbox...")
-            await sandbox.terminate()
+            await sandbox.kill()
             print("Sandbox terminated.")
 
 if __name__ == "__main__":
