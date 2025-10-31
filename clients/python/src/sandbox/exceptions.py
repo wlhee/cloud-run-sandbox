@@ -31,3 +31,7 @@ class SandboxExecutionError(SandboxException):
 class SandboxStateError(SandboxException):
     """Raised when an operation is attempted on a sandbox in an invalid state."""
     pass
+
+class SandboxFilesystemSnapshotError(SandboxException):
+    """Raised when a filesystem snapshot fails."""
+    pass

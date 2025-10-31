@@ -18,7 +18,7 @@ import weakref
 import websockets
 
 from .types import MessageKey, EventType, SandboxEvent
-from .exceptions import SandboxConnectionError, SandboxCreationError, SandboxStateError
+from .exceptions import SandboxConnectionError, SandboxCreationError, SandboxStateError, SandboxFilesystemSnapshotError
 from .process import SandboxProcess
 
 class Sandbox:
@@ -31,6 +31,8 @@ class Sandbox:
         self._active_process = None
         self._ready_event = asyncio.Event()
         self._killed_event = asyncio.Event()
+        self._filesystem_snapshot_event = asyncio.Event()
+        self._filesystem_snapshot_error = None
         self._error_on_ready = None
         self._stop_event = asyncio.Event()
         self._listen_task = None
@@ -46,7 +48,7 @@ class Sandbox:
         return self._sandbox_id
 
     @classmethod
-    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label=""):
+    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None):
         """
         Creates a new sandbox session.
         """
@@ -63,7 +65,10 @@ class Sandbox:
         except ConnectionRefusedError:
             raise SandboxConnectionError(f"Connection refused for WebSocket URI: {url}")
 
-        await instance._send({"idle_timeout": idle_timeout})
+        create_params = {"idle_timeout": idle_timeout}
+        if filesystem_snapshot_name:
+            create_params["filesystem_snapshot_name"] = filesystem_snapshot_name
+        await instance._send(create_params)
         
         instance._listen_task = asyncio.create_task(instance._listen())
         await instance._wait_for_ready()
@@ -109,6 +114,22 @@ class Sandbox:
         if self._error_on_ready:
             raise self._error_on_ready
 
+    async def snapshot_filesystem(self, name: str):
+        """
+        Triggers the creation of a filesystem snapshot.
+        """
+        if self._state != "running":
+            raise SandboxStateError(f"Sandbox is not in a running state. Current state: {self._state}")
+
+        self._log_debug(f"Requesting filesystem snapshot '{name}'...")
+        self._state = "filesystem_snapshotting"
+        self._filesystem_snapshot_event.clear()
+        self._filesystem_snapshot_error = None
+
+        await self._send({"action": "snapshot_filesystem", "name": name})
+        await self._filesystem_snapshot_event.wait()
+        if self._filesystem_snapshot_error:
+            raise self._filesystem_snapshot_error
 
     async def exec(self, language: str, code: str) -> SandboxProcess:
         """
@@ -193,6 +214,12 @@ class Sandbox:
                     elif status in [SandboxEvent.SANDBOX_KILLED, SandboxEvent.SANDBOX_KILL_ERROR]:
                         self._killed_event.set()
                         break
+                    elif status == SandboxEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATED:
+                        self._state = "running"
+                        self._filesystem_snapshot_event.set()
+                    elif status == SandboxEvent.SANDBOX_FILESYSTEM_SNAPSHOT_ERROR:
+                        self._filesystem_snapshot_error = SandboxFilesystemSnapshotError(message.get(MessageKey.MESSAGE, status))
+                        self._filesystem_snapshot_event.set()
         
         except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError) as e:
             error = SandboxConnectionError(f"Connection closed: {e}")

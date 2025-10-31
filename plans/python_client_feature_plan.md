@@ -96,3 +96,10 @@ Use the TypeScript client implementation as a reference for business logic and e
         *   Implement the internal reconnection logic (`should_reconnect`, `get_reconnect_info`).
     5.  **`tests/unit/sandbox/test_sandbox.py`**: Add tests for handoff and auto-reconnection scenarios.
     6.  **`examples/reconnect.py` & `examples/handoff.py`**: Create the new example files.
+
+---
+
+#### **Feature 7: Support session affinity cookie**
+
+
+

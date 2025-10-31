@@ -19,7 +19,7 @@ import websockets
 from unittest.mock import AsyncMock, patch
 
 from sandbox.sandbox import Sandbox
-from sandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError, SandboxExecutionError
+from sandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError, SandboxExecutionError, SandboxFilesystemSnapshotError
 from sandbox.types import MessageKey, EventType, SandboxEvent
 
 @pytest.fixture
@@ -68,6 +68,15 @@ def mock_websocket_factory():
                     # After the last exec, we're done.
                     if send_count == len(exec_messages_list) and close_on_finish:
                         await message_queue.put(websockets.exceptions.ConnectionClosed(None, None))
+                elif msg_data.get("action") == "snapshot_filesystem":
+                    exec_called_event.set()
+                    exec_called_event.clear()
+                    
+                    exec_messages = exec_messages_list[send_count]
+                    send_count += 1
+                    
+                    for msg in exec_messages:
+                        await message_queue.put(json.dumps(msg))
                 else:
                     # This is the idle_timeout message from the Sandbox, do nothing.
                     pass
@@ -549,3 +558,96 @@ async def test_sandbox_kill_is_idempotent(mock_websocket_factory):
     # Assert
     # The test passes if no exceptions are raised and the state is closed.
     assert sandbox._state == "closed"
+
+@pytest.mark.asyncio
+async def test_snapshot_filesystem_raises_error_if_not_running(mock_websocket_factory):
+    """
+    Tests that snapshot_filesystem raises a SandboxStateError if the sandbox is not in the 'running' state.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    await mock_websocket_factory(creation_messages, close_on_finish=False)
+    
+    sandbox = await Sandbox.create("ws://test")
+    await sandbox.kill(timeout=0.1) # Terminate the sandbox to put it in a non-running state.
+
+    # Act & Assert
+    with pytest.raises(SandboxStateError, match="Sandbox is not in a running state. Current state: closed"):
+        await sandbox.snapshot_filesystem("test_snapshot")
+
+
+@pytest.mark.asyncio
+async def test_snapshot_filesystem_success(mock_websocket_factory):
+    """
+    Tests that snapshot_filesystem sends the correct message and waits for the event.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    snapshot_messages = [
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_FILESYSTEM_SNAPSHOT_CREATED},
+    ]
+    mock_ws = await mock_websocket_factory(creation_messages, [snapshot_messages], close_on_finish=False)
+    
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act
+    await sandbox.snapshot_filesystem("test_snapshot")
+
+    # Assert
+    mock_ws.send.assert_any_call(json.dumps({"action": "snapshot_filesystem", "name": "test_snapshot"}))
+    assert sandbox._state == "running"
+    await sandbox.kill(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_filesystem_raises_error_on_failure(mock_websocket_factory):
+    """
+    Tests that snapshot_filesystem raises a SandboxFilesystemSnapshotError if the server sends a SANDBOX_FILESYSTEM_SNAPSHOT_ERROR event.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    snapshot_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_FILESYSTEM_SNAPSHOT_ERROR,
+            MessageKey.MESSAGE: "Snapshot failed"
+        },
+    ]
+    await mock_websocket_factory(creation_messages, [snapshot_messages], close_on_finish=False)
+    
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act & Assert
+    with pytest.raises(SandboxFilesystemSnapshotError, match="Snapshot failed"):
+        await sandbox.snapshot_filesystem("test_snapshot")
+    
+    await sandbox.kill(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_create_sends_filesystem_snapshot_name(mock_websocket_factory):
+    """
+    Tests that create sends the filesystem_snapshot_name parameter.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    mock_ws = await mock_websocket_factory(creation_messages, close_on_finish=False)
+
+    # Act
+    sandbox = await Sandbox.create("ws://test", filesystem_snapshot_name="test_snapshot")
+
+    # Assert
+    mock_ws.send.assert_any_call(json.dumps({"idle_timeout": 60, "filesystem_snapshot_name": "test_snapshot"}))
+    await sandbox.kill(timeout=0.1)
