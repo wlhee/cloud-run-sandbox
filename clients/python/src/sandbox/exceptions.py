@@ -35,3 +35,7 @@ class SandboxStateError(SandboxException):
 class SandboxFilesystemSnapshotError(SandboxException):
     """Raised when a filesystem snapshot fails."""
     pass
+
+class SandboxCheckpointError(SandboxException):
+    """Raised when a checkpoint fails."""
+    pass

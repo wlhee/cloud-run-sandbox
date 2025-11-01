@@ -19,7 +19,7 @@ import websockets
 from unittest.mock import AsyncMock, patch
 
 from sandbox.sandbox import Sandbox
-from sandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError, SandboxExecutionError, SandboxFilesystemSnapshotError
+from sandbox.exceptions import SandboxCreationError, SandboxConnectionError, SandboxStateError, SandboxExecutionError, SandboxFilesystemSnapshotError, SandboxCheckpointError
 from sandbox.types import MessageKey, EventType, SandboxEvent
 
 @pytest.fixture
@@ -53,6 +53,7 @@ def mock_websocket_factory():
             async def send_side_effect(message):
                 nonlocal send_count
                 msg_data = json.loads(message)
+                print(f"SEND: {msg_data}")
                 
                 # Check if this is the exec command by looking for the 'code' key.
                 if "code" in msg_data:
@@ -77,6 +78,15 @@ def mock_websocket_factory():
                     
                     for msg in exec_messages:
                         await message_queue.put(json.dumps(msg))
+                elif msg_data.get("action") == "checkpoint":
+                    exec_called_event.set()
+                    exec_called_event.clear()
+                    
+                    exec_messages = exec_messages_list[send_count]
+                    send_count += 1
+                    
+                    for msg in exec_messages:
+                        await message_queue.put(json.dumps(msg))
                 else:
                     # This is the idle_timeout message from the Sandbox, do nothing.
                     pass
@@ -84,13 +94,16 @@ def mock_websocket_factory():
             mock_ws.send.side_effect = send_side_effect
 
             async def recv_side_effect():
+                print("RECV: waiting for message")
                 # If the queue is empty, it means we're in an exec test, waiting for the send() call.
                 if message_queue.empty():
+                    print("RECV: queue empty, waiting for exec event")
                     await exec_called_event.wait()
 
                 item = await message_queue.get()
                 if isinstance(item, Exception):
                     raise item
+                print(f"RECV: {item}")
                 return item
             mock_ws.recv.side_effect = recv_side_effect
             
@@ -651,3 +664,164 @@ async def test_create_sends_filesystem_snapshot_name(mock_websocket_factory):
     # Assert
     mock_ws.send.assert_any_call(json.dumps({"idle_timeout": 60, "filesystem_snapshot_name": "test_snapshot"}))
     await sandbox.kill(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_create_sends_enable_checkpoint(mock_websocket_factory):
+    """
+    Tests that create sends the enable_checkpoint parameter.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    mock_ws = await mock_websocket_factory(creation_messages, close_on_finish=False)
+
+    # Act
+    sandbox = await Sandbox.create("ws://test", enable_sandbox_checkpoint=True)
+
+    # Assert
+    mock_ws.send.assert_any_call(json.dumps({"idle_timeout": 60, "enable_checkpoint": True}))
+    await sandbox.kill(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_create_sends_enable_idle_timeout_auto_checkpoint(mock_websocket_factory):
+    """
+    Tests that create sends the enable_idle_timeout_auto_checkpoint parameter.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    mock_ws = await mock_websocket_factory(creation_messages, close_on_finish=False)
+
+    # Act
+    sandbox = await Sandbox.create("ws://test", enable_idle_timeout_auto_checkpoint=True)
+
+    # Assert
+    mock_ws.send.assert_any_call(json.dumps({"idle_timeout": 60, "enable_idle_timeout_auto_checkpoint": True}))
+    await sandbox.kill(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_raises_error_if_not_running(mock_websocket_factory):
+    """
+    Tests that checkpoint raises a SandboxStateError if the sandbox is not in the 'running' state.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    await mock_websocket_factory(creation_messages, close_on_finish=False)
+    
+    sandbox = await Sandbox.create("ws://test")
+    await sandbox.kill(timeout=0.1) # Terminate the sandbox to put it in a non-running state.
+
+    # Act & Assert
+    with pytest.raises(SandboxStateError, match="Sandbox is not in a running state. Current state: closed"):
+        await sandbox.checkpoint()
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_success(mock_websocket_factory):
+    """
+    Tests that checkpoint sends the correct message, waits for the event,
+    and handles the subsequent connection close from the server.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    checkpoint_messages = [
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_CHECKPOINTED},
+    ]
+    mock_ws = await mock_websocket_factory(creation_messages, [checkpoint_messages], close_on_finish=False)
+    
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act
+    await sandbox.checkpoint()
+
+    # Assert that the checkpoint action was sent
+    mock_ws.send.assert_any_call(json.dumps({"action": "checkpoint"}))
+    
+    # The state should be 'closed' after shutdown is called
+    assert sandbox._state == "closed"
+
+    # The listen task should complete because shutdown was called
+    await sandbox._listen_task
+
+    # Assert that the websocket was closed
+    mock_ws.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_raises_error_on_failure(mock_websocket_factory):
+    """
+    Tests that checkpoint raises a SandboxCheckpointError if the server sends a SANDBOX_CHECKPOINT_ERROR event.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    checkpoint_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_CHECKPOINT_ERROR,
+            MessageKey.MESSAGE: "Checkpoint failed"
+        },
+    ]
+    await mock_websocket_factory(creation_messages, [checkpoint_messages], close_on_finish=False)
+    
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act & Assert
+    with pytest.raises(SandboxCheckpointError, match="Checkpoint failed"):
+        await sandbox.checkpoint()
+    
+    await sandbox.kill(timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_raises_error_if_execution_in_progress(mock_websocket_factory):
+    """
+    Tests that checkpoint raises a SandboxCheckpointError if an execution is in progress.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    checkpoint_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR,
+            MessageKey.MESSAGE: "Execution in progress"
+        },
+    ]
+    await mock_websocket_factory(
+        creation_messages,
+        [checkpoint_messages],
+        close_on_finish=False
+    )
+
+    sandbox = await Sandbox.create("ws://test")
+
+    # Act & Assert
+    with pytest.raises(SandboxCheckpointError, match="Execution in progress"):
+        print("TEST: awaiting sandbox.checkpoint")
+        await sandbox.checkpoint()
+        print("TEST: sandbox.checkpoint returned")
+
+    # The state should be back to running
+    assert sandbox._state == "running"
+
+    await sandbox.kill(timeout=0.1)
+
+

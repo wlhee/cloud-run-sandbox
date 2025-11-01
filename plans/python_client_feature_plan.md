@@ -49,7 +49,7 @@ Use the TypeScript client implementation as a reference for business logic and e
 
 ---
 
-#### **Feature 4: Filesystem Snapshotting**
+#### **Feature 4: Filesystem Snapshotting (Done)**
 *   **Goal:** Implement the ability to create a sandbox from a filesystem snapshot and to create new snapshots, mirroring `filesystem_snapshot.ts`.
 *   **Key API Additions:** `snapshot_filesystem()` method and `filesystem_snapshot_name` option on `create()`.
 *   **TypeScript Example:** `filesystem_snapshot.ts`
@@ -65,7 +65,7 @@ Use the TypeScript client implementation as a reference for business logic and e
 
 ---
 
-#### **Feature 5: Checkpointing**
+#### **Feature 5: Checkpointing (Done)**
 *   **Goal:** Implement the ability to checkpoint a sandbox's state, mirroring `checkpoint.ts`.
 *   **Key API Additions:** `checkpoint()` method and `enable_sandbox_checkpoint` option on `create()`.
 *   **TypeScript Example:** `checkpoint.ts`

@@ -18,7 +18,7 @@ import weakref
 import websockets
 
 from .types import MessageKey, EventType, SandboxEvent
-from .exceptions import SandboxConnectionError, SandboxCreationError, SandboxStateError, SandboxFilesystemSnapshotError
+from .exceptions import SandboxConnectionError, SandboxCreationError, SandboxStateError, SandboxFilesystemSnapshotError, SandboxCheckpointError
 from .process import SandboxProcess
 
 class Sandbox:
@@ -33,6 +33,8 @@ class Sandbox:
         self._killed_event = asyncio.Event()
         self._filesystem_snapshot_event = asyncio.Event()
         self._filesystem_snapshot_error = None
+        self._checkpoint_event = asyncio.Event()
+        self._checkpoint_error = None
         self._error_on_ready = None
         self._stop_event = asyncio.Event()
         self._listen_task = None
@@ -48,7 +50,7 @@ class Sandbox:
         return self._sandbox_id
 
     @classmethod
-    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None):
+    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None, enable_sandbox_checkpoint: bool = False, enable_idle_timeout_auto_checkpoint: bool = False):
         """
         Creates a new sandbox session.
         """
@@ -68,6 +70,10 @@ class Sandbox:
         create_params = {"idle_timeout": idle_timeout}
         if filesystem_snapshot_name:
             create_params["filesystem_snapshot_name"] = filesystem_snapshot_name
+        if enable_sandbox_checkpoint:
+            create_params["enable_checkpoint"] = enable_sandbox_checkpoint
+        if enable_idle_timeout_auto_checkpoint:
+            create_params["enable_idle_timeout_auto_checkpoint"] = enable_idle_timeout_auto_checkpoint
         await instance._send(create_params)
         
         instance._listen_task = asyncio.create_task(instance._listen())
@@ -131,6 +137,24 @@ class Sandbox:
         if self._filesystem_snapshot_error:
             raise self._filesystem_snapshot_error
 
+    async def checkpoint(self):
+        """
+        Triggers the creation of a checkpoint.
+        """
+        if self._state != "running":
+            raise SandboxStateError(f"Sandbox is not in a running state. Current state: {self._state}")
+
+        self._log_debug("Requesting checkpoint...")
+        self._state = "checkpointing"
+        self._checkpoint_event.clear()
+        self._checkpoint_error = None
+
+        await self._send({"action": "checkpoint"})
+        await self._checkpoint_event.wait()
+        if self._checkpoint_error:
+            raise self._checkpoint_error
+        await self._shutdown()
+
     async def exec(self, language: str, code: str) -> SandboxProcess:
         """
         Creates and starts a new process in the sandbox for code execution.
@@ -189,13 +213,13 @@ class Sandbox:
 
                 # Now, dispatch the message.
                 is_execution_status = (event == EventType.STATUS_UPDATE and
-                                       message.get(MessageKey.STATUS, "").startswith("SANDBOX_EXECUTION_"))
+                                       message.get(MessageKey.STATUS, "").startswith("SANDBOX_EXECUTION_") and
+                                       message.get(MessageKey.STATUS) !=  SandboxEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR)
 
                 if is_execution_status:
                     if self._active_process:
                         self._active_process.handle_message(message)
                     continue
-
                 # Handle sandbox lifecycle events
                 if event == EventType.SANDBOX_ID:
                     self._sandbox_id = message.get(MessageKey.SANDBOX_ID)
@@ -220,6 +244,18 @@ class Sandbox:
                     elif status == SandboxEvent.SANDBOX_FILESYSTEM_SNAPSHOT_ERROR:
                         self._filesystem_snapshot_error = SandboxFilesystemSnapshotError(message.get(MessageKey.MESSAGE, status))
                         self._filesystem_snapshot_event.set()
+                    elif status == SandboxEvent.SANDBOX_CHECKPOINTING:
+                        self._state = "checkpointing"
+                    elif status == SandboxEvent.SANDBOX_CHECKPOINTED:
+                        self._state = "checkpointed"
+                        self._checkpoint_event.set()
+                    elif status == SandboxEvent.SANDBOX_CHECKPOINT_ERROR:
+                        self._checkpoint_error = SandboxCheckpointError(message.get(MessageKey.MESSAGE, status))
+                        self._checkpoint_event.set()
+                    elif status == SandboxEvent.SANDBOX_EXECUTION_IN_PROGRESS_ERROR:
+                        self._state = "running"
+                        self._checkpoint_error = SandboxCheckpointError(message.get(MessageKey.MESSAGE, status))
+                        self._checkpoint_event.set()
         
         except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError) as e:
             error = SandboxConnectionError(f"Connection closed: {e}")
@@ -257,7 +293,7 @@ class Sandbox:
         """
         Terminates the sandbox session.
         """
-        if self._state in ["closed", "failed"]:
+        if self._state in ["closed", "failed", "checkpointed"]:
             return
 
         self._is_kill_intentionally = True
