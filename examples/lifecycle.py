@@ -55,17 +55,12 @@ async def main():
     print("Sandbox created.")
 
     # Execute the first process.
-    print("Executing first process...")
-    process1 = await sandbox.exec("bash", 'echo "Process 1"; sleep 5')
-    print("Process 1 started.")
-
-    # Intentionally kill the first process before it finishes.
-    print("Killing process 1...")
-    await process1.kill()
-    print("Process 1 killed.")
-
-    # Wait for the process to be fully terminated.
-    await process1.wait()
+    print("Executing first process with unsupported language...")
+    try:
+        process1 = await sandbox.exec("lang-unsupported", 'echo "Process 1"; sleep 5')
+        await process1.wait()
+    except Exception as e:
+        print(f"Caught expected error for unsupported language: {e}")
     print("Process 1 finished.")
 
     # Execute a second process in the same sandbox.
@@ -81,6 +76,26 @@ async def main():
     # Wait for the second process to be fully terminated.
     await process2.wait()
     print("Process 2 finished.")
+
+    # Execute a third, long-running process and kill it.
+    print("Executing third process (long-running)...")
+    py_command = (
+        "import time\n"
+        "for i in range(1, 11):\n"
+        "    print(f'Process 3: {i}')\n"
+        "    time.sleep(1)"
+    )
+    process3 = await sandbox.exec("python", py_command)
+    print("Process 3 started.")
+
+    # Intentionally kill the third process.
+    print("Killing process 3...")
+    await process3.kill()
+    print("Process 3 killed.")
+
+    # Wait for the third process to be fully terminated.
+    await process3.wait()
+    print("Process 3 finished.")
 
     # Kill the entire sandbox.
     print("Killing sandbox...")

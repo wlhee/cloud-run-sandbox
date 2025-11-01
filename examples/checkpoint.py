@@ -47,8 +47,8 @@ async def main():
     2. Run the script from the root of the repository:
        `python3 example/checkpoint.py`
     """
-    url_checkpoint = os.environ.get("CLOUD_RUN_URL_CHECKPOINT")
-    url_restore = os.environ.get("CLOUD_RUN_URL_RESTORE")
+    url_checkpoint = os.environ.get("CLOUD_RUN_URL_CHECKPOINT").replace("https://", "wss://")
+    url_restore = os.environ.get("CLOUD_RUN_URL_RESTORE").replace("https://", "wss://")
 
     if not url_checkpoint or not url_restore:
         print("Error: Please set the CLOUD_RUN_URL_CHECKPOINT and CLOUD_RUN_URL_RESTORE environment variables.")
