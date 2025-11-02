@@ -210,21 +210,21 @@ sequenceDiagram
 
 This is the "affinity miss" path, which triggers the full handoff protocol. An affinity miss can happen for several reasons, such as the original instance crashing, being shut down during a scale-down event, the client not providing the affinity cookie, or the load balancer simply failing to honor it.
 
-1.  **Client -> Instance B (Connection Attempt):** The client tries to connect to `WS /attach/sandbox-123`. It has a cookie for `Instance A`, but the load balancer routes it to a new instance, `Instance B`.
-2.  **Instance B (Immediate Upgrade & Handoff Init):**
+1.  **Client -> Instance B (Connection Attempt):** The client tries to connect to `WS /attach/sandbox-123`. It may have an affinity cookie for `Instance A`, but the load balancer routes it to a new, idle instance, `Instance B`.
+2.  **Instance B (Immediate Upgrade & Wait for Lock):**
     *   Receives the `Upgrade` request and detects the sandbox is not local.
     *   It **immediately** responds with **HTTP `101 Switching Protocols`**. The WebSocket is now connected.
-    *   It acquires the GCS lock for `sandbox-123`. If it fails (lock exists), it sends an `error` message and closes the connection.
+    *   It attempts to acquire the GCS lock for `sandbox-123` but finds it is held by `Instance A`. `Instance B` now enters a "waiter" state, periodically checking the lock.
 3.  **Instance B -> Client (Control Message):**
-    *   As its first message, `Instance B` sends: `{"event": "status_update", "status": "HANDOFF", "message": "Sandbox is being migrated."}`.
-4.  **Client (Waiting & Updating):** The client library receives the "HANDOFF" status message. It must also update its stored session affinity cookie to the one received from `Instance B` during the successful connection handshake. The library now waits for a "RUNNING" status update.
-5.  **Instance A (Background Relinquish):**
-    *   `Instance A`'s background watcher sees the GCS lock.
-    *   It saves the sandbox state to GCS and terminates its local container.
-6.  **Instance B (Restore & Notify):**
-    *   `Instance B` polls GCS, sees the state file, and restores the sandbox.
-    *   Once the sandbox is running locally, it releases the GCS lock.
-    *   It then sends a final status update over the **existing WebSocket connection**: `{"event": "status_update", "status": "RUNNING"}`.
+    *   As its first message, `Instance B` sends: `{"event": "status_update", "status": "RESTORING"}` to inform the client that a handoff is in progress.
+4.  **Client (Waiting & Updating):** The client library receives the "RESTORING" status. It must also update its stored session affinity cookie to the one received from `Instance B` during the successful connection handshake. The library now waits for a "RUNNING" status update.
+5.  **Instance A (Detects Waiter & Initiates Handoff):**
+    *   `Instance A`'s background lock renewal process runs. During the renewal check, it inspects the lock file on GCS and discovers that `Instance B` has registered itself as a waiter.
+    *   Seeing the waiter, `Instance A` initiates the handoff. It checkpoints the sandbox state to GCS, terminates its local container, and releases the lock.
+6.  **Instance B (Acquire Lock, Restore & Notify):**
+    *   On its next check, `Instance B` finds the lock has been released. It acquires the lock.
+    *   It sees the state file in GCS and restores the sandbox from the checkpoint.
+    *   Once the sandbox is running locally, it sends a final status update over the **existing WebSocket connection**: `{"event": "status_update", "status": "RUNNING"}`.
 7.  **Session Active:** The handoff is complete and transparent to the user. The session is now live on `Instance B` using the same WebSocket connection established in step 2.
 
 ```mermaid
@@ -240,25 +240,24 @@ sequenceDiagram
     Instance B-->>Client: HTTP 101 Switching Protocols
     activate Client
     Note over Client, Instance B: WebSocket Established<br/>Client saves new Affinity Cookie for Instance B.
-    Instance B->>GCS: Acquire Lock for sandbox-123
-    Instance B->>Client: WS Msg: {"status": "HANDOFF"}
+    Instance B->>GCS: Attempt to acquire lock (fails, becomes waiter)
+    Instance B->>Client: WS Msg: {"status": "RESTORING"}
 
-    loop Background Watcher on Instance A
-        Instance A->>GCS: Check for locks
+    loop Background Lock Renewal on Instance A
+        Instance A->>GCS: Check lock status
     end
-    Note over Instance A, GCS: Sees lock owned by Instance B
+    Note over Instance A, GCS: Discovers Instance B is waiting
 
-    Instance A->>GCS: Save sandbox state
+    Instance A->>GCS: Save sandbox state (checkpoint)
     Note right of Instance A: Pauses, saves, then deletes<br/>local sandbox container.
+    Instance A->>GCS: Release Lock
 
     loop Polling on Instance B
-        Instance B->>GCS: Check for state file
+        Instance B->>GCS: Check for lock release
     end
-    Note over Instance B, GCS: Sees state file from Instance A
+    Note over Instance B, GCS: Acquires lock
 
     Instance B->>GCS: Restore sandbox from state
-    Instance B->>GCS: Release Lock
-
     Instance B->>Client: WS Msg: {"status": "RUNNING"}
     deactivate Client
 ```
