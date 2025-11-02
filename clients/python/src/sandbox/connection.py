@@ -1,7 +1,15 @@
 
 import asyncio
 import websockets
-from typing import Callable, Any, Dict, Optional
+from typing import Callable, Any, Dict, Optional, Awaitable
+
+ShouldReconnectCallback = Callable[[int, str], bool]
+
+class ReconnectInfo:
+    url: str
+    ws_options: Optional[Dict[str, Any]]
+
+GetReconnectInfoCallback = Callable[[], ReconnectInfo]
 
 class Connection:
     """
@@ -14,6 +22,9 @@ class Connection:
         on_message: Callable[[str], Any],
         on_error: Callable[[Exception], Any],
         on_close: Callable[[int, str], Any],
+        should_reconnect: ShouldReconnectCallback,
+        get_reconnect_info: GetReconnectInfoCallback,
+        on_reopen: Callable[[], Awaitable[None]],
         ws_options: Optional[Dict[str, Any]] = None,
         debug: bool = False,
         debug_label: str = '',
@@ -22,11 +33,17 @@ class Connection:
         self.on_message = on_message
         self.on_error = on_error
         self.on_close = on_close
+        self.should_reconnect = should_reconnect
+        self.get_reconnect_info = get_reconnect_info
+        self.on_reopen = on_reopen
         self.ws_options = ws_options or {}
         self._debug_enabled = debug
         self._debug_label = debug_label
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
         self._listen_task: Optional[asyncio.Task] = None
+        self.is_closed_intentionally = False
+        self.is_reconnecting = False
+        self.cookie: Optional[str] = None
 
     def _log_debug(self, message, *args):
         if self._debug_enabled:
@@ -38,8 +55,6 @@ class Connection:
         """
         self._log_debug(f"Connecting to {self.url}")
         try:
-            # The `extra_headers` kwarg is used by websockets for custom headers.
-            # We will use this later for cookies.
             self.ws = await websockets.connect(self.url, **self.ws_options)
             self._log_debug("Connection established.")
             self._listen_task = asyncio.create_task(self._listen())
@@ -52,20 +67,55 @@ class Connection:
         """
         Listens for incoming messages and handles connection state changes.
         """
-        try:
-            while True:
+        while True:
+            try:
                 message = await self.ws.recv()
                 self.on_message(message)
-        except websockets.exceptions.ConnectionClosed as e:
-            self._log_debug(f"Connection closed: {e.code} {e.reason}")
-            self.on_close(e.code, e.reason)
-        except Exception as e:
-            self._log_debug(f"An error occurred in listener: {e}")
-            self.on_error(e)
-            # Ensure close is called on unexpected errors
-            if self.ws and self.ws.state != websockets.protocol.State.CLOSED:
-                 await self.ws.close(1011, "Unexpected error")
-            self.on_close(1011, "Unexpected error")
+            except websockets.exceptions.ConnectionClosed as e:
+                if e.rcvd:
+                    self._log_debug(f"Connection closed gracefully: {e.rcvd.code} {e.rcvd.reason}")
+                    close_code, close_reason = e.rcvd.code, e.rcvd.reason
+                else:
+                    self._log_debug(f"Connection closed abruptly: {e}")
+                    close_code, close_reason = 1006, "Abnormal Closure"
+
+                if self.is_closed_intentionally:
+                    self._log_debug("Connection closed intentionally. Not reconnecting.")
+                    self.on_close(close_code, close_reason)
+                    break
+
+                if not self.should_reconnect(close_code, close_reason):
+                    self._log_debug("`should_reconnect` returned false. Not reconnecting.")
+                    self.on_close(close_code, close_reason)
+                    break
+                
+                self._log_debug("`should_reconnect` returned true. Attempting to reconnect.")
+                try:
+                    await self._reconnect()
+                    self._log_debug("Resuming listening on new connection.")
+                    continue # Resume listening
+                except Exception as reconnect_e:
+                    self._log_debug(f"Reconnect attempt failed: {reconnect_e}")
+                    self.on_error(reconnect_e)
+                    self.on_close(1011, str(reconnect_e))
+                    break
+            except Exception as e:
+                self._log_debug(f"An error occurred in listener: {e}")
+                self.on_error(e)
+                self.on_close(1011, str(e))
+                break
+
+    async def _reconnect(self):
+        self.is_reconnecting = True
+        reconnect_info = self.get_reconnect_info()
+        self.url = reconnect_info['url']
+        self.ws_options = reconnect_info.get('ws_options', self.ws_options)
+        self._log_debug("Attempting to reconnect...")     
+        self.ws = await websockets.connect(self.url, **self.ws_options)
+        self._log_debug("Reconnection successful.")
+        self.is_reconnecting = False
+        if self.on_reopen:
+            await self.on_reopen()
 
     async def send(self, data: str):
         """
@@ -78,10 +128,15 @@ class Connection:
 
     async def close(self, code: int = 1000, reason: str = ""):
         """
-        Closes the WebSocket connection and cancels the listener task.
+        Closes the WebSocket connection intentionally.
         """
+        if self.is_closed_intentionally:
+            return
+        self.is_closed_intentionally = True
+        
         if self._listen_task and not self._listen_task.done():
             self._listen_task.cancel()
+
         if self.ws and self.ws.state != websockets.protocol.State.CLOSED:
-            self._log_debug("Closing WebSocket connection.")
+            self._log_debug("Closing WebSocket connection intentionally.")
             await self.ws.close(code, reason)

@@ -1,3 +1,4 @@
+
 # Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -396,6 +397,46 @@ async def test_sandbox_attach_in_use(mock_connection_factory):
     await msg_task
 
 @pytest.mark.asyncio
+async def test_sandbox_attach_restore_error(mock_connection_factory):
+    """
+    Tests that attach raises SandboxCreationError if a restore error occurs.
+    """
+    # Arrange
+    error_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_RESTORE_ERROR,
+            MessageKey.MESSAGE: "Failed to restore sandbox"
+        },
+    ]
+    _, msg_task = await mock_connection_factory(error_messages)
+
+    # Act & Assert
+    with pytest.raises(SandboxCreationError, match="Failed to restore sandbox"):
+        await Sandbox.attach("ws://test", "any_id")
+    await msg_task
+
+@pytest.mark.asyncio
+async def test_sandbox_attach_restore_error(mock_connection_factory):
+    """
+    Tests that attach raises SandboxCreationError if a restore error occurs.
+    """
+    # Arrange
+    error_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_RESTORE_ERROR,
+            MessageKey.MESSAGE: "Failed to restore sandbox"
+        },
+    ]
+    _, msg_task = await mock_connection_factory(error_messages)
+
+    # Act & Assert
+    with pytest.raises(SandboxCreationError, match="Failed to restore sandbox"):
+        await Sandbox.attach("ws://test", "any_id")
+    await msg_task
+
+@pytest.mark.asyncio
 async def test_sandbox_connection_lost_during_attach(mock_connection_factory):
     """
     Tests that a connection lost during attach raises a SandboxConnectionError.
@@ -741,3 +782,191 @@ async def test_checkpoint_success(mock_connection_factory):
     mock_conn.send.assert_any_call(json.dumps({"action": "checkpoint"}))
     assert sandbox._state == "closed"
     await msg_task
+
+@pytest.mark.asyncio
+@patch('sandbox.sandbox.Connection')
+async def test_sandbox_provides_should_reconnect_callback(mock_Connection):
+    """
+    Tests that the Sandbox provides a `should_reconnect` callback that
+    correctly reflects the sandbox state.
+    """
+    # Arrange
+    mock_conn_instance = AsyncMock()
+    mock_Connection.return_value = mock_conn_instance
+    
+    captured_callbacks = {}
+    on_message_callback = None
+
+    # This side effect captures the callbacks. The test will manually send the
+    # messages needed to unblock the Sandbox.create() call.
+    def side_effect(url, on_message, on_error, on_close, should_reconnect, get_reconnect_info, on_reopen, **kwargs):
+        nonlocal on_message_callback
+        on_message_callback = on_message
+        captured_callbacks['should_reconnect'] = should_reconnect
+        return mock_conn_instance
+    
+    mock_Connection.side_effect = side_effect
+
+    # Act: Create the sandbox. This will hang until we send messages.
+    create_task = asyncio.create_task(Sandbox.create("ws://test", enable_auto_reconnect=True))
+    
+    # Allow create_task to run and set the on_message_callback
+    await asyncio.sleep(0) 
+    
+    # Simulate server messages to get sandbox to "running" state, unblocking create()
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"}))
+    await asyncio.sleep(0)
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}))
+    
+    sandbox = await create_task
+
+    # Assert
+    should_reconnect_cb = captured_callbacks['should_reconnect']
+    
+    # 1. Should reconnect on abnormal closure when running
+    assert sandbox._state == "running"
+    assert should_reconnect_cb(1006, "Abnormal closure") is True
+    
+    # 2. Should NOT reconnect if kill was intentional
+    sandbox._is_kill_intentionally = True
+    assert should_reconnect_cb(1006, "Abnormal closure") is False
+    sandbox._is_kill_intentionally = False
+
+    # 3. Should NOT reconnect on fatal errors
+    sandbox._update_should_reconnect(SandboxEvent.SANDBOX_NOT_FOUND)
+    assert should_reconnect_cb(1006, "Abnormal closure") is False
+    
+    # 4. Should reconnect again if state is back to running
+    sandbox._update_should_reconnect(SandboxEvent.SANDBOX_RUNNING)
+    assert should_reconnect_cb(1006, "Abnormal closure") is True
+
+    await sandbox.kill(timeout=0.1)
+
+
+@pytest.mark.asyncio
+@patch('sandbox.sandbox.Connection')
+async def test_sandbox_provides_get_reconnect_info_callback(mock_Connection):
+    """
+    Tests that the Sandbox provides a `get_reconnect_info` callback that
+    returns the correct URL for reconnection.
+    """
+    # Arrange
+    mock_conn_instance = AsyncMock()
+    mock_Connection.return_value = mock_conn_instance
+    
+    captured_callbacks = {}
+    on_message_callback = None
+
+    def side_effect(url, on_message, on_error, on_close, should_reconnect, get_reconnect_info, on_reopen, **kwargs):
+        nonlocal on_message_callback
+        on_message_callback = on_message
+        captured_callbacks['get_reconnect_info'] = get_reconnect_info
+        return mock_conn_instance
+    
+    mock_Connection.side_effect = side_effect
+
+    create_task = asyncio.create_task(Sandbox.create("ws://test", enable_auto_reconnect=True))
+    await asyncio.sleep(0)
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"}))
+    await asyncio.sleep(0)
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}))
+    sandbox = await create_task
+
+    # Act
+    get_reconnect_info_cb = captured_callbacks['get_reconnect_info']
+    reconnect_info = get_reconnect_info_cb()
+
+    # Assert
+    assert reconnect_info['url'] == "ws://test/attach/test_id"
+
+    await sandbox.kill(timeout=0.1)
+
+@pytest.mark.asyncio
+@patch('sandbox.sandbox.Connection')
+async def test_sandbox_provides_on_reopen_callback(mock_Connection):
+    """
+    Tests that the Sandbox provides an `on_reopen` callback that sends the
+    correct reconnect message.
+    """
+    # Arrange
+    mock_conn_instance = AsyncMock()
+    mock_Connection.return_value = mock_conn_instance
+    
+    captured_callbacks = {}
+    on_message_callback = None
+
+    def side_effect(url, on_message, on_error, on_close, should_reconnect, get_reconnect_info, on_reopen, **kwargs):
+        nonlocal on_message_callback
+        on_message_callback = on_message
+        captured_callbacks['on_reopen'] = on_reopen
+        return mock_conn_instance
+    
+    mock_Connection.side_effect = side_effect
+
+    create_task = asyncio.create_task(Sandbox.create("ws://test", enable_auto_reconnect=True))
+    await asyncio.sleep(0)
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"}))
+    await asyncio.sleep(0)
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}))
+    sandbox = await create_task
+
+    # Act
+    on_reopen_cb = captured_callbacks['on_reopen']
+    await on_reopen_cb()
+
+    # Assert
+    mock_conn_instance.send.assert_called_with(json.dumps({"action": "reconnect"}))
+
+    await sandbox.kill(timeout=0.1)
+
+
+@pytest.mark.asyncio
+@patch('sandbox.sandbox.Connection')
+async def test_sandbox_attach_provides_reconnect_callbacks(mock_Connection):
+    """
+    Tests that the Sandbox, when attached, provides the correct interface
+    (callbacks) for auto-reconnect functionality.
+    """
+    # Arrange
+    mock_conn_instance = AsyncMock()
+    mock_Connection.return_value = mock_conn_instance
+    
+    captured_callbacks = {}
+    on_message_callback = None
+
+    def side_effect(url, on_message, on_error, on_close, should_reconnect, get_reconnect_info, on_reopen, **kwargs):
+        nonlocal on_message_callback
+        on_message_callback = on_message
+        captured_callbacks['should_reconnect'] = should_reconnect
+        captured_callbacks['get_reconnect_info'] = get_reconnect_info
+        captured_callbacks['on_reopen'] = on_reopen
+        return mock_conn_instance
+    
+    mock_Connection.side_effect = side_effect
+
+    # Act: Attach to the sandbox
+    attach_task = asyncio.create_task(Sandbox.attach("ws://test", "test_id", enable_auto_reconnect=True))
+    
+    await asyncio.sleep(0)
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}))
+    
+    sandbox = await attach_task
+
+    # Assert
+    # 1. Test `should_reconnect` callback
+    should_reconnect_cb = captured_callbacks['should_reconnect']
+    assert should_reconnect_cb(1006, "Abnormal closure") is True
+
+    # 2. Test `get_reconnect_info` callback
+    get_reconnect_info_cb = captured_callbacks['get_reconnect_info']
+    reconnect_info = get_reconnect_info_cb()
+    assert reconnect_info['url'] == "ws://test/attach/test_id"
+
+    # 3. Test `on_reopen` callback
+    on_reopen_cb = captured_callbacks['on_reopen']
+    await on_reopen_cb()
+    mock_conn_instance.send.assert_called_with(json.dumps({"action": "reconnect"}))
+
+    await sandbox.kill(timeout=0.1)
+
+

@@ -43,6 +43,9 @@ class Sandbox:
         self._enable_debug = enable_debug
         self._debug_label = debug_label
         self._is_kill_intentionally = False
+        self._enable_auto_reconnect = False
+        self._should_reconnect_internal = False
+        self._base_url = None
 
     @property
     def sandbox_id(self):
@@ -50,12 +53,14 @@ class Sandbox:
         return self._sandbox_id
 
     @classmethod
-    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None, enable_sandbox_checkpoint: bool = False, enable_idle_timeout_auto_checkpoint: bool = False):
+    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None, enable_sandbox_checkpoint: bool = False, enable_idle_timeout_auto_checkpoint: bool = False, enable_auto_reconnect: bool = False):
         """
         Creates a new sandbox session.
         """
         instance = cls("creating", enable_debug, debug_label)
+        instance._enable_auto_reconnect = enable_auto_reconnect
         sanitized_url = url.rstrip('/')
+        instance._base_url = sanitized_url
         ws_url = f"{sanitized_url}/create"
         
         ws_options = {"ssl": ssl} if ssl else {}
@@ -66,6 +71,9 @@ class Sandbox:
                 on_message=instance._on_message,
                 on_error=instance._on_error,
                 on_close=instance._on_close,
+                should_reconnect=instance._should_reconnect,
+                get_reconnect_info=instance._get_reconnect_info,
+                on_reopen=instance._on_reopen,
                 ws_options=ws_options,
                 debug=enable_debug,
                 debug_label=debug_label,
@@ -87,13 +95,15 @@ class Sandbox:
         return instance
 
     @classmethod
-    async def attach(cls, url: str, sandbox_id: str, ssl=None, enable_debug=False, debug_label=""):
+    async def attach(cls, url: str, sandbox_id: str, ssl=None, enable_debug=False, debug_label="", enable_auto_reconnect: bool = False):
         """
         Attaches to an existing sandbox session.
         """
         instance = cls("attaching", enable_debug, debug_label)
+        instance._enable_auto_reconnect = enable_auto_reconnect
         instance._sandbox_id = sandbox_id
         sanitized_url = url.rstrip('/')
+        instance._base_url = sanitized_url
         ws_url = f"{sanitized_url}/attach/{sandbox_id}"
 
         ws_options = {"ssl": ssl} if ssl else {}
@@ -104,6 +114,9 @@ class Sandbox:
                 on_message=instance._on_message,
                 on_error=instance._on_error,
                 on_close=instance._on_close,
+                should_reconnect=instance._should_reconnect,
+                get_reconnect_info=instance._get_reconnect_info,
+                on_reopen=instance._on_reopen,
                 ws_options=ws_options,
                 debug=enable_debug,
                 debug_label=debug_label,
@@ -133,6 +146,22 @@ class Sandbox:
         await self._ready_event.wait()
         if self._error_on_ready:
             raise self._error_on_ready
+
+    def _update_should_reconnect(self, status: SandboxEvent):
+        is_fatal_error = status in [
+            SandboxEvent.SANDBOX_ERROR,
+            SandboxEvent.SANDBOX_NOT_FOUND,
+            SandboxEvent.SANDBOX_CREATION_ERROR,
+            SandboxEvent.SANDBOX_CHECKPOINT_ERROR,
+            SandboxEvent.SANDBOX_RESTORE_ERROR,
+            SandboxEvent.SANDBOX_DELETED,
+            SandboxEvent.SANDBOX_LOCK_RENEWAL_ERROR,
+        ]
+
+        if is_fatal_error:
+            self._should_reconnect_internal = False
+        elif status == SandboxEvent.SANDBOX_RUNNING:
+            self._should_reconnect_internal = self._enable_auto_reconnect
 
     def _on_message(self, message_str: str):
         """Callback for handling incoming WebSocket messages."""
@@ -165,10 +194,13 @@ class Sandbox:
 
         if event == EventType.STATUS_UPDATE:
             status = message.get(MessageKey.STATUS)
+            self._update_should_reconnect(status)
             if status == SandboxEvent.SANDBOX_RUNNING:
                 self._state = "running"
                 self._ready_event.set()
-            elif status in [SandboxEvent.SANDBOX_CREATION_ERROR, SandboxEvent.SANDBOX_NOT_FOUND, SandboxEvent.SANDBOX_IN_USE]:
+            elif status == SandboxEvent.SANDBOX_RESTORING:
+                self._state = "restoring"
+            elif status in [SandboxEvent.SANDBOX_CREATION_ERROR, SandboxEvent.SANDBOX_NOT_FOUND, SandboxEvent.SANDBOX_IN_USE, SandboxEvent.SANDBOX_RESTORE_ERROR]:
                 error = SandboxCreationError(message.get(MessageKey.MESSAGE, status))
                 self._handle_error_on_ready(error)
                 asyncio.create_task(self._shutdown())
@@ -205,6 +237,18 @@ class Sandbox:
         self._log_debug(f"Connection closed: {code} - {reason}")
         self._handle_error_on_ready(error)
         asyncio.create_task(self._shutdown())
+
+    def _should_reconnect(self, code: int, reason: str) -> bool:
+        return self._should_reconnect_internal and not self._is_kill_intentionally
+
+    def _get_reconnect_info(self):
+        base_url = self._base_url
+        reconnect_url = f"{base_url}/attach/{self._sandbox_id}"
+        return {"url": reconnect_url, "ws_options": self._connection.ws_options}
+
+    async def _on_reopen(self):
+        self._log_debug("Reconnected. Sending reconnect action.")
+        await self._send({"action": "reconnect"})
 
     async def snapshot_filesystem(self, name: str):
         """
