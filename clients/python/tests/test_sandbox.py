@@ -646,6 +646,26 @@ async def test_create_sends_enable_idle_timeout_auto_checkpoint(mock_connection_
     await msg_task
 
 @pytest.mark.asyncio
+async def test_create_sends_enable_sandbox_handoff(mock_connection_factory):
+    """
+    Tests that create sends the enable_sandbox_handoff parameter.
+    """
+    # Arrange
+    creation_messages = [
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
+    ]
+    mock_conn, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
+
+    # Act
+    sandbox = await Sandbox.create("ws://test", enable_sandbox_handoff=True)
+
+    # Assert
+    mock_conn.send.assert_any_call(json.dumps({"idle_timeout": 60, "enable_sandbox_handoff": True}))
+    await sandbox.kill(timeout=0.1)
+    await msg_task
+
+@pytest.mark.asyncio
 async def test_checkpoint_raises_error_if_not_running(mock_connection_factory):
     """
     Tests that checkpoint raises a SandboxStateError if the sandbox is not in the 'running' state.

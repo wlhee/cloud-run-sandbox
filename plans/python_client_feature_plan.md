@@ -81,7 +81,7 @@ Use the TypeScript client implementation as a reference for business logic and e
 
 ---
 
-#### **Feature 6: Reconnection & Handoff**
+#### **Feature 6: Reconnection & Handoff (Done)**
 *   **Goal:** Implement robust connection management, allowing clients to attach to existing sandboxes and automatically reconnect if the connection drops. This mirrors `reconnect.ts` and `handoff.ts`.
 *   **Key API Additions:** `enable_auto_reconnect` and `enable_sandbox_handoff` options on `create()`.
 *   **TypeScript Examples:** `reconnect.ts`, `handoff.ts`
@@ -99,7 +99,7 @@ Use the TypeScript client implementation as a reference for business logic and e
 
 ---
 
-#### **Feature 7: Support session affinity cookie**
+#### **Feature 7: Support session affinity cookie (Done)**
 
 
 

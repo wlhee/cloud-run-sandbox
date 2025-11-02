@@ -53,7 +53,7 @@ class Sandbox:
         return self._sandbox_id
 
     @classmethod
-    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None, enable_sandbox_checkpoint: bool = False, enable_idle_timeout_auto_checkpoint: bool = False, enable_auto_reconnect: bool = False):
+    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None, enable_sandbox_checkpoint: bool = False, enable_idle_timeout_auto_checkpoint: bool = False, enable_auto_reconnect: bool = False, enable_sandbox_handoff: bool = False):
         """
         Creates a new sandbox session.
         """
@@ -89,6 +89,8 @@ class Sandbox:
             create_params["enable_checkpoint"] = enable_sandbox_checkpoint
         if enable_idle_timeout_auto_checkpoint:
             create_params["enable_idle_timeout_auto_checkpoint"] = enable_idle_timeout_auto_checkpoint
+        if enable_sandbox_handoff:
+            create_params["enable_sandbox_handoff"] = enable_sandbox_handoff
         await instance._send(create_params)
         
         await instance._wait_for_ready()
