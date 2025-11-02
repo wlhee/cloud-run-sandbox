@@ -41,9 +41,9 @@
  *    `export CLOUD_RUN_URL_CHECKPOINT="wss://your-service-a-url.run.app"`
  *    `export CLOUD_RUN_URL_RESTORE="wss://your-service-b-url.run.app"`
  * 3. Run the script from the root of the repository:
- *    `npx ts-node example/checkpoint.ts`
+ *    `npx ts-node example/js/checkpoint.ts`
  */
-import { Sandbox } from '../clients/js/src/sandbox';
+import { Sandbox } from '../../clients/js/src/sandbox';
 
 async function main() {
   const urlCheckpoint = process.env.CLOUD_RUN_URL_CHECKPOINT;

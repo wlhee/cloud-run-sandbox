@@ -39,7 +39,7 @@
  * 3. Run the script from the root of the repository:
  *    `npx ts-node example/reconnect.ts`
  */
-import { Sandbox } from '../clients/js/src/sandbox';
+import { Sandbox } from '../../clients/js/src/sandbox';
 
 async function main() {
   const url = process.env.CLOUD_RUN_URL;

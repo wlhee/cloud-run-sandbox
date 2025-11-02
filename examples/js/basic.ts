@@ -26,12 +26,10 @@
  * 1. Make sure you have ts-node installed (`npm install -g ts-node`).
  * 2. Set the environment variable:
  *    `export CLOUD_RUN_URL="wss://your-service-url.run.app"
- * 3. Install the JS client for the sandbox:
- *    `npm install clients/js/`
- * 4. Run the script from the root of the repository:
- *    `ts-node example/client_example.ts`
+ * 3. Run the script from the root of the repository:
+ *    `npx ts-node examples/js/basic.ts`
  */
-import { Sandbox } from '../clients/js/src/sandbox';
+import { Sandbox } from '../../clients/js/src/sandbox';
 
 async function main() {
   const url = process.env.CLOUD_RUN_URL;
@@ -86,7 +84,7 @@ for i in range(5):
     print(f"Line {i+1}")
     time.sleep(0.5)
 `;
-    const pythonProcess = await sandbox.exec(pythonScript, "python");
+    const pythonProcess = await sandbox.exec("python", pythonScript);
 
     console.log("\n--- Python Output (Iterative) ---");
     for await (const chunk of pythonProcess.stdout) {
@@ -107,7 +105,7 @@ for i in range(2):
     print(f"Read from stdin: {line.strip()}")
 print("Python script finished.")
 `;
-    const stdinProcess = await sandbox.exec(stdinScript, "python");
+    const stdinProcess = await sandbox.exec("python", stdinScript);
 
     // Write to stdin after a short delay
     setTimeout(() => stdinProcess.writeToStdin("Hello from the client!\n"), 500);
@@ -127,10 +125,9 @@ print("Python script finished.")
     console.error("\nAn error occurred:", e);
   } finally {
     if (sandbox) {
-  // Kill the sandbox
-  sandbox.kill();
-  console.log("Sandbox killed.");
-}
+      // Kill the sandbox
+      sandbox.kill();
+      console.log("Sandbox killed.");
     }
   }
 }

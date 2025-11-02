@@ -23,11 +23,16 @@ import certifi
 # Add the project root to the Python path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from clients.python.src.sandbox import Sandbox
+from sandbox.sandbox import Sandbox
 
 async def run_handoff(url_a: str, url_b: str):
     """
     Demonstrates the sandbox handoff functionality.
+
+    To run this example:
+    CLOUD_RUN_URL="wss://your-service-a-url.run.app" \
+    CLOUD_RUN_URL_HANDOFF="wss://your-service-b-url.run.app" \
+    python3 examples/python/handoff.py
     """
     print("--- Sandbox Handoff Example ---")
     print(f"Using URL A: {url_a}")

@@ -19,7 +19,7 @@ To run this example, you need to have a sandbox server running.
 Set the CLOUD_RUN_URL environment variable to the URL of your sandbox server.
 
 Example:
-CLOUD_RUN_URL=<URL> python3 examples/lifecycle.py
+CLOUD_RUN_URL=<URL> python3 examples/python/lifecycle.py
 """
 
 import asyncio
@@ -31,7 +31,7 @@ import certifi
 # Add the project root to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from clients.python.src.sandbox.sandbox import Sandbox
+from sandbox.sandbox import Sandbox
 
 WEBSOCKET_URL = os.environ.get("CLOUD_RUN_URL").replace("https://", "wss://")
 

@@ -41,12 +41,7 @@ async def main():
     The WebSocket URL should be in the format: wss://<your-cloud-run-url>
 
     To run this example:
-    1. Set the environment variable:
-       `export CLOUD_RUN_URL="https://your-service-url.run.app"`
-    2. Install the Python client for the sandbox:
-       `pip install clients/python/`
-    3. Run the script from the root of the repository:
-       `CLOUD_RUN_URL=<URL> python3 examples/filesystem_snapshot.py`
+        `CLOUD_RUN_URL=<URL> python3 examples/python/filesystem_snapshot.py`
     """
     url = os.environ.get("CLOUD_RUN_URL")
     if not url:

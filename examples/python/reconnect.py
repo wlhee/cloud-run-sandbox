@@ -16,7 +16,7 @@ import asyncio
 import os
 import ssl
 import certifi
-from sandbox import Sandbox
+from sandbox.sandbox import Sandbox
 
 async def main():
     """

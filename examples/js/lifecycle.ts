@@ -21,10 +21,10 @@
  * Set the CLOUD_RUN_URL environment variable to the URL of your sandbox server.
  *
  * Example:
- * CLOUD_RUN_URL=<URL> npx ts-node example/lifecycle.ts
+ * CLOUD_RUN_URL=<URL> npx ts-node example/js/lifecycle.ts
  */
 
-import { Sandbox } from '../clients/js/src/sandbox';
+import { Sandbox } from '../../clients/js/src/sandbox';
 
 const WEBSOCKET_URL = process.env.CLOUD_RUN_URL;
 

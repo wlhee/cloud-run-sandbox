@@ -45,7 +45,7 @@ async def main():
        `export CLOUD_RUN_URL_CHECKPOINT="wss://your-service-a-url.run.app"
        `export CLOUD_RUN_URL_RESTORE="wss://your-service-b-url.run.app"
     2. Run the script from the root of the repository:
-       `python3 example/checkpoint.py`
+       `python3 example/python/checkpoint.py`
     """
     url_checkpoint = os.environ.get("CLOUD_RUN_URL_CHECKPOINT").replace("https://", "wss://")
     url_restore = os.environ.get("CLOUD_RUN_URL_RESTORE").replace("https://", "wss://")

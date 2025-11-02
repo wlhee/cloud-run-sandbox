@@ -30,9 +30,7 @@ async def main():
     Ensure you also installed the Sandbox client for Python before running this.
     
     Example:
-        CLOUD_RUN_URL="wss://sandbox-xxxxxxxxxx-uc.a.run.app" 
-        pip install -e clients/python
-        python3 example/client_example.py
+        CLOUD_RUN_URL="wss://sandbox-xxxxxxxxxx-uc.a.run.app" python3 example/python/basic.py
     """
     url = os.environ.get("CLOUD_RUN_URL").replace("https://", "wss://")
     if not url:

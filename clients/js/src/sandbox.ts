@@ -381,6 +381,7 @@ export class Sandbox {
 
   public kill(): Promise<void> {
     if (this.state === 'closed' || this.state === 'failed' || this.state === 'checkpointed') {
+      this.connection.close();
       return Promise.resolve();
     }
 

@@ -42,9 +42,9 @@
  *    `export CLOUD_RUN_URL="wss://your-service-a-url.run.app"
  *    `export CLOUD_RUN_URL_HANDOFF="wss://your-service-b-url.run.app"
  * 3. Run the script from the root of the repository:
- *    `ts-node example/handoff.ts`
+ *    `npx ts-node example/js/handoff.ts`
  */
-import { Sandbox } from '../clients/js/src/sandbox';
+import { Sandbox } from '../../clients/js/src/sandbox';
 import { v4 as uuidv4 } from 'uuid';
 
 async function main() {
@@ -132,11 +132,11 @@ async function main() {
   } finally {
     // Cleanup: ensure both sandbox connections are killed
     if (sandboxA) {
-      sandboxA.kill();
+      await sandboxA.kill();
       console.log('[SandboxA] Killed.');
     }
     if (sandboxB) {
-      sandboxB.kill();
+      await sandboxB.kill();
       console.log('[SandboxB] Killed.');
     }
   }

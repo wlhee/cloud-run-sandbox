@@ -819,7 +819,7 @@ describe('Sandbox', () => {
 
       await expect(killPromise).resolves.toBeUndefined();
       expect(mockConnectionInstance.send).not.toHaveBeenCalled();
-      expect(mockConnectionInstance.close).not.toHaveBeenCalled();
+      expect(mockConnectionInstance.close).toHaveBeenCalled();
     });
   });
 });

@@ -50,7 +50,33 @@ console.log(`STDOUT: ${stdout}`);
 sandbox.kill();
 ```
 
-For a more detailed example, please see `examples/client_example.ts`.
+For a more detailed example, please see `examples/js/basic.ts`.
+
+### Python
+
+Here is a simple example of how to connect to the sandbox, execute a command, and print its output:
+
+To install the Python client, run the following command from the root of the repository:
+
+```python
+# Create a sandbox
+sandbox = await Sandbox.create(url, ssl=ssl_context) 
+
+# Execute a command
+process = await sandbox.exec('bash', "echo 'Hello from the sandbox!'")
+
+# Read the output
+output = await process.stdout.read_all()
+print(output)
+
+# Wait for the process to finish
+await process.wait()
+
+# Clean up the sandbox session
+await sandbox.kill()
+```
+
+For a more detailed example, please see `examples/python/basic.py`.
 
 ## 3. Checkpoint and Restore
 
@@ -108,7 +134,7 @@ await sandbox1.checkpoint();
 const sandbox2 = await Sandbox.attach(url, sandboxId);
 ```
 
-For a complete, runnable demonstration, please see the example file: `examples/checkpoint.ts`.
+For a complete, runnable demonstration, please see the example file: `examples/js/checkpoint.ts`.
 
 ## 4. Filesystem Snapshot
 
@@ -159,7 +185,7 @@ await sandbox1.snapshotFilesystem('my-snapshot');
 const sandbox2 = await Sandbox.create(url, { filesystemSnapshotName: 'my-snapshot' });
 ```
 
-For a complete, runnable demonstration, please see the example file: `examples/filesystem_snapshot.ts`.
+For a complete, runnable demonstration, please see the example file: `examples/js/filesystem_snapshot.ts`.
 
 ## 5. Executing Python or Bash Code via HTTP (One-off testing)
 
