@@ -49,14 +49,42 @@ class Connection:
         if self._debug_enabled:
             print(f"[{self._debug_label}] [DEBUG] {message}", *args)
 
+    def _get_cookie_from_headers(self, headers):
+        if "Set-Cookie" in headers:
+            return headers["Set-Cookie"]
+        return None
+
+    async def _establish_connection(self, url, options):
+        self._log_debug(f"Establishing connection to {url}")
+        
+        headers = {}
+        if self.cookie:
+            self._log_debug(f"Using existing cookie for session affinity: {self.cookie}")
+            headers['Cookie'] = self.cookie
+
+        ws = await websockets.connect(
+            url,
+            additional_headers=headers,
+            **options
+        )
+        
+        new_cookie = self._get_cookie_from_headers(ws.response.headers)
+        if new_cookie:
+            self.cookie = new_cookie
+            self._log_debug(f"Captured session affinity cookie: {self.cookie}")
+        else:
+            self._log_debug("Warning: response_headers not found. Session affinity may not work.")
+        
+        self._log_debug("Connection established.")
+        return ws
+
     async def connect(self):
         """
         Establishes the WebSocket connection and starts the listener task.
         """
         self._log_debug(f"Connecting to {self.url}")
         try:
-            self.ws = await websockets.connect(self.url, **self.ws_options)
-            self._log_debug("Connection established.")
+            self.ws = await self._establish_connection(self.url, self.ws_options)
             self._listen_task = asyncio.create_task(self._listen())
         except Exception as e:
             self._log_debug(f"Connection failed: {e}")
@@ -110,9 +138,8 @@ class Connection:
         reconnect_info = self.get_reconnect_info()
         self.url = reconnect_info['url']
         self.ws_options = reconnect_info.get('ws_options', self.ws_options)
-        self._log_debug("Attempting to reconnect...")     
-        self.ws = await websockets.connect(self.url, **self.ws_options)
-        self._log_debug("Reconnection successful.")
+        self._log_debug(f"Reonnecting to {self.url}")
+        self.ws = await self._establish_connection(self.url, self.ws_options)
         self.is_reconnecting = False
         if self.on_reopen:
             await self.on_reopen()
