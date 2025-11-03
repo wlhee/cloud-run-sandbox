@@ -4,9 +4,16 @@ FROM python:3.11-bullseye
 # Install gVisor dependencies
 RUN apt-get update && apt-get install -y curl wget sudo iproute2 iptables procps
 
-# Download the pre-release runsc binary
-RUN wget https://storage.googleapis.com/wlhe-prereleased-runsc/runsc -O /usr/local/bin/runsc && \
-    chmod +x /usr/local/bin/runsc
+# Download and install the latest runsc binary
+RUN ( \
+      set -e; \
+      URL=https://storage.googleapis.com/gvisor/releases/release/latest/x86_64; \
+      wget ${URL}/runsc ${URL}/runsc.sha512; \
+      sha512sum -c runsc.sha512; \
+      rm -f *.sha512; \
+      chmod a+rx runsc; \
+      mv runsc /usr/local/bin; \
+    )
 
 # Download and install dumb-init.
 ADD https://github.com/Yelp/dumb-init/releases/download/v1.2.5/dumb-init_1.2.5_x86_64 /usr/local/bin/dumb-init
