@@ -226,7 +226,7 @@ async def test_stop_during_execution():
     try:
         await sandbox.create()
         
-        code = "echo 'start'; sleep 5; echo 'end'"
+        code = "echo 'start'; sleep 10; echo 'end'"
         await sandbox.execute(CodeLanguage.BASH, code)
 
         events = []
