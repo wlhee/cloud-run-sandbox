@@ -35,9 +35,14 @@ jobs:
 
     - name: Install gVisor (runsc)
       run: |
-        wget https://storage.googleapis.com/wlhe-prereleased-runsc/runsc
-        chmod +x runsc
-        sudo mv runsc /usr/local/bin/runsc
+        set -e
+        ARCH=$(uname -m)
+        URL=https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}
+        wget ${URL}/runsc ${URL}/runsc.sha512
+        sha512sum -c runsc.sha512
+        rm -f *.sha512
+        chmod a+rx runsc
+        sudo mv runsc /usr/local/bin
         runsc --version
 
     - name: Install dependencies
