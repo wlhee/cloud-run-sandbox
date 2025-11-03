@@ -544,7 +544,6 @@ class GVisorSandbox(SandboxInterface):
         Stops the container and any running exec process. This is a no-op if
         the sandbox is already stopped.
         """
-        print(f"GVISOR ({self.sandbox_id}): _stop() CALLED")
         if self._state in [SandboxState.STOPPED, SandboxState.INITIALIZED, SandboxState.FAILED]:
             logger.info(f"GVISOR ({self.sandbox_id}): Stop called on an already stopped or uninitialized sandbox. No-op.")
             return
