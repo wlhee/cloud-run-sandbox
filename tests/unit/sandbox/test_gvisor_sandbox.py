@@ -238,6 +238,7 @@ async def test_stop_during_execution():
                     print("Stopping sandbox...")
                     await sandbox._stop()
                     print("Sandbox stopped.")
+                print(f"EVENTS AFTER STOP CHECK: {events}")
         except SandboxStreamClosed:
             pass
 
