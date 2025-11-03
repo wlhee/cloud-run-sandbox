@@ -551,7 +551,7 @@ class GVisorSandbox(SandboxInterface):
 
         logger.info(f"GVISOR ({self.sandbox_id}): Stopping...")
         if self._exec_process and self._exec_process.is_running:
-            await self._exec_process.stop()
+            await self.kill_exec_process()
         self._exec_process = None
 
         if self._main_process and self._main_process.is_running:
