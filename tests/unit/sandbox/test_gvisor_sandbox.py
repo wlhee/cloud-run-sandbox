@@ -232,9 +232,11 @@ async def test_stop_during_execution():
         events = []
         try:
             async for event in sandbox.stream_outputs():
+                print(f"EVENTS RECEIVED: {events}")
                 events.append(event)
                 if event.get("type") == OutputType.STDOUT and "start" in event["data"]:
                     await sandbox._stop()
+                    print("Stopping sandbox...")
         except SandboxStreamClosed:
             pass
 
