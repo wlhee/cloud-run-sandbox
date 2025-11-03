@@ -17,6 +17,7 @@ import asyncio
 import shutil
 import os
 import logging
+import datetime
 from src.sandbox.gvisor import GVisorConfig
 from src.sandbox.factory import make_sandbox_config, create_sandbox_instance
 from src.sandbox.types import OutputType, CodeLanguage, SandboxStateEvent
@@ -232,13 +233,12 @@ async def test_stop_during_execution():
         events = []
         try:
             async for event in sandbox.stream_outputs():
-                print(f"EVENTS RECEIVED: {events}")
+                print(f"{datetime.datetime.now()} EVENT RECEIVED: {event}")
                 events.append(event)
                 if event.get("type") == OutputType.STDOUT and "start" in event["data"]:
-                    print("Stopping sandbox...")
+                    print(f"{datetime.datetime.now()} Stopping sandbox with event: {event}")
                     await sandbox._stop()
-                    print("Sandbox stopped.")
-                print(f"EVENTS AFTER STOP CHECK: {events}")
+                    print(f"{datetime.datetime.now()} Sandbox stopped with event: {event}.")
         except SandboxStreamClosed:
             pass
 
