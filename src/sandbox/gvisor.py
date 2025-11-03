@@ -527,13 +527,11 @@ class GVisorSandbox(SandboxInterface):
         try:
             async for event in exec_process.stream_outputs():
                 yield event
-            
-            # Only yield DONE if the stream completes without being closed prematurely.
-            yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
         except SandboxStreamClosed:
             logger.info(f"GVISOR ({self.sandbox_id}): Exec process stream closed.")
         
         await exec_process.wait()
+        yield {"type": "status_update", "status": SandboxStateEvent.SANDBOX_EXECUTION_DONE.value}
 
     async def write_stdin(self, data: str):
         """Writes data to the stdin of the running process."""
