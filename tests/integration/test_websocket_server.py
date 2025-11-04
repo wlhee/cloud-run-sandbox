@@ -52,7 +52,7 @@ def test_websocket_attach_not_found(setup_manager):
     """
     # Disable GCS for this test to ensure it doesn't try to restore
     websocket.manager.gcs_config = None
-    with client.websocket_connect("/attach/non-existent-sandbox") as websocket_conn:
+    with client.websocket_connect("/attach/non-existent-sandbox?sandbox_token=any-token") as websocket_conn:
         data = websocket_conn.receive_json()
         assert data == {"event": "status_update", "status": "SANDBOX_NOT_FOUND"}
 
@@ -94,10 +94,11 @@ async def test_gvisor_sandbox_attach_and_execution():
         sandbox_id_event = websocket.receive_json()
         assert sandbox_id_event["event"] == "sandbox_id"
         sandbox_id = sandbox_id_event["sandbox_id"]
+        sandbox_token = sandbox_id_event["sandbox_token"]
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
     # 2. Attach to the sandbox in a new session
-    with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+    with client.websocket_connect(f"/attach/{sandbox_id}?sandbox_token={sandbox_token}") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # 3. Execute a command in the attached session
@@ -116,11 +117,13 @@ async def test_gvisor_sandbox_concurrent_attach_fails():
     with client.websocket_connect("/create") as ws_a:
         ws_a.send_json({"idle_timeout": 120})
         assert ws_a.receive_json()["event"] == "status_update"
-        sandbox_id = ws_a.receive_json()["sandbox_id"]
+        sandbox_id_event = ws_a.receive_json()
+        sandbox_id = sandbox_id_event["sandbox_id"]
+        sandbox_token = sandbox_id_event["sandbox_token"]
         assert ws_a.receive_json()["status"] == "SANDBOX_RUNNING"
 
         # 2. Client B attempts to attach to the same sandbox
-        with client.websocket_connect(f"/attach/{sandbox_id}") as ws_b:
+        with client.websocket_connect(f"/attach/{sandbox_id}?sandbox_token={sandbox_token}") as ws_b:
             assert ws_b.receive_json() == {"event": "status_update", "status": "SANDBOX_IN_USE"}
         
         # 3. Client A can still execute a command
@@ -218,7 +221,9 @@ async def test_websocket_checkpoint_and_restore_success(tmp_path):
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
         assert websocket.receive_json()["event"] == "status_update"
-        sandbox_id = websocket.receive_json()["sandbox_id"]
+        sandbox_id_event = websocket.receive_json()
+        sandbox_id = sandbox_id_event["sandbox_id"]
+        sandbox_token = sandbox_id_event["sandbox_token"]
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # 2. Execute a command to create a file
@@ -235,7 +240,7 @@ async def test_websocket_checkpoint_and_restore_success(tmp_path):
 
 
     # 4. Attach to the sandbox, which should trigger a restore
-    with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+    with client.websocket_connect(f"/attach/{sandbox_id}?sandbox_token={sandbox_token}") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
@@ -255,7 +260,9 @@ async def test_websocket_multi_checkpoint_and_restore():
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
         assert websocket.receive_json()["event"] == "status_update"
-        sandbox_id = websocket.receive_json()["sandbox_id"]
+        sandbox_id_event = websocket.receive_json()
+        sandbox_id = sandbox_id_event["sandbox_id"]
+        sandbox_token = sandbox_id_event["sandbox_token"]
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # 2. Create a file with initial state
@@ -272,7 +279,7 @@ async def test_websocket_multi_checkpoint_and_restore():
 
 
     # 4. First restore and verify
-    with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+    with client.websocket_connect(f"/attach/{sandbox_id}?sandbox_token={sandbox_token}") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
         websocket.send_json({"language": "bash", "code": "cat /data.txt"})
@@ -293,7 +300,7 @@ async def test_websocket_multi_checkpoint_and_restore():
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTED"}
 
     # 7. Second restore and verify
-    with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+    with client.websocket_connect(f"/attach/{sandbox_id}?sandbox_token={sandbox_token}") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
         websocket.send_json({"language": "bash", "code": "cat /data.txt"})
@@ -365,7 +372,9 @@ async def test_websocket_restore_failure(tmp_path):
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
         assert websocket.receive_json()["event"] == "status_update"
-        sandbox_id = websocket.receive_json()["sandbox_id"]
+        sandbox_id_event = websocket.receive_json()
+        sandbox_id = sandbox_id_event["sandbox_id"]
+        sandbox_token = sandbox_id_event["sandbox_token"]
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
@@ -382,7 +391,7 @@ async def test_websocket_restore_failure(tmp_path):
     shutil.rmtree(full_checkpoint_path)
 
     # 3. Attempt to attach to the sandbox
-    with client.websocket_connect(f"/attach/{sandbox_id}") as websocket:
+    with client.websocket_connect(f"/attach/{sandbox_id}?sandbox_token={sandbox_token}") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORE_ERROR"}
         error_message = websocket.receive_json()

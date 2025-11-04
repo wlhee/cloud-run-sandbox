@@ -67,6 +67,7 @@ async def test_create_interactive_session_success(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("interactive-sandbox", config=config)
     await sandbox.create()
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -74,7 +75,11 @@ async def test_create_interactive_session_success(mock_create_sandbox):
         # 1. Send initial config and receive confirmation
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "interactive-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "interactive-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # 2. Execute first command (Python)
@@ -101,13 +106,18 @@ async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
     # Arrange
     sandbox = FakeSandbox("snapshot-sandbox")
     await sandbox.create()
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"filesystem_snapshot_name": "my-snapshot"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "snapshot-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "snapshot-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
     # Assert that create_sandbox was called with the snapshot name
@@ -130,13 +140,18 @@ async def test_create_sandbox_with_handoff(mock_create_sandbox):
     # Arrange
     sandbox = FakeSandbox("handoff-sandbox")
     await sandbox.create()
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"enable_sandbox_handoff": True})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "handoff-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "handoff-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
     # Assert that create_sandbox was called with handoff enabled
@@ -167,6 +182,7 @@ async def test_interactive_session_with_stdin(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("stdin-sandbox", config=config)
     await sandbox.create()
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -174,7 +190,11 @@ async def test_interactive_session_with_stdin(mock_create_sandbox):
         # 1. Send initial config and receive confirmation
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "stdin-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "stdin-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # 2. Execute command
@@ -210,15 +230,17 @@ def test_create_sandbox_creation_error(mock_create_sandbox):
             websocket.receive_json()
         assert e.value.code == 4000
 
+@pytest.mark.asyncio
 @patch('src.sandbox.manager.SandboxManager.create_sandbox')
 @patch('src.sandbox.manager.SandboxManager.get_sandbox')
-def test_create_and_attach_session(mock_get_sandbox, mock_create_sandbox):
+async def test_create_and_attach_session(mock_get_sandbox, mock_create_sandbox):
     """
     Tests that a client can create a sandbox, disconnect, and another client
     can attach to it.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
     mock_get_sandbox.return_value = sandbox
 
@@ -227,25 +249,31 @@ def test_create_and_attach_session(mock_get_sandbox, mock_create_sandbox):
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
     # 2. Attach to the sandbox
-    with client.websocket_connect("/attach/test-sandbox") as websocket:
+    with client.websocket_connect(f"/attach/test-sandbox?sandbox_token=test-token") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
+@pytest.mark.asyncio
 @patch('src.sandbox.manager.SandboxManager.get_sandbox')
-def test_attach_to_in_use_sandbox(mock_get_sandbox):
+async def test_attach_to_in_use_sandbox(mock_get_sandbox):
     """
     Tests that attaching to a sandbox that is already in use fails.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     sandbox.is_attached = True
     mock_get_sandbox.return_value = sandbox
 
     # Act & Assert
-    with client.websocket_connect("/attach/test-sandbox") as websocket:
+    with client.websocket_connect("/attach/test-sandbox?sandbox_token=test-token") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_IN_USE"}
         with pytest.raises(WebSocketDisconnect) as e:
             websocket.receive_json()
@@ -267,6 +295,7 @@ async def test_sandbox_execution_error(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
     await sandbox.create()
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -275,7 +304,11 @@ async def test_sandbox_execution_error(mock_create_sandbox):
         
         # Initial handshake
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # Send code that will trigger the error
@@ -306,6 +339,7 @@ async def test_invalid_message_format(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
     await sandbox.create()
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -314,7 +348,11 @@ async def test_invalid_message_format(mock_create_sandbox):
         
         # Initial handshake
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # Send a malformed message
@@ -350,6 +388,7 @@ async def test_unsupported_language(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
     await sandbox.create()
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -358,7 +397,11 @@ async def test_unsupported_language(mock_create_sandbox):
         
         # Initial handshake
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # Send a message with an unsupported language
@@ -378,20 +421,22 @@ async def test_unsupported_language(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "stdout", "data": "still open\n"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
+@pytest.mark.asyncio
 @patch('src.sandbox.manager.SandboxManager.restore_sandbox')
 @patch('src.sandbox.manager.SandboxManager.get_sandbox')
-def test_attach_restore_sandbox(mock_get_sandbox, mock_restore_sandbox):
+async def test_attach_restore_sandbox(mock_get_sandbox, mock_restore_sandbox):
     """
     Tests that a client can attach to a sandbox that has been checkpointed,
     triggering a restore.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_get_sandbox.return_value = None # Simulate cache miss
     mock_restore_sandbox.return_value = sandbox
 
     # Act & Assert
-    with client.websocket_connect("/attach/test-sandbox") as websocket:
+    with client.websocket_connect("/attach/test-sandbox?sandbox_token=test-token") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
@@ -413,21 +458,26 @@ def test_create_with_checkpoint_fails_if_not_configured(setup_manager):
         assert e.value.code == 4000
 
 @pytest.mark.asyncio
-@patch('src.sandbox.manager.SandboxManager.checkpoint_sandbox')
 @patch('src.sandbox.manager.SandboxManager.create_sandbox')
-async def test_sandbox_checkpoint(mock_create_sandbox, mock_checkpoint_sandbox):
+@patch('src.sandbox.manager.SandboxManager.checkpoint_sandbox')
+async def test_sandbox_checkpoint(mock_checkpoint_sandbox, mock_create_sandbox):
     """
     Tests that the 'checkpoint' action is correctly handled.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
@@ -437,14 +487,15 @@ async def test_sandbox_checkpoint(mock_create_sandbox, mock_checkpoint_sandbox):
         assert e.value.code == 1000
 
 @pytest.mark.asyncio
-@patch('src.sandbox.manager.SandboxManager.checkpoint_sandbox')
 @patch('src.sandbox.manager.SandboxManager.create_sandbox')
-async def test_sandbox_checkpoint_failure(mock_create_sandbox, mock_checkpoint_sandbox):
+@patch('src.sandbox.manager.SandboxManager.checkpoint_sandbox')
+async def test_sandbox_checkpoint_failure(mock_checkpoint_sandbox, mock_create_sandbox):
     """
     Tests that a failure during checkpointing is handled gracefully.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
     mock_checkpoint_sandbox.side_effect = SandboxCheckpointError("Checkpoint failed")
 
@@ -452,7 +503,11 @@ async def test_sandbox_checkpoint_failure(mock_create_sandbox, mock_checkpoint_s
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120, "enable_checkpoint": True})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
         websocket.send_json({"action": "checkpoint"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CHECKPOINTING"}
@@ -471,7 +526,7 @@ def test_attach_restore_sandbox_not_found(mock_restore_sandbox):
     mock_restore_sandbox.return_value = None
 
     # Act & Assert
-    with client.websocket_connect("/attach/test-sandbox") as websocket:
+    with client.websocket_connect("/attach/test-sandbox?sandbox_token=any-token") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_NOT_FOUND"}
         with pytest.raises(WebSocketDisconnect) as e:
@@ -487,7 +542,7 @@ def test_attach_restore_sandbox_failure(mock_restore_sandbox):
     mock_restore_sandbox.side_effect = SandboxRestoreError("Restore failed")
 
     # Act & Assert
-    with client.websocket_connect("/attach/test-sandbox") as websocket:
+    with client.websocket_connect("/attach/test-sandbox?sandbox_token=any-token") as websocket:
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORING"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RESTORE_ERROR"}
         assert websocket.receive_json() == {"event": "error", "message": "Failed to restore sandbox test-sandbox: Restore failed"}
@@ -496,21 +551,26 @@ def test_attach_restore_sandbox_failure(mock_restore_sandbox):
         assert e.value.code == 4000
 
 @pytest.mark.asyncio
-@patch('src.sandbox.manager.SandboxManager.snapshot_filesystem')
 @patch('src.sandbox.manager.SandboxManager.create_sandbox')
-async def test_snapshot_filesystem(mock_create_sandbox, mock_snapshot_filesystem):
+@patch('src.sandbox.manager.SandboxManager.snapshot_filesystem')
+async def test_snapshot_filesystem(mock_snapshot_filesystem, mock_create_sandbox):
     """
     Tests that the 'snapshot_filesystem' action is correctly handled.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         websocket.send_json({"action": "snapshot_filesystem", "name": "my-snapshot"})
@@ -527,6 +587,7 @@ async def test_snapshot_filesystem_not_configured(mock_create_sandbox, setup_man
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
     setup_manager.gcs_config = None
 
@@ -534,7 +595,11 @@ async def test_snapshot_filesystem_not_configured(mock_create_sandbox, setup_man
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         websocket.send_json({"action": "snapshot_filesystem", "name": "my-snapshot"})
@@ -542,14 +607,15 @@ async def test_snapshot_filesystem_not_configured(mock_create_sandbox, setup_man
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_FILESYSTEM_SNAPSHOT_ERROR"}
         assert websocket.receive_json() == {"event": "error", "message": "Failed to snapshot filesystem for sandbox test-sandbox: Filesystem snapshot is not enabled on the server."}
 @pytest.mark.asyncio
-@patch('src.sandbox.manager.SandboxManager.snapshot_filesystem')
 @patch('src.sandbox.manager.SandboxManager.create_sandbox')
-async def test_snapshot_filesystem_error(mock_create_sandbox, mock_snapshot_filesystem):
+@patch('src.sandbox.manager.SandboxManager.snapshot_filesystem')
+async def test_snapshot_filesystem_error(mock_snapshot_filesystem, mock_create_sandbox):
     """
     Tests that an error during filesystem snapshotting is handled gracefully.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
     mock_snapshot_filesystem.side_effect = SandboxOperationError("Snapshot failed")
 
@@ -557,7 +623,11 @@ async def test_snapshot_filesystem_error(mock_create_sandbox, mock_snapshot_file
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         websocket.send_json({"action": "snapshot_filesystem", "name": "my-snapshot"})
@@ -594,6 +664,7 @@ async def test_reconnect_and_stream(mock_get_sandbox):
     # Arrange
     config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
     sandbox = FakeSandbox("test-sandbox", config=config)
+    await sandbox.create_sandbox_token("test-token")
     mock_get_sandbox.return_value = sandbox
 
     output_stream = [
@@ -610,7 +681,7 @@ async def test_reconnect_and_stream(mock_get_sandbox):
     sandbox.stream_outputs = stream_outputs
 
     # Act & Assert
-    with client.websocket_connect("/attach/test-sandbox") as websocket:
+    with client.websocket_connect("/attach/test-sandbox?sandbox_token=test-token") as websocket:
         # Initial attach message
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
         
@@ -630,6 +701,7 @@ async def test_handle_kill_process_success(mock_create_sandbox):
     # Arrange
     config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
     sandbox = FakeSandbox("test-sandbox", config=config)
+    await sandbox.create_sandbox_token("test-token")
     sandbox.kill_exec_process = AsyncMock()
     mock_create_sandbox.return_value = sandbox
 
@@ -637,7 +709,11 @@ async def test_handle_kill_process_success(mock_create_sandbox):
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         websocket.send_json({"action": "kill_process"})
@@ -653,6 +729,7 @@ async def test_handle_kill_process_not_running(mock_create_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     sandbox.kill_exec_process = AsyncMock()
     mock_create_sandbox.return_value = sandbox
 
@@ -660,7 +737,11 @@ async def test_handle_kill_process_not_running(mock_create_sandbox):
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # Send kill request when no process is running
@@ -678,6 +759,7 @@ async def test_handle_kill_process_failure(mock_create_sandbox):
     # Arrange
     config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
     sandbox = FakeSandbox("test-sandbox", config=config)
+    await sandbox.create_sandbox_token("test-token")
     sandbox.kill_exec_process = AsyncMock(side_effect=Exception("Kill failed"))
     mock_create_sandbox.return_value = sandbox
 
@@ -685,7 +767,11 @@ async def test_handle_kill_process_failure(mock_create_sandbox):
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         websocket.send_json({"action": "kill_process"})
@@ -701,13 +787,18 @@ async def test_reconnect_and_stream_not_running(mock_create_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         # Send reconnect and verify stream
@@ -715,21 +806,26 @@ async def test_reconnect_and_stream_not_running(mock_create_sandbox):
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.asyncio
-@patch('src.sandbox.manager.SandboxManager.kill_sandbox')
 @patch('src.sandbox.manager.SandboxManager.create_sandbox')
-async def test_handle_kill_sandbox_success(mock_create_sandbox, mock_kill_sandbox):
+@patch('src.sandbox.manager.SandboxManager.kill_sandbox')
+async def test_handle_kill_sandbox_success(mock_kill_sandbox, mock_create_sandbox):
     """
     Tests that the 'kill_sandbox' action is correctly handled.
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
     with client.websocket_connect("/create") as websocket:
         websocket.send_json({"idle_timeout": 120})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_CREATING"}
-        assert websocket.receive_json() == {"event": "sandbox_id", "sandbox_id": "test-sandbox"}
+        assert websocket.receive_json() == {
+            "event": "sandbox_id",
+            "sandbox_id": "test-sandbox",
+            "sandbox_token": "test-token",
+        }
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_RUNNING"}
 
         websocket.send_json({"action": "kill_sandbox"})
@@ -738,3 +834,35 @@ async def test_handle_kill_sandbox_success(mock_create_sandbox, mock_kill_sandbo
         assert e.value.code == 1000
 
     mock_kill_sandbox.assert_awaited_once_with("test-sandbox")
+
+@pytest.mark.asyncio
+@patch('src.sandbox.manager.SandboxManager.get_sandbox')
+async def test_attach_with_invalid_token(mock_get_sandbox):
+    """
+    Tests that attaching to a sandbox with an invalid token fails.
+    """
+    # Arrange
+    sandbox = FakeSandbox("test-sandbox")
+    await sandbox.create_sandbox_token("correct-token")
+    mock_get_sandbox.return_value = sandbox
+
+    # Act & Assert
+    with client.websocket_connect("/attach/test-sandbox?sandbox_token=incorrect-token") as websocket:
+        assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_PERMISSION_DENIAL_ERROR"}
+        assert websocket.receive_json() == {"event": "error", "message": "Invalid sandbox token."}
+        with pytest.raises(WebSocketDisconnect) as e:
+            websocket.receive_json()
+        assert e.value.code == 4000
+
+def test_attach_with_missing_token():
+    """
+    Tests that attaching to a sandbox without a token query param fails the
+    websocket handshake.
+    """
+    with pytest.raises(WebSocketDisconnect) as e:
+        with client.websocket_connect("/attach/test-sandbox"):
+            pass  # The connection should fail immediately
+    # FastAPI/Starlette closes with 1000 and sends a 422/403 before the connection is established from the client's perspective.
+    # The test client reflects this as a disconnect. The exact code can vary.
+    # We are primarily interested in the fact that it disconnects.
+    assert e.type == WebSocketDisconnect

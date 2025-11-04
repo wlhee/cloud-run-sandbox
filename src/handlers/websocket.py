@@ -14,7 +14,7 @@
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException
 from src.sandbox.manager import SandboxManager
-from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxError, StatusNotifier, UnsupportedLanguageError
+from src.sandbox.interface import SandboxCreationError, SandboxExecutionError, SandboxExecutionInProgressError, SandboxStreamClosed, SandboxOperationError, SandboxCheckpointError, SandboxRestoreError, SandboxSnapshotFilesystemError, SandboxError, StatusNotifier, UnsupportedLanguageError, SandboxPermissionError
 from src.sandbox.types import SandboxStateEvent, CodeLanguage
 import asyncio
 import logging
@@ -101,7 +101,12 @@ class WebsocketHandler:
                 status_notifier=self.status_notifier
             )
             self.sandbox.is_attached = True
-            await self.websocket.send_json({"event": "sandbox_id", "sandbox_id": self.sandbox.sandbox_id})
+            sandbox_token = await self.sandbox.get_sandbox_token()
+            await self.websocket.send_json({
+                "event": "sandbox_id",
+                "sandbox_id": self.sandbox.sandbox_id,
+                "sandbox_token": sandbox_token,
+            })
             
             # 3. Signal that the sandbox is ready
             await self.send_status(SandboxStateEvent.SANDBOX_RUNNING)
@@ -111,9 +116,12 @@ class WebsocketHandler:
             await self.handle_error(e, close_connection=True)
             return False  # Indicates failure
 
-    async def _setup_attach(self, sandbox_id: str):
+    async def _setup_attach(self, sandbox_id: str, sandbox_token: str):
         """Sets up the handler for an existing sandbox."""
         try:
+            if not sandbox_token:
+                raise SandboxPermissionError("Sandbox token is missing.")
+
             sandbox = manager.get_sandbox(sandbox_id)
             if not sandbox:
                 if manager.is_sandbox_checkpointing_enabled:
@@ -126,6 +134,11 @@ class WebsocketHandler:
                     return False  # Indicates failure
             else:
                 manager.update_status_notifier(sandbox_id, self.status_notifier)
+            
+            # Verify the token
+            expected_token = await sandbox.get_sandbox_token()
+            if expected_token != sandbox_token:
+                raise SandboxPermissionError("Invalid sandbox token.")
 
             if sandbox.is_attached:
                 await self.send_status(SandboxStateEvent.SANDBOX_IN_USE)
@@ -136,6 +149,9 @@ class WebsocketHandler:
             self.sandbox.is_attached = True
             await self.send_status(SandboxStateEvent.SANDBOX_RUNNING)
             return True  # Indicates success
+        except SandboxPermissionError as e:
+            await self.handle_error(e, close_connection=True)
+            return False
         except Exception as e:
             e = SandboxRestoreError(f"Failed to restore sandbox {sandbox_id}: {e}")
             await self.handle_error(e, close_connection=True)
@@ -145,9 +161,9 @@ class WebsocketHandler:
         """Public entrypoint to handle a 'create' websocket connection."""
         await self._websocket_lifecycle(self._setup_create)
 
-    async def handle_attach(self, sandbox_id: str):
+    async def handle_attach(self, sandbox_id: str, sandbox_token: str):
         """Public entrypoint to handle an 'attach' websocket connection."""
-        setup_coro = partial(self._setup_attach, sandbox_id=sandbox_id)
+        setup_coro = partial(self._setup_attach, sandbox_id=sandbox_id, sandbox_token=sandbox_token)
         await self._websocket_lifecycle(setup_coro)
 
     async def execution_loop(self):
@@ -324,7 +340,9 @@ class WebsocketHandler:
     async def handle_error(self, e: Exception, close_connection: bool, message: dict = None):
         error_status = SandboxStateEvent.SANDBOX_ERROR
 
-        if isinstance(e, UnsupportedLanguageError):
+        if isinstance(e, SandboxPermissionError):
+            error_status = SandboxStateEvent.SANDBOX_PERMISSION_DENIAL_ERROR
+        elif isinstance(e, UnsupportedLanguageError):
             error_status = SandboxStateEvent.SANDBOX_EXECUTION_UNSUPPORTED_LANGUAGE_ERROR
         elif isinstance(e, SandboxRestoreError):
             error_status = SandboxStateEvent.SANDBOX_RESTORE_ERROR
@@ -364,9 +382,9 @@ async def create(websocket: WebSocket):
     await handler.handle_create()
 
 @router.websocket("/attach/{sandbox_id}")
-async def attach(websocket: WebSocket, sandbox_id: str):
+async def attach(websocket: WebSocket, sandbox_id: str, sandbox_token: str):
     """
     Attaches to an existing sandbox.
     """
     handler = WebsocketHandler(websocket)
-    await handler.handle_attach(sandbox_id)
+    await handler.handle_attach(sandbox_id, sandbox_token)

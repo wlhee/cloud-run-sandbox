@@ -36,6 +36,10 @@ class SandboxOperationError(SandboxError):
     """Raised when an operation on a sandbox fails."""
     pass
 
+class SandboxPermissionError(SandboxError):
+    """Raised when a permission error occurs."""
+    pass
+
 class SandboxCheckpointError(SandboxOperationError):
     """Raised when a sandbox checkpoint operation fails."""
     pass
