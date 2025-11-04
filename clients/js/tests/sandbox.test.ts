@@ -47,6 +47,7 @@ describe('Sandbox', () => {
     mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.SANDBOX_ID,
       [MessageKey.SANDBOX_ID]: 'test-id',
+      [MessageKey.SANDBOX_TOKEN]: 'test-token',
     }));
     mockConnectionInstance.emit('message', JSON.stringify({
       [MessageKey.EVENT]: EventType.STATUS_UPDATE,
@@ -57,6 +58,7 @@ describe('Sandbox', () => {
 
     expect(sandbox).toBeInstanceOf(Sandbox);
     expect(sandbox.sandboxId).toBe('test-id');
+    expect(sandbox.sandboxToken).toBe('test-token');
     expect(mockConnectionInstance.send).toHaveBeenCalledWith(JSON.stringify({
       idle_timeout: 60,
       enable_checkpoint: false,
@@ -399,17 +401,18 @@ describe('Sandbox', () => {
     await expect(stderrPromise).resolves.toBe('');
   });
   it('should successfully attach to a checkpointed sandbox and execute code', async () => {
-    const attachPromise = Sandbox.attach('ws://test-url', 'test-id');
+    const attachPromise = Sandbox.attach('ws://test-url', 'test-id', 'test-token');
 
     // Simulate server responses for restoring
     mockConnectionInstance.emit('open');
     mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RESTORING' }));
-    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id' }));
+    mockConnectionInstance.emit('message', JSON.stringify({ event: 'sandbox_id', sandbox_id: 'test-id', sandbox_token: 'test-token' }));
     mockConnectionInstance.emit('message', JSON.stringify({ event: 'status_update', status: 'SANDBOX_RUNNING' }));
 
     const sandbox = await attachPromise;
     expect(sandbox).toBeInstanceOf(Sandbox);
     expect(sandbox.sandboxId).toBe('test-id');
+    expect(sandbox.sandboxToken).toBe('test-token');
 
     // Verify that exec works after attaching
     const execPromise = sandbox.exec('bash', 'echo "hello"');
@@ -418,6 +421,21 @@ describe('Sandbox', () => {
       "status": "SANDBOX_EXECUTION_RUNNING"
     }));
     await expect(execPromise).resolves.toBeInstanceOf(Object); // SandboxProcess
+  });
+
+  it('should reject attachment on permission denial', async () => {
+    const attachPromise = Sandbox.attach('ws://test-url', 'test-id', 'wrong-token');
+
+    // Simulate server responses for permission denial
+    mockConnectionInstance.emit('open');
+    mockConnectionInstance.emit('message', JSON.stringify({
+      event: 'status_update',
+      status: 'SANDBOX_PERMISSION_DENIAL_ERROR',
+      message: 'Permission denied',
+    }));
+
+    await expect(attachPromise).rejects.toThrow('Permission denied');
+    expect(mockConnectionInstance.close).toHaveBeenCalled();
   });
 
   it('should handle a fatal checkpoint error', async () => {
@@ -470,7 +488,8 @@ describe('Sandbox', () => {
   });
   it('should correctly set the sandboxId when attaching', async () => {
     const testId = 'my-attach-test-id';
-    const attachPromise = Sandbox.attach('ws://test-url', testId);
+    const testToken = 'my-attach-test-token';
+    const attachPromise = Sandbox.attach('ws://test-url', testId, testToken);
 
     // Simulate the server connection and successful restoration
     mockConnectionInstance.emit('open');
@@ -481,6 +500,7 @@ describe('Sandbox', () => {
     
     // Assert that the sandboxId was set correctly on the client-side object
     expect(sandbox.sandboxId).toBe(testId);
+    expect(sandbox.sandboxToken).toBe(testToken);
   });
 
   it('should successfully create a filesystem snapshot', async () => {
@@ -579,6 +599,7 @@ describe('Sandbox', () => {
       mockConnectionInstance.emit('message', JSON.stringify({
         [MessageKey.EVENT]: EventType.SANDBOX_ID,
         [MessageKey.SANDBOX_ID]: 'test-id-reconnect',
+        [MessageKey.SANDBOX_TOKEN]: 'test-token-reconnect',
       }));
       mockConnectionInstance.emit('message', JSON.stringify({
         [MessageKey.EVENT]: EventType.STATUS_UPDATE,
@@ -589,7 +610,7 @@ describe('Sandbox', () => {
       const getReconnectInfo = MockConnection.mock.calls[0][2];
       const info = getReconnectInfo();
 
-      expect(info.url).toBe('ws://test-url/attach/test-id-reconnect');
+      expect(info.url).toBe('ws://test-url/attach/test-id-reconnect?sandbox_token=test-token-reconnect');
       expect(info.wsOptions).toEqual({ headers: { 'X-Test': 'true' } });
     });
 
@@ -668,6 +689,7 @@ describe('Sandbox', () => {
       [SandboxEvent.SANDBOX_RESTORE_ERROR],
       [SandboxEvent.SANDBOX_DELETED],
       [SandboxEvent.SANDBOX_LOCK_RENEWAL_ERROR],
+      [SandboxEvent.SANDBOX_PERMISSION_DENIAL_ERROR],
     ])('should not reconnect after a fatal error: %s', async (errorStatus) => {
       const createPromise = Sandbox.create('ws://test-url', { enableAutoReconnect: true });
       mockConnectionInstance.emit('open');

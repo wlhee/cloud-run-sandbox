@@ -26,6 +26,7 @@ export class Sandbox {
   private connection: Connection;
   private eventEmitter = new EventEmitter();
   private _sandboxId: string | null = null;
+  private _sandboxToken: string | null = null;
   private _creationError: Error | null = null;
   private activeProcess: SandboxProcess | null = null;
   private state: SandboxState = 'creating';
@@ -54,6 +55,10 @@ export class Sandbox {
     return this._sandboxId;
   }
 
+  public get sandboxToken(): string | null {
+    return this._sandboxToken;
+  }
+
   private logDebugMessage(message: string, ...args: any[]) {
     if (this._debugEnabled) {
       console.log(`[${this._debugLabel}] [DEBUG] ${message}`, ...args);
@@ -69,6 +74,7 @@ export class Sandbox {
       SandboxEvent.SANDBOX_RESTORE_ERROR,
       SandboxEvent.SANDBOX_DELETED,
       SandboxEvent.SANDBOX_LOCK_RENEWAL_ERROR,
+      SandboxEvent.SANDBOX_PERMISSION_DENIAL_ERROR,
     ].includes(status);
 
     if (isFatalError) {
@@ -103,6 +109,7 @@ export class Sandbox {
     // Handle sandbox lifecycle events
     if (message.event === EventType.SANDBOX_ID) {
       this._sandboxId = message.sandbox_id;
+      this._sandboxToken = message.sandbox_token ?? null;
       return;
     }
 
@@ -123,6 +130,11 @@ export class Sandbox {
             this._creationError = new Error(message.message || message.status);
             this.eventEmitter.emit('failed', this._creationError);
           }
+          break;
+        case SandboxEvent.SANDBOX_PERMISSION_DENIAL_ERROR:
+          this.state = 'failed';
+          this._creationError = new Error(message.message || message.status);
+          this.eventEmitter.emit('failed', this._creationError);
           break;
         case SandboxEvent.SANDBOX_CHECKPOINTING:
           this.state = 'checkpointing';
@@ -224,7 +236,7 @@ export class Sandbox {
       throw new Error('Cannot reconnect without a sandbox ID.');
     }
     const sanitizedUrl = this._url.replace(/\/$/, '');
-    const reconnectUrl = `${sanitizedUrl}/attach/${this._sandboxId}`;
+    const reconnectUrl = `${sanitizedUrl}/attach/${this._sandboxId}?sandbox_token=${this._sandboxToken}`;
     return { url: reconnectUrl, wsOptions: this._wsOptions };
   }
 
@@ -268,13 +280,13 @@ export class Sandbox {
     });
   }
 
-  static attach(url: string, sandboxId: string, options: { enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions, enableAutoReconnect?: boolean } = {}): Promise<Sandbox> {
+  static attach(url: string, sandboxId: string, sandboxToken: string, options: { enableDebug?: boolean, debugLabel?: string, wsOptions?: WebSocket.ClientOptions, enableAutoReconnect?: boolean } = {}): Promise<Sandbox> {
     const { enableDebug = false, debugLabel = '', wsOptions, enableAutoReconnect = false } = options;
     
     const sanitizedUrl = url.replace(/\/$/, '');
     let sandbox: Sandbox;
     const connection = new Connection(
-      `${sanitizedUrl}/attach/${sandboxId}`,
+      `${sanitizedUrl}/attach/${sandboxId}?sandbox_token=${sandboxToken}`,
       (code, reason) => sandbox.shouldReconnect(code, reason),
       () => sandbox.getReconnectInfo(),
       wsOptions,
@@ -285,6 +297,7 @@ export class Sandbox {
     sandbox._url = url;
     sandbox._wsOptions = wsOptions;
     sandbox._sandboxId = sandboxId;
+    sandbox._sandboxToken = sandboxToken;
 
     return new Promise((resolve, reject) => {
       sandbox.eventEmitter.once('created', (createdSandbox) => {

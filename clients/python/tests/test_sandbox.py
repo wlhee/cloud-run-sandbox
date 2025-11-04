@@ -438,6 +438,28 @@ async def test_sandbox_attach_restore_error_2(mock_connection_factory):
         await Sandbox.attach("ws://test", "any_id", "test_token")
     await msg_task
 
+
+@pytest.mark.asyncio
+async def test_sandbox_attach_permission_denial(mock_connection_factory):
+    """
+    Tests that attach raises SandboxCreationError if the server denies the request.
+    """
+    # Arrange
+    error_messages = [
+        {
+            MessageKey.EVENT: EventType.STATUS_UPDATE,
+            MessageKey.STATUS: SandboxEvent.SANDBOX_PERMISSION_DENIAL_ERROR,
+            MessageKey.MESSAGE: "Invalid sandbox token"
+        },
+    ]
+    _, msg_task = await mock_connection_factory(error_messages)
+
+    # Act & Assert
+    with pytest.raises(SandboxCreationError, match="Invalid sandbox token"):
+        await Sandbox.attach("ws://test", "any_id", "wrong_token")
+    await msg_task
+
+
 @pytest.mark.asyncio
 async def test_sandbox_connection_lost_during_attach(mock_connection_factory):
     """

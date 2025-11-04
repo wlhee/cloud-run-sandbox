@@ -31,12 +31,13 @@ Creates a new sandbox instance.
 | `ssl`                                 | `SSLContext` | `None` | An `ssl.SSLContext` object for secure connections. It is recommended to use `ssl.create_default_context(cafile=certifi.where())`. |
 | `enable_auto_reconnect`               | `bool`  | `False` | Enables automatic reconnection to the sandbox if the connection is lost.                                                                             |
 
-### `await Sandbox.attach(url, sandbox_id, **options)`
+### `await Sandbox.attach(url, sandbox_id, sandbox_token, **options)`
 
 Attaches to an existing sandbox instance.
 
 -   `url` (str): The WebSocket URL of the sandbox service.
 -   `sandbox_id` (str): The ID of the sandbox to attach to.
+-   `sandbox_token` (str): The security token required to attach to the sandbox.
 -   `**options`: Configuration options, same as `create` but without sandbox-specific settings.
 
 ### `await sandbox.exec(language, code)`
@@ -125,6 +126,7 @@ async def main():
     )
 
     sandbox_id = sandbox1.sandbox_id
+    sandbox_token = sandbox1.sandbox_token
     print(f"Created sandbox with ID: {sandbox_id}")
 
     # ... do some work ...
@@ -134,7 +136,7 @@ async def main():
     print('Sandbox checkpointed.')
 
     # Attach to the checkpointed sandbox
-    async with await Sandbox.attach(url, sandbox_id, ssl=ssl_context) as sandbox2:
+    async with await Sandbox.attach(url, sandbox_id, sandbox_token, ssl=ssl_context) as sandbox2:
         print('Attached to sandbox.')
         # ... continue work ...
 

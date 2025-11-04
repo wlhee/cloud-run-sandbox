@@ -165,6 +165,7 @@ class Sandbox:
             SandboxEvent.SANDBOX_RESTORE_ERROR,
             SandboxEvent.SANDBOX_DELETED,
             SandboxEvent.SANDBOX_LOCK_RENEWAL_ERROR,
+            SandboxEvent.SANDBOX_PERMISSION_DENIAL_ERROR,
         ]
 
         if is_fatal_error:
@@ -210,7 +211,7 @@ class Sandbox:
                 self._ready_event.set()
             elif status == SandboxEvent.SANDBOX_RESTORING:
                 self._state = "restoring"
-            elif status in [SandboxEvent.SANDBOX_CREATION_ERROR, SandboxEvent.SANDBOX_NOT_FOUND, SandboxEvent.SANDBOX_IN_USE, SandboxEvent.SANDBOX_RESTORE_ERROR]:
+            elif status in [SandboxEvent.SANDBOX_CREATION_ERROR, SandboxEvent.SANDBOX_NOT_FOUND, SandboxEvent.SANDBOX_IN_USE, SandboxEvent.SANDBOX_RESTORE_ERROR, SandboxEvent.SANDBOX_PERMISSION_DENIAL_ERROR]:
                 error = SandboxCreationError(message.get(MessageKey.MESSAGE, status))
                 self._handle_error_on_ready(error)
                 asyncio.create_task(self._shutdown())

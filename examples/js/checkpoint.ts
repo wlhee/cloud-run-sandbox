@@ -62,6 +62,7 @@ async function main() {
 
   let sandbox: Sandbox | null = null;
   let sandboxId: string | null = null;
+  let sandboxToken: string | null = null;
 
   try {
     // 1. Create a new sandbox
@@ -72,6 +73,7 @@ async function main() {
       debugLabel: 'SandboxA',
     });
     sandboxId = sandbox.sandboxId;
+    sandboxToken = sandbox.sandboxToken;
     console.log(`Successfully created sandbox with ID: ${sandboxId}`);
 
     // 2. Write a file to the sandbox's filesystem
@@ -92,7 +94,7 @@ async function main() {
 
     // 4. Attach to the checkpointed sandbox
     console.log(`\nAttaching to sandbox ${sandboxId}...`);
-    sandbox = await Sandbox.attach(urlRestore, sandboxId!, {
+    sandbox = await Sandbox.attach(urlRestore, sandboxId!, sandboxToken!, {
         enableDebug: true,
         debugLabel: 'SandboxB',
     });

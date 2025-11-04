@@ -29,12 +29,13 @@ Creates a new sandbox instance.
 | `wsOptions`                       | `object`  |         | [ws client options](https://github.com/websockets/ws/blob/master/doc/ws.md#new-websocketaddress-protocols-options) to pass to the WebSocket client. |
 | `enableAutoReconnect`             | `boolean` | `false` | Enables automatic reconnection to the sandbox if the connection is lost.                                                                             |
 
-### `Sandbox.attach(url, sandboxId, options)`
+### `Sandbox.attach(url, sandboxId, sandboxToken, options)`
 
 Attaches to an existing sandbox instance.
 
 -   `url` (string): The WebSocket URL of the sandbox service.
 -   `sandboxId` (string): The ID of the sandbox to attach to.
+-   `sandboxToken` (string): The security token required to attach to the sandbox.
 -   `options` (object, optional): Configuration options, same as `create` but without sandbox-specific settings.
 
 ### `sandbox.exec(language, code)`

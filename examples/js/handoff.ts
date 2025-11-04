@@ -75,10 +75,11 @@ async function main() {
       debugLabel: 'SandboxA',
     });
     const sandboxId = sandboxA.sandboxId;
+    const sandboxToken = sandboxA.sandboxToken;
     console.log(`[SandboxA] Created with ID: ${sandboxId}`);
 
-    if (!sandboxId) {
-      throw new Error("Sandbox A was created without an ID.");
+    if (!sandboxId || !sandboxToken) {
+      throw new Error("Sandbox A was created without an ID or token.");
     }
 
     // Add a listener to see when Sandbox A's connection is closed
@@ -104,7 +105,7 @@ async function main() {
     // This will trigger the handoff process on the server.
     console.log('\n--- Step 2: Attaching as Sandbox B to trigger handoff ---');
     
-    sandboxB = await Sandbox.attach(urlB, sandboxId, {
+    sandboxB = await Sandbox.attach(urlB, sandboxId, sandboxToken, {
         enableDebug: true,
         debugLabel: 'SandboxB',
     });

@@ -72,8 +72,6 @@ class Connection:
         if new_cookie:
             self.cookie = new_cookie
             self._log_debug(f"Captured session affinity cookie: {self.cookie}")
-        else:
-            self._log_debug("Warning: response_headers not found. Session affinity may not work.")
         
         self._log_debug("Connection established.")
         return ws

@@ -19,6 +19,7 @@ export enum MessageKey {
   STATUS = 'status',
   MESSAGE = 'message',
   SANDBOX_ID = 'sandbox_id',
+  SANDBOX_TOKEN = 'sandbox_token',
   DATA = 'data',
 }
 
@@ -59,6 +60,7 @@ export enum SandboxEvent {
   SANDBOX_KILLING = 'SANDBOX_KILLING',
   SANDBOX_KILLED = 'SANDBOX_KILLED',
   SANDBOX_KILL_ERROR = 'SANDBOX_KILL_ERROR',
+  SANDBOX_PERMISSION_DENIAL_ERROR = 'SANDBOX_PERMISSION_DENIAL_ERROR',
 }
 
 export interface BaseMessage {
@@ -74,6 +76,7 @@ export interface StatusUpdateMessage extends BaseMessage {
 export interface SandboxIdMessage extends BaseMessage {
   [MessageKey.EVENT]: EventType.SANDBOX_ID;
   [MessageKey.SANDBOX_ID]: string;
+  [MessageKey.SANDBOX_TOKEN]?: string;
 }
 
 export interface StdoutMessage extends BaseMessage {
