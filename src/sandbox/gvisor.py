@@ -679,3 +679,16 @@ class GVisorSandbox(SandboxInterface):
             logger.info(f"GVISOR ({self.sandbox_id}): Filesystem snapshot successful.")
         except SandboxOperationError as e:
             raise SandboxSnapshotFilesystemError(f"Failed to snapshot filesystem: {e}") from e
+
+    async def create_sandbox_token(self, token: str) -> None:
+        """Creates a sandbox token."""
+        cmd = self._build_runsc_cmd(
+            "exec", self._container_id, "sh", "-c", f"echo -n '{token}' > /tmp/sandbox_token"
+        )
+        await self._run_sync_command(cmd)
+
+    async def get_sandbox_token(self) -> str:
+        """Gets the sandbox token."""
+        cmd = self._build_runsc_cmd("exec", self._container_id, "cat", "/tmp/sandbox_token")
+        stdout, _ = await self._run_sync_command(cmd)
+        return stdout.strip()

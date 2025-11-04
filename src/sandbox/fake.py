@@ -54,6 +54,7 @@ class FakeSandbox(SandboxInterface):
         self._exec_count = 0
         self._is_attached = False
         self._shutting_down = False
+        self._sandbox_token = None
 
     @property
     def sandbox_id(self):
@@ -201,3 +202,11 @@ class FakeSandbox(SandboxInterface):
         """Simulates killing the execution process."""
         logger.info(f"Fake sandbox {self.sandbox_id}: KILLING EXEC PROCESS.")
         self._shutting_down = True
+
+    async def create_sandbox_token(self, token: str) -> None:
+        """Creates a sandbox token."""
+        self._sandbox_token = token
+
+    async def get_sandbox_token(self) -> str:
+        """Gets the sandbox token."""
+        return self._sandbox_token

@@ -509,6 +509,23 @@ async def test_gvisor_sandbox_is_attached():
     finally:
         await sandbox.delete()
 
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
+async def test_gvisor_sandbox_token():
+    """
+    Tests that the GVisorSandbox can create and get a sandbox token.
+    """
+    sandbox_id = "gvisor-test-token"
+    sandbox = create_sandbox_instance(sandbox_id)
+    try:
+        await sandbox.create()
+        await sandbox.create_sandbox_token("test-token")
+        token = await sandbox.get_sandbox_token()
+        assert token == "test-token"
+    finally:
+        await sandbox.delete()
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(not runsc_path, reason="runsc command not found in PATH")
 async def test_sandbox_write_stdin():

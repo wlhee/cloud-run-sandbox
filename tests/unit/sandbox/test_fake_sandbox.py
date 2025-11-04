@@ -180,3 +180,14 @@ async def test_fake_sandbox_force_checkpoint_while_running():
     # New executions should be blocked
     with pytest.raises(SandboxOperationError, match="Sandbox is shutting down"):
         await sandbox.execute(CodeLanguage.PYTHON, "new code")
+
+
+async def test_fake_sandbox_token():
+    """
+    Tests that the FakeSandbox can create and get a sandbox token.
+    """
+    sandbox = FakeSandbox("fake-token")
+    await sandbox.create()
+    await sandbox.create_sandbox_token("test-token")
+    token = await sandbox.get_sandbox_token()
+    assert token == "test-token"

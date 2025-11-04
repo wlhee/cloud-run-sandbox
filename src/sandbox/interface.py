@@ -166,3 +166,17 @@ class SandboxInterface(ABC):
         Creates a snapshot of the sandbox's filesystem.
         """
         pass
+
+    @abstractmethod
+    async def create_sandbox_token(self, token: str) -> None:
+        """
+        Creates a sandbox token.
+        """
+        pass
+
+    @abstractmethod
+    async def get_sandbox_token(self) -> str:
+        """
+        Gets the sandbox token.
+        """
+        pass
