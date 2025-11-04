@@ -30,6 +30,7 @@ class Sandbox:
     def __init__(self, initial_state: str, enable_debug=False, debug_label=""):
         self._connection = None
         self._sandbox_id = None
+        self._sandbox_token = None
         self._active_process = None
         self._ready_event = asyncio.Event()
         self._killed_event = asyncio.Event()
@@ -51,6 +52,11 @@ class Sandbox:
     def sandbox_id(self):
         """The unique ID of the sandbox."""
         return self._sandbox_id
+
+    @property
+    def sandbox_token(self):
+        """The token for the sandbox."""
+        return self._sandbox_token
 
     @classmethod
     async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None, enable_sandbox_checkpoint: bool = False, enable_idle_timeout_auto_checkpoint: bool = False, enable_auto_reconnect: bool = False, enable_sandbox_handoff: bool = False):
@@ -97,16 +103,17 @@ class Sandbox:
         return instance
 
     @classmethod
-    async def attach(cls, url: str, sandbox_id: str, ssl=None, enable_debug=False, debug_label="", enable_auto_reconnect: bool = False):
+    async def attach(cls, url: str, sandbox_id: str, sandbox_token: str, ssl=None, enable_debug=False, debug_label="", enable_auto_reconnect: bool = False):
         """
         Attaches to an existing sandbox session.
         """
         instance = cls("attaching", enable_debug, debug_label)
         instance._enable_auto_reconnect = enable_auto_reconnect
         instance._sandbox_id = sandbox_id
+        instance._sandbox_token = sandbox_token
         sanitized_url = url.rstrip('/')
         instance._base_url = sanitized_url
-        ws_url = f"{sanitized_url}/attach/{sandbox_id}"
+        ws_url = f"{sanitized_url}/attach/{sandbox_id}?sandbox_token={sandbox_token}"
 
         ws_options = {"ssl": ssl} if ssl else {}
 
@@ -192,6 +199,7 @@ class Sandbox:
         # Handle sandbox lifecycle events
         if event == EventType.SANDBOX_ID:
             self._sandbox_id = message.get(MessageKey.SANDBOX_ID)
+            self._sandbox_token = message.get(MessageKey.SANDBOX_TOKEN)
             return
 
         if event == EventType.STATUS_UPDATE:
@@ -245,7 +253,7 @@ class Sandbox:
 
     def _get_reconnect_info(self):
         base_url = self._base_url
-        reconnect_url = f"{base_url}/attach/{self._sandbox_id}"
+        reconnect_url = f"{base_url}/attach/{self._sandbox_id}?sandbox_token={self._sandbox_token}"
         return {"url": reconnect_url, "ws_options": self._connection.ws_options}
 
     async def _on_reopen(self):

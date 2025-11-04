@@ -54,10 +54,11 @@ async def run_handoff(url_a: str, url_b: str):
             ssl=ssl_context,
         )
         sandbox_id = sandbox_a.sandbox_id
+        sandbox_token = sandbox_a.sandbox_token
         print(f"[SandboxA] Created with ID: {sandbox_id}")
 
-        if not sandbox_id:
-            raise RuntimeError("Sandbox A was created without an ID.")
+        if not sandbox_id or not sandbox_token:
+            raise RuntimeError("Sandbox A was created without an ID or token.")
 
         # Start a long-running process in Sandbox A
         print("[SandboxA] Starting a long-running process...")
@@ -72,6 +73,7 @@ async def run_handoff(url_a: str, url_b: str):
         sandbox_b = await Sandbox.attach(
             url=url_b,
             sandbox_id=sandbox_id,
+            sandbox_token=sandbox_token,
             enable_debug=True,
             debug_label="SandboxB",
             ssl=ssl_context,

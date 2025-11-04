@@ -89,7 +89,7 @@ async def test_sandbox_create_and_kill(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     mock_conn, msg_task = await mock_connection_factory(creation_messages)
@@ -99,6 +99,7 @@ async def test_sandbox_create_and_kill(mock_connection_factory):
     
     # Assert (Creation)
     assert sandbox.sandbox_id == "test_id"
+    assert sandbox.sandbox_token == "test_token"
     
     # Act (Termination)
     await sandbox.kill(timeout=0.1)
@@ -148,7 +149,7 @@ async def test_sandbox_exec_dispatches_messages(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     exec_messages = [
@@ -176,7 +177,7 @@ async def test_can_exec_sequentially(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     exec_messages_1 = [
@@ -216,7 +217,7 @@ async def test_cannot_exec_multiple_processes_concurrently(mock_connection_facto
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     exec_messages = [
@@ -244,7 +245,7 @@ async def test_listen_task_is_cancelled_on_kill(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     mock_conn, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -264,7 +265,7 @@ async def test_exec_raises_error_if_not_running(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     _, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -284,7 +285,7 @@ async def test_unsupported_language_error_raises_exception(mock_connection_facto
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     exec_messages = [
@@ -312,7 +313,7 @@ async def test_debug_logging(mock_connection_factory, capsys):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     exec_messages = [
@@ -330,7 +331,7 @@ async def test_debug_logging(mock_connection_factory, capsys):
 
     captured_debug = capsys.readouterr()
     
-    assert "[TestLabel] Received message: {\"event\": \"sandbox_id\", \"sandbox_id\": \"test_id\"}" in captured_debug.out
+    assert "[TestLabel] Received message: {\"event\": \"sandbox_id\", \"sandbox_id\": \"test_id\", \"sandbox_token\": \"test_token\"}" in captured_debug.out
     assert "[TestLabel] Received message: {\"event\": \"status_update\", \"status\": \"SANDBOX_RUNNING\"}" in captured_debug.out
     assert "STDOUT" not in captured_debug.out
     await msg_task
@@ -347,10 +348,11 @@ async def test_sandbox_attach_success(mock_connection_factory):
     mock_conn, msg_task = await mock_connection_factory(attach_messages)
 
     # Act
-    sandbox = await Sandbox.attach("ws://test", "existing_id")
+    sandbox = await Sandbox.attach("ws://test", "existing_id", "test_token")
     
     # Assert
     assert sandbox.sandbox_id == "existing_id"
+    assert sandbox.sandbox_token == "test_token"
     
     await sandbox.kill(timeout=0.1)
     mock_conn.close.assert_awaited_once()
@@ -373,7 +375,7 @@ async def test_sandbox_attach_not_found(mock_connection_factory):
 
     # Act & Assert
     with pytest.raises(SandboxCreationError, match="Sandbox not found"):
-        await Sandbox.attach("ws://test", "non_existent_id")
+        await Sandbox.attach("ws://test", "non_existent_id", "test_token")
     await msg_task
 
 @pytest.mark.asyncio
@@ -393,7 +395,7 @@ async def test_sandbox_attach_in_use(mock_connection_factory):
 
     # Act & Assert
     with pytest.raises(SandboxCreationError, match="Sandbox in use"):
-        await Sandbox.attach("ws://test", "in_use_id")
+        await Sandbox.attach("ws://test", "in_use_id", "test_token")
     await msg_task
 
 @pytest.mark.asyncio
@@ -413,11 +415,11 @@ async def test_sandbox_attach_restore_error(mock_connection_factory):
 
     # Act & Assert
     with pytest.raises(SandboxCreationError, match="Failed to restore sandbox"):
-        await Sandbox.attach("ws://test", "any_id")
+        await Sandbox.attach("ws://test", "any_id", "test_token")
     await msg_task
 
 @pytest.mark.asyncio
-async def test_sandbox_attach_restore_error(mock_connection_factory):
+async def test_sandbox_attach_restore_error_2(mock_connection_factory):
     """
     Tests that attach raises SandboxCreationError if a restore error occurs.
     """
@@ -433,7 +435,7 @@ async def test_sandbox_attach_restore_error(mock_connection_factory):
 
     # Act & Assert
     with pytest.raises(SandboxCreationError, match="Failed to restore sandbox"):
-        await Sandbox.attach("ws://test", "any_id")
+        await Sandbox.attach("ws://test", "any_id", "test_token")
     await msg_task
 
 @pytest.mark.asyncio
@@ -446,7 +448,7 @@ async def test_sandbox_connection_lost_during_attach(mock_connection_factory):
 
     # Act & Assert
     with pytest.raises(SandboxConnectionError, match="Connection closed:"):
-        await Sandbox.attach("ws://test", "any_id")
+        await Sandbox.attach("ws://test", "any_id", "test_token")
     await msg_task
 
 @pytest.mark.asyncio
@@ -456,7 +458,7 @@ async def test_sandbox_kill_sends_kill_action(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     mock_conn, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -476,7 +478,7 @@ async def test_sandbox_kill_unblocks_on_server_messages(mock_connection_factory)
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     kill_messages = [
@@ -501,7 +503,7 @@ async def test_sandbox_kill_timeout_returns(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     # No kill confirmation messages are scripted
@@ -523,7 +525,7 @@ async def test_sandbox_kill_is_idempotent(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     mock_conn, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -544,7 +546,7 @@ async def test_snapshot_filesystem_raises_error_if_not_running(mock_connection_f
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     _, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -564,7 +566,7 @@ async def test_snapshot_filesystem_raises_error_on_failure(mock_connection_facto
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     snapshot_messages = [
@@ -592,7 +594,7 @@ async def test_create_sends_filesystem_snapshot_name(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     mock_conn, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -612,7 +614,7 @@ async def test_create_sends_enable_checkpoint(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     mock_conn, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -632,7 +634,7 @@ async def test_create_sends_enable_idle_timeout_auto_checkpoint(mock_connection_
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     mock_conn, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -652,7 +654,7 @@ async def test_create_sends_enable_sandbox_handoff(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     mock_conn, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -672,7 +674,7 @@ async def test_checkpoint_raises_error_if_not_running(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     _, msg_task = await mock_connection_factory(creation_messages, close_on_finish=False)
@@ -692,7 +694,7 @@ async def test_checkpoint_raises_error_on_failure(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     checkpoint_messages = [
@@ -720,7 +722,7 @@ async def test_checkpoint_raises_error_if_execution_in_progress(mock_connection_
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     checkpoint_messages = [
@@ -759,7 +761,7 @@ async def test_snapshot_filesystem_success(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     snapshot_messages = [
@@ -785,7 +787,7 @@ async def test_checkpoint_success(mock_connection_factory):
     """
     # Arrange
     creation_messages = [
-        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"},
+        {MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"},
         {MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING},
     ]
     checkpoint_messages = [
@@ -834,7 +836,7 @@ async def test_sandbox_provides_should_reconnect_callback(mock_Connection):
     await asyncio.sleep(0) 
     
     # Simulate server messages to get sandbox to "running" state, unblocking create()
-    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"}))
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"}))
     await asyncio.sleep(0)
     on_message_callback(json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}))
     
@@ -887,7 +889,7 @@ async def test_sandbox_provides_get_reconnect_info_callback(mock_Connection):
 
     create_task = asyncio.create_task(Sandbox.create("ws://test", enable_auto_reconnect=True))
     await asyncio.sleep(0)
-    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"}))
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"}))
     await asyncio.sleep(0)
     on_message_callback(json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}))
     sandbox = await create_task
@@ -897,7 +899,7 @@ async def test_sandbox_provides_get_reconnect_info_callback(mock_Connection):
     reconnect_info = get_reconnect_info_cb()
 
     # Assert
-    assert reconnect_info['url'] == "ws://test/attach/test_id"
+    assert reconnect_info['url'] == "ws://test/attach/test_id?sandbox_token=test_token"
 
     await sandbox.kill(timeout=0.1)
 
@@ -925,7 +927,7 @@ async def test_sandbox_provides_on_reopen_callback(mock_Connection):
 
     create_task = asyncio.create_task(Sandbox.create("ws://test", enable_auto_reconnect=True))
     await asyncio.sleep(0)
-    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id"}))
+    on_message_callback(json.dumps({MessageKey.EVENT: EventType.SANDBOX_ID, MessageKey.SANDBOX_ID: "test_id", MessageKey.SANDBOX_TOKEN: "test_token"}))
     await asyncio.sleep(0)
     on_message_callback(json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}))
     sandbox = await create_task
@@ -965,7 +967,7 @@ async def test_sandbox_attach_provides_reconnect_callbacks(mock_Connection):
     mock_Connection.side_effect = side_effect
 
     # Act: Attach to the sandbox
-    attach_task = asyncio.create_task(Sandbox.attach("ws://test", "test_id", enable_auto_reconnect=True))
+    attach_task = asyncio.create_task(Sandbox.attach("ws://test", "test_id", "test_token", enable_auto_reconnect=True))
     
     await asyncio.sleep(0)
     on_message_callback(json.dumps({MessageKey.EVENT: EventType.STATUS_UPDATE, MessageKey.STATUS: SandboxEvent.SANDBOX_RUNNING}))
@@ -980,7 +982,7 @@ async def test_sandbox_attach_provides_reconnect_callbacks(mock_Connection):
     # 2. Test `get_reconnect_info` callback
     get_reconnect_info_cb = captured_callbacks['get_reconnect_info']
     reconnect_info = get_reconnect_info_cb()
-    assert reconnect_info['url'] == "ws://test/attach/test_id"
+    assert reconnect_info['url'] == "ws://test/attach/test_id?sandbox_token=test_token"
 
     # 3. Test `on_reopen` callback
     on_reopen_cb = captured_callbacks['on_reopen']
@@ -988,5 +990,4 @@ async def test_sandbox_attach_provides_reconnect_callbacks(mock_Connection):
     mock_conn_instance.send.assert_called_with(json.dumps({"action": "reconnect"}))
 
     await sandbox.kill(timeout=0.1)
-
 

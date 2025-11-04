@@ -22,6 +22,7 @@ class MessageKey(str, Enum):
     STATUS = "status"
     DATA = "data"
     SANDBOX_ID = "sandbox_id"
+    SANDBOX_TOKEN = "sandbox_token"
     MESSAGE = "message"
 
 class EventType(str, Enum):
@@ -69,4 +70,6 @@ class SandboxEvent(str, Enum):
     SANDBOX_ERROR = "SANDBOX_ERROR"
     SANDBOX_DELETED = "SANDBOX_DELETED"
     SANDBOX_LOCK_RENEWAL_ERROR = "SANDBOX_LOCK_RENEWAL_ERROR"
+
+
 

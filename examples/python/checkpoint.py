@@ -62,6 +62,7 @@ async def main():
 
     sandbox = None
     sandbox_id = None
+    sandbox_token = None
     ssl_context = ssl.create_default_context(cafile=certifi.where())
 
     try:
@@ -75,6 +76,7 @@ async def main():
             ssl=ssl_context,
         )
         sandbox_id = sandbox.sandbox_id
+        sandbox_token = sandbox.sandbox_token
         print(f"Successfully created sandbox with ID: {sandbox_id}")
 
         # 2. Write a file to the sandbox's filesystem
@@ -95,6 +97,7 @@ async def main():
         sandbox = await Sandbox.attach(
             url_restore,
             sandbox_id,
+            sandbox_token,
             enable_debug=True,
             debug_label='SandboxB',
             ssl=ssl_context,
