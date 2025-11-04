@@ -907,4 +907,25 @@ async def test_checkpoint_sandbox_verifies_persistence(mock_create_instance, moc
     mock_verify.assert_awaited_once()
 
 
+@patch('secrets.token_hex', return_value='test_token')
+@patch('src.sandbox.factory.create_sandbox_instance')
+async def test_manager_create_sandbox_creates_token(mock_create_instance, mock_token_hex):
+    """
+    Tests that the manager creates a sandbox token when creating a sandbox.
+    """
+    # Arrange
+    sandbox_to_return = FakeSandbox("test-token-sandbox")
+    mock_create_instance.return_value = sandbox_to_return
+    
+    mgr = SandboxManager()
+    
+    # Act
+    sandbox = await mgr.create_sandbox(sandbox_id="test-token-sandbox")
+    
+    # Assert
+    assert sandbox is sandbox_to_return
+    token = await sandbox.get_sandbox_token()
+    assert token == 'test_token'
+
+
 

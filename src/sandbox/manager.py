@@ -22,6 +22,7 @@ from typing import Callable, Optional
 import os
 from pathlib import Path
 import json
+import secrets
 
 from .handle import SandboxHandle
 from .config import GCSConfig
@@ -180,6 +181,9 @@ class SandboxManager:
             self._sandboxes[sandbox_id] = handle
             logger.info(f"Sandbox manager created {sandbox_id}. Current sandboxes: {list(self._sandboxes.keys())}")
             success = True
+            
+            token = secrets.token_hex(16)
+            await sandbox_instance.create_sandbox_token(token)
             return sandbox_instance
         finally:
             if not success:
