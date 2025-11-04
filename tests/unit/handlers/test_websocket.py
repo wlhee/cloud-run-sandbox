@@ -67,7 +67,7 @@ async def test_create_interactive_session_success(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("interactive-sandbox", config=config)
     await sandbox.create()
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -106,7 +106,7 @@ async def test_create_sandbox_with_filesystem_snapshot(mock_create_sandbox):
     # Arrange
     sandbox = FakeSandbox("snapshot-sandbox")
     await sandbox.create()
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -140,7 +140,7 @@ async def test_create_sandbox_with_handoff(mock_create_sandbox):
     # Arrange
     sandbox = FakeSandbox("handoff-sandbox")
     await sandbox.create()
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -182,7 +182,7 @@ async def test_interactive_session_with_stdin(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("stdin-sandbox", config=config)
     await sandbox.create()
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -240,7 +240,7 @@ async def test_create_and_attach_session(mock_get_sandbox, mock_create_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
     mock_get_sandbox.return_value = sandbox
 
@@ -268,7 +268,7 @@ async def test_attach_to_in_use_sandbox(mock_get_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     sandbox.is_attached = True
     mock_get_sandbox.return_value = sandbox
 
@@ -295,7 +295,7 @@ async def test_sandbox_execution_error(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
     await sandbox.create()
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -339,7 +339,7 @@ async def test_invalid_message_format(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
     await sandbox.create()
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -388,7 +388,7 @@ async def test_unsupported_language(mock_create_sandbox):
     ])
     sandbox = FakeSandbox("test-sandbox", config=config)
     await sandbox.create()
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -431,7 +431,7 @@ async def test_attach_restore_sandbox(mock_get_sandbox, mock_restore_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_get_sandbox.return_value = None # Simulate cache miss
     mock_restore_sandbox.return_value = sandbox
 
@@ -466,7 +466,7 @@ async def test_sandbox_checkpoint(mock_checkpoint_sandbox, mock_create_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -495,7 +495,7 @@ async def test_sandbox_checkpoint_failure(mock_checkpoint_sandbox, mock_create_s
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
     mock_checkpoint_sandbox.side_effect = SandboxCheckpointError("Checkpoint failed")
 
@@ -559,7 +559,7 @@ async def test_snapshot_filesystem(mock_snapshot_filesystem, mock_create_sandbox
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -587,7 +587,7 @@ async def test_snapshot_filesystem_not_configured(mock_create_sandbox, setup_man
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
     setup_manager.gcs_config = None
 
@@ -615,7 +615,7 @@ async def test_snapshot_filesystem_error(mock_snapshot_filesystem, mock_create_s
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
     mock_snapshot_filesystem.side_effect = SandboxOperationError("Snapshot failed")
 
@@ -664,7 +664,7 @@ async def test_reconnect_and_stream(mock_get_sandbox):
     # Arrange
     config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
     sandbox = FakeSandbox("test-sandbox", config=config)
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_get_sandbox.return_value = sandbox
 
     output_stream = [
@@ -701,7 +701,7 @@ async def test_handle_kill_process_success(mock_create_sandbox):
     # Arrange
     config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
     sandbox = FakeSandbox("test-sandbox", config=config)
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     sandbox.kill_exec_process = AsyncMock()
     mock_create_sandbox.return_value = sandbox
 
@@ -729,7 +729,7 @@ async def test_handle_kill_process_not_running(mock_create_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     sandbox.kill_exec_process = AsyncMock()
     mock_create_sandbox.return_value = sandbox
 
@@ -759,7 +759,7 @@ async def test_handle_kill_process_failure(mock_create_sandbox):
     # Arrange
     config = FakeSandboxConfig(executions=[ExecConfig()]) # To make is_execution_running true
     sandbox = FakeSandbox("test-sandbox", config=config)
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     sandbox.kill_exec_process = AsyncMock(side_effect=Exception("Kill failed"))
     mock_create_sandbox.return_value = sandbox
 
@@ -787,7 +787,7 @@ async def test_reconnect_and_stream_not_running(mock_create_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -814,7 +814,7 @@ async def test_handle_kill_sandbox_success(mock_kill_sandbox, mock_create_sandbo
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     mock_create_sandbox.return_value = sandbox
 
     # Act & Assert
@@ -843,7 +843,7 @@ async def test_attach_with_invalid_token(mock_get_sandbox):
     """
     # Arrange
     sandbox = FakeSandbox("test-sandbox")
-    await sandbox.create_sandbox_token("correct-token")
+    await sandbox.set_sandbox_token("correct-token")
     mock_get_sandbox.return_value = sandbox
 
     # Act & Assert

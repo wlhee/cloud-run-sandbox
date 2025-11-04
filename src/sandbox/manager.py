@@ -183,7 +183,7 @@ class SandboxManager:
             success = True
             
             token = secrets.token_hex(16)
-            await sandbox_instance.create_sandbox_token(token)
+            await sandbox_instance.set_sandbox_token(token)
             return sandbox_instance
         finally:
             if not success:

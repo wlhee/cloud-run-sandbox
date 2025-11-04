@@ -172,9 +172,12 @@ class SandboxInterface(ABC):
         pass
 
     @abstractmethod
-    async def create_sandbox_token(self, token: str) -> None:
+    async def set_sandbox_token(self, token: str) -> None:
         """
-        Creates a sandbox token.
+        Sets the sandbox token.
+
+        Args:
+            token: The sandbox token.
         """
         pass
 

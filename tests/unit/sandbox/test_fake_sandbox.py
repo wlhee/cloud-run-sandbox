@@ -188,6 +188,6 @@ async def test_fake_sandbox_token():
     """
     sandbox = FakeSandbox("fake-token")
     await sandbox.create()
-    await sandbox.create_sandbox_token("test-token")
+    await sandbox.set_sandbox_token("test-token")
     token = await sandbox.get_sandbox_token()
     assert token == "test-token"

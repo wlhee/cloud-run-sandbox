@@ -520,7 +520,7 @@ async def test_gvisor_sandbox_token():
     sandbox = create_sandbox_instance(sandbox_id)
     try:
         await sandbox.create()
-        await sandbox.create_sandbox_token("test-token")
+        await sandbox.set_sandbox_token("test-token")
         token = await sandbox.get_sandbox_token()
         assert token == "test-token"
     finally:
