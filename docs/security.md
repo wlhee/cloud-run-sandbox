@@ -25,22 +25,24 @@ The following diagram illustrates these layers:
 |  Google Cloud Run (Gen2) Execution Environment                  |
 |  (Provides foundational sandboxing and isolation)               |
 |                                                                 |
-|   WebSocket Server (Cloud Run Sandbox)                          |
-|   - Validates client token on `attach` requests                 |
-|   - Manages gVisor sandbox lifecycle                            |
-|                                                                 |
-|   +---------------------------------------------------------+   |
-|   |  gVisor Sandbox (runsc)                                 |   |
-|   |  (Isolates untrusted code execution)                    |   |
-|   |                                                         |   |
-|   |  +---------------------------------------------------+  |   |
-|   |  | Filesystem                                        |  |   |
-|   |  |                                                   |  |   |
-|   |  |  /tmp/sandbox_token  [Contains secret token]      |  |   |
-|   |  |                                                   |  |   |
-|   |  +---------------------------------------------------+  |   |
-|   |                                                         |   |
-|   +---------------------------------------------------------+   |
+|  +-----------------------------------------------------------+  |
+|  | WebSocket Server (Cloud Run Sandbox)                      |  |
+|  | - Validates client token on `attach` requests             |  |
+|  | - Manages gVisor sandbox lifecycle                        |  |
+|  |                                                           |  |
+|  | +-------------------------------------------------------+ |  |
+|  | |  gVisor Sandbox (runsc)                               | |  |
+|  | |  (Isolates untrusted code execution)                  | |  |
+|  | |                                                       | |  |
+|  | |  +-------------------------------------------------+  | |  |
+|  | |  | Filesystem                                      |  | |  |
+|  | |  |                                                 |  | |  |
+|  | |  |  /tmp/sandbox_token  [Contains secret token]    |  | |  |
+|  | |  |                                                 |  | |  |
+|  | |  +-------------------------------------------------+  | |  |
+|  | |                                                       | |  |
+|  | +-------------------------------------------------------+ |  |
+|  +-----------------------------------------------------------+  |
 |                                                                 |
 +-----------------------------------------------------------------+
 ```
