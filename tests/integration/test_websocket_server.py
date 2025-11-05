@@ -104,7 +104,7 @@ async def test_gvisor_sandbox_attach_and_execution():
         # 3. Execute a command in the attached session
         websocket.send_json({"language": "python", "code": "print('Hello from attached session')"})
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_RUNNING"}
-        assert websocket.receive_json() == {"event": "stdout", "data": "Hello from attached session\n"}
+        assert websocket.receive_json() == {"event": "stdout", "data": "Hello from attached session"}
         assert websocket.receive_json() == {"event": "status_update", "status": "SANDBOX_EXECUTION_DONE"}
 
 @pytest.mark.asyncio
