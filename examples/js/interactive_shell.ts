@@ -33,7 +33,7 @@
  * 4. Run the script from the root of the repository:
  *    `ts-node example/interactive_shell.ts`
  */
-import { Sandbox } from '../clients/js/src/sandbox';
+import { Sandbox } from '../../clients/js/src/sandbox';
 
 async function main() {
   const url = process.env.CLOUD_RUN_URL;
