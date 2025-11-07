@@ -2,6 +2,8 @@
 import asyncio
 import websockets
 from typing import Callable, Any, Dict, Optional, Awaitable
+import google.oauth2.id_token
+import google.auth.transport.requests
 
 ShouldReconnectCallback = Callable[[int, str], bool]
 
@@ -28,6 +30,7 @@ class Connection:
         ws_options: Optional[Dict[str, Any]] = None,
         debug: bool = False,
         debug_label: str = '',
+        enable_authentication: bool = False,
     ):
         self.url = url
         self.on_message = on_message
@@ -44,6 +47,13 @@ class Connection:
         self.is_closed_intentionally = False
         self.is_reconnecting = False
         self.cookie: Optional[str] = None
+        self._enable_authentication = enable_authentication
+    
+    def _get_auth_token(self):
+        audience = self.url.replace("wss://", "https://")
+        self._log_debug("Fetching authentication token for connection to audience:", audience)
+        auth_req = google.auth.transport.requests.Request()
+        return google.oauth2.id_token.fetch_id_token(auth_req, audience)
 
     def _log_debug(self, message, *args):
         if self._debug_enabled:
@@ -61,6 +71,10 @@ class Connection:
         if self.cookie:
             self._log_debug(f"Using existing cookie for session affinity: {self.cookie}")
             headers['Cookie'] = self.cookie
+        if self._enable_authentication:
+            auth_token = self._get_auth_token()
+            self._log_debug(f"Using auth_token: {auth_token}")
+            headers['Authorization'] = f"Bearer {auth_token}"
 
         ws = await websockets.connect(
             url,

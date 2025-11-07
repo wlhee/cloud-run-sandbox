@@ -27,7 +27,7 @@ class Sandbox:
     """
     Represents a connection to a Cloud Run Sandbox, used to execute commands.
     """
-    def __init__(self, initial_state: str, enable_debug=False, debug_label=""):
+    def __init__(self, initial_state: str, enable_debug=False, debug_label="", enable_authentication=False):
         self._connection = None
         self._sandbox_id = None
         self._sandbox_token = None
@@ -47,6 +47,7 @@ class Sandbox:
         self._enable_auto_reconnect = False
         self._should_reconnect_internal = False
         self._base_url = None
+        self._enable_authentication = enable_authentication
 
     @property
     def sandbox_id(self):
@@ -59,7 +60,7 @@ class Sandbox:
         return self._sandbox_token
 
     @classmethod
-    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None, enable_sandbox_checkpoint: bool = False, enable_idle_timeout_auto_checkpoint: bool = False, enable_auto_reconnect: bool = False, enable_sandbox_handoff: bool = False):
+    async def create(cls, url: str, idle_timeout: int = 60, ssl=None, enable_debug=False, debug_label="", filesystem_snapshot_name: str = None, enable_sandbox_checkpoint: bool = False, enable_idle_timeout_auto_checkpoint: bool = False, enable_auto_reconnect: bool = False, enable_sandbox_handoff: bool = False, enable_authentication = False):
         """
         Creates a new sandbox session.
         """
@@ -83,6 +84,7 @@ class Sandbox:
                 ws_options=ws_options,
                 debug=enable_debug,
                 debug_label=debug_label,
+                enable_authentication=enable_authentication,
             )
             await instance._connection.connect()
         except Exception as e:
