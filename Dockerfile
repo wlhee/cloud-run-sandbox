@@ -1,8 +1,34 @@
+# --- STAGE 1: Build Stage (Install via Script & Extract) ---
+FROM debian:bookworm-slim AS ollama-binary-downloader
+
+# The install.sh script requires sudo/root access and curl, but it handles 
+# fetching the correct architecture and performing the necessary decompression.
+
+# Install curl for downloading the installation script
+RUN apt-get update && \
+    apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download the official installation script.
+# The script installs 'ollama' to /usr/local/bin by default.
+RUN curl -fsSL https://ollama.com/install.sh -o /usr/local/bin/ollama_install.sh && \
+    chmod +x /usr/local/bin/ollama_install.sh
+
+# Verify the installation script is present
+RUN ls -l /usr/local/bin/ollama_install.sh
+
+
 # Use an official Python runtime as a parent image
 FROM python:3.11-bullseye
 
+# Copy the ollama bin from the previous stage to the container
+COPY --from=ollama-binary-downloader /usr/local/bin/ollama /usr/local/bin/ollama
+
 # Install gVisor dependencies
 RUN apt-get update && apt-get install -y curl wget sudo iproute2 iptables procps
+
+# Copy the ollama bin from the previous stage to the container
+COPY --from=ollama-binary-downloader /usr/local/bin/ollama_install.sh /usr/local/bin/ollama_install.sh
 
 # Download and install the latest runsc binary
 RUN ( \
