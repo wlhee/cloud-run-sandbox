@@ -49,6 +49,11 @@ class Connection:
         self.cookie: Optional[str] = None
         self._enable_authentication = enable_authentication
     
+    @property
+    def is_open(self) -> bool:
+        """Returns True if the WebSocket is connected."""
+        return self.ws is not None and self.ws.state == websockets.protocol.State.OPEN
+
     def _get_auth_token(self):
         audience = self.url.replace("wss://", "https://")
         self._log_debug("Fetching authentication token for connection to audience:", audience)
@@ -160,7 +165,7 @@ class Connection:
         """
         Sends a message over the WebSocket connection.
         """
-        if self.ws and self.ws.state != websockets.protocol.State.CLOSED: 
+        if self.is_open:
             await self.ws.send(data)
         else:
             raise ConnectionError("WebSocket is not connected.")

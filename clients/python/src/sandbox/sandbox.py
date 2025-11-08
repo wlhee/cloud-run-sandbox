@@ -331,7 +331,7 @@ class Sandbox:
             self._state = "closed"
             self._log_debug("State changed to closed")
 
-            if self._active_process:
+            if self._active_process and self._connection and self._connection.is_open:
                 await self._active_process.kill()
                 self._active_process = None
 

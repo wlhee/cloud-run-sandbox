@@ -21,9 +21,6 @@ RUN ls -l /usr/local/bin/ollama_install.sh
 # Use an official Python runtime as a parent image
 FROM python:3.11-bullseye
 
-# Copy the ollama bin from the previous stage to the container
-COPY --from=ollama-binary-downloader /usr/local/bin/ollama /usr/local/bin/ollama
-
 # Install gVisor dependencies
 RUN apt-get update && apt-get install -y curl wget sudo iproute2 iptables procps
 
