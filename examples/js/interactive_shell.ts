@@ -44,7 +44,12 @@ async function main() {
 
   let sandbox: Sandbox | undefined;
   try {
-    sandbox = await Sandbox.create(url);
+    sandbox = await Sandbox.create(url, {
+      enableSandboxCheckpoint: true,
+      enableDebug: true,
+      debugLabel: 'ShellSandbox',
+      enableAutoReconnect: true 
+    });
     console.log(`Connected to sandbox: ${sandbox.sandboxId}`);
     console.log("Starting interactive shell... (type 'exit' to quit)");
 

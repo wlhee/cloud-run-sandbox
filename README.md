@@ -20,6 +20,8 @@ gcloud run deploy sandbox --source . \
   --region=us-central1 \
   --allow-unauthenticated \
   --execution-environment=gen2 \
+  --cpu 8 \
+  --memory 32Gi \
   --concurrency=1 \
   --session-affinity
 ```
@@ -110,6 +112,8 @@ gcloud run deploy sandbox --source . \
   --region=us-central1 \
   --allow-unauthenticated \
   --execution-environment=gen2 \
+  --cpu 8 \
+  --memory 32Gi \
   --concurrency=1 \
   --session-affinity \
   --add-volume=name=gcs-volume,type=cloud-storage,mount-options="metadata-cache-ttl-secs=0",bucket=${BUCKET_NAME} \
@@ -164,6 +168,8 @@ gcloud run deploy sandbox --source . \
   --region=us-central1 \
   --allow-unauthenticated \
   --execution-environment=gen2 \
+  --cpu 8 \
+  --memory 32Gi \
   --concurrency=1 \
   --session-affinity \
   --add-volume=name=gcs-volume,type=cloud-storage,mount-options="metadata-cache-ttl-secs=0",bucket=${BUCKET_NAME} \
